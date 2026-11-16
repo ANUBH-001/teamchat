@@ -6,3 +6,4 @@ backup/
 google-services.json
 firebase*.json
 *service-account*.json
+.localdb/
