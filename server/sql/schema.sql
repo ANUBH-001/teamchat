@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS messages (
   client_id VARCHAR(64) NULL,
   type VARCHAR(10) NOT NULL DEFAULT 'text', -- text | bot
   payload TEXT NULL, -- JSON for bot messages (task card / summary / clarify)
+  reply_to_id BIGINT NULL, -- swipe-to-reply: quoted message in the same chat
   INDEX idx_chat_created (chat_id, created_at),
   UNIQUE KEY uq_sender_client (sender_id, client_id),
   FOREIGN KEY (chat_id) REFERENCES chats(id),

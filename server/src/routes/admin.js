@@ -63,6 +63,8 @@ router.post('/users', async (req, res) => {
     const [[chat]] = await pool.query("SELECT id FROM chats WHERE type = 'all' AND deleted_at IS NULL LIMIT 1");
     if (chat) await pool.query('INSERT IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)', [chat.id, r.insertId]);
     const inviteCode = await createInvite(r.insertId);
+    rt.sendToBosses({ type: 'users' }).catch(() => {});
+    if (chat) rt.sendToChat(chat.id, { type: 'chat', chatId: chat.id }).catch(() => {});
     res.status(201).json({ user: { id: r.insertId, phone, name, role, active: true }, inviteCode });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
@@ -76,6 +78,7 @@ router.post('/users/:id/invite', async (req, res) => {
     if (!u) return res.status(404).json({ error: 'User not found' });
     await pool.query('UPDATE users SET pin_hash = NULL, failed_attempts = 0, locked_until = NULL WHERE id = ?', [id]);
     const inviteCode = await createInvite(id);
+    rt.sendToBosses({ type: 'users' }).catch(() => {});
     res.json({ inviteCode });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
@@ -100,6 +103,7 @@ router.patch('/users/:id', async (req, res) => {
     const [r] = await pool.query('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ? AND is_bot = 0', [...vals, id]);
     if (!r.affectedRows) return res.status(404).json({ error: 'User not found' });
     if (req.body.active !== undefined && !req.body.active) rt.closeUser(id);
+    rt.sendToBosses({ type: 'users' }).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });

@@ -30,6 +30,7 @@ router.post('/activate', async (req, res) => {
     const pinHash = await bcrypt.hash(String(pin), 10);
     await pool.query('UPDATE users SET pin_hash = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?', [pinHash, u.id]);
     await pool.query('UPDATE invites SET used_at = NOW() WHERE id = ?', [inv.id]);
+    require('../realtime').sendToBosses({ type: 'users' }).catch(() => {});
     res.json({ token: sign(u), user: publicUser(u) });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });

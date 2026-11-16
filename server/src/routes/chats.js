@@ -20,6 +20,12 @@ function formatMessage(r, viewer) {
     createdAt: r.created_at,
     type: r.type || 'text',
     payload: parsePayload(deleted && viewer.role !== 'boss' ? null : r.payload),
+    replyTo: r.reply_to_id ? {
+      id: Number(r.reply_to_id),
+      senderName: r.reply_sender_name || '',
+      text: r.reply_deleted_at ? null : String(r.reply_body || '').slice(0, 200),
+      deleted: !!r.reply_deleted_at,
+    } : null,
   };
 }
 
@@ -29,8 +35,10 @@ function parsePayload(s) {
 }
 
 const MSG_SELECT =
-  'SELECT m.id, m.chat_id, m.sender_id, m.body, m.created_at, m.deleted_at, m.client_id, m.type, m.payload, u.name sender_name ' +
-  'FROM messages m JOIN users u ON u.id = m.sender_id ';
+  'SELECT m.id, m.chat_id, m.sender_id, m.body, m.created_at, m.deleted_at, m.client_id, m.type, m.payload, m.reply_to_id, ' +
+  'u.name sender_name, rm.body reply_body, rm.deleted_at reply_deleted_at, ru.name reply_sender_name ' +
+  'FROM messages m JOIN users u ON u.id = m.sender_id ' +
+  'LEFT JOIN messages rm ON rm.id = m.reply_to_id LEFT JOIN users ru ON ru.id = rm.sender_id ';
 
 async function isMember(chatId, userId) {
   const [[r]] = await pool.query(
@@ -184,6 +192,13 @@ router.post('/:id/messages', async (req, res) => {
     const clientId = String(req.body.clientId || '').slice(0, 64);
     if (!text || text.length > 4000) return res.status(400).json({ error: 'Message is empty or too long' });
     if (!clientId) return res.status(400).json({ error: 'clientId is required' });
+    let replyToId = null;
+    if (req.body.replyToId != null && req.body.replyToId !== '') {
+      replyToId = parseInt(req.body.replyToId, 10);
+      if (!replyToId) return res.status(400).json({ error: 'Invalid replyToId' });
+      const [[orig]] = await pool.query('SELECT 1 x FROM messages WHERE id = ? AND chat_id = ?', [replyToId, chatId]);
+      if (!orig) return res.status(400).json({ error: 'Replied message not found in this chat' });
+    }
 
     const find = async () => {
       const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.sender_id = ? AND m.client_id = ?', [req.user.id, clientId]);
@@ -194,7 +209,8 @@ router.post('/:id/messages', async (req, res) => {
     let id;
     try {
       const [r] = await pool.query(
-        'INSERT INTO messages (chat_id, sender_id, body, client_id) VALUES (?, ?, ?, ?)', [chatId, req.user.id, text, clientId]);
+        'INSERT INTO messages (chat_id, sender_id, body, client_id, reply_to_id) VALUES (?, ?, ?, ?, ?)',
+        [chatId, req.user.id, text, clientId, replyToId]);
       id = r.insertId;
     } catch (e) {
       if (e.code === 'ER_DUP_ENTRY') {

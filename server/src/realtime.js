@@ -14,6 +14,12 @@ function sendToUser(userId, event) {
   for (const ws of set) if (ws.readyState === 1) ws.send(data);
 }
 
+// Tell every connected boss something changed (e.g. member list) so their screens refetch.
+async function sendToBosses(event) {
+  const [rows] = await pool.query("SELECT id FROM users WHERE role = 'boss' AND active = 1");
+  for (const r of rows) sendToUser(r.id, event);
+}
+
 async function memberIds(chatId) {
   const [rows] = await pool.query('SELECT user_id FROM chat_members WHERE chat_id = ? AND left_at IS NULL', [chatId]);
   return rows.map((r) => r.user_id);
@@ -103,4 +109,4 @@ function attach(server) {
   }, 30000);
 }
 
-module.exports = { attach, closeUser, isOnline, sendToUser, sendToChat, memberIds, pushStatus };
+module.exports = { attach, closeUser, isOnline, sendToUser, sendToChat, sendToBosses, memberIds, pushStatus };
