@@ -52,6 +52,10 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
   const lastTypingSent = useRef(0);
   const msgsRef = useRef<Msg[]>([]);
   msgsRef.current = msgs;
+  // newest id received from the server stream (history or WebSocket). Not raised by our own HTTP send,
+  // which can succeed while the socket is still down, so a reconnect still fetches what we missed.
+  const syncedId = useRef(0);
+  const synced = (list: Msg[]) => { for (const m of list) if (m.id && m.id > syncedId.current) syncedId.current = m.id; };
 
   const markRead = useCallback(() => { api('POST', '/chats/' + chat.id + '/read', {}).catch(() => {}); }, [chat.id]);
 
@@ -59,6 +63,7 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
     try {
       const r = await api<{ messages: Msg[]; hasMore: boolean; status: any }>('GET', '/chats/' + chat.id + '/messages?limit=30');
       const pend = await pendingFor(chat.id, me.id, me.name);
+      synced(r.messages);
       setMsgs((cur) => merge(merge(cur, r.messages), pend));
       setHasMore(r.hasMore);
       setStatus(r.status);
@@ -67,10 +72,11 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
   }, [chat.id, me.id, me.name, markRead]);
 
   const loadMissed = useCallback(async () => {
-    const last = [...msgsRef.current].reverse().find((m) => m.id)?.id;
+    const last = syncedId.current;
     if (!last) return loadLatest();
     try {
       const r = await api<{ messages: Msg[]; status: any }>('GET', '/chats/' + chat.id + '/messages?after=' + last);
+      synced(r.messages);
       setMsgs((cur) => merge(cur, r.messages));
       setStatus(r.status);
       markRead();
@@ -96,6 +102,7 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
     const off = onEvent((e) => {
       if (e.type === '_open') { loadMissed(); flushOutbox(); }
       else if (e.type === 'message' && e.message.chatId === chat.id) {
+        synced([e.message]);
         setMsgs((cur) => merge(cur, [e.message]));
         if (e.message.senderId !== me.id) markRead();
       } else if (e.type === 'deleted' && e.chatId === chat.id) {
