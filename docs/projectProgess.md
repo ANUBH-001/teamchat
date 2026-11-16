@@ -12,11 +12,11 @@
 | 6b | Firebase removed + ONE local test pass (allowed once by Manish, 2026-11-16) | DONE |
 | 6c | Voice input (mic) in chat: on-device Android speech recognition, hi-IN / en-IN, needs the dev build (see Frontend.md) | DONE (emulator UI check, see below) |
 | 8a | UI: swipe-to-reply (migrate_005), live updates everywhere + pull-to-refresh + foreground/reconnect refetch + paging, memoized rows, loading/empty states | DONE, UNTESTED (build only) |
-| 8b | Daily check-in chat (see plan 11b). Server DONE, UNTESTED (build only): migrate_006, scheduler, member + boss Reports APIs, privacy guard. App part NEXT | IN PROGRESS |
+| 8b | Daily check-ins (plan 11b): server + app (check-in chat cards, boss Reports + settings, local reminders) | DONE, UNTESTED (build only); remaining = deploy |
 | 7 | Deploy: release APK + server (only when told, after Git) | TODO |
 
 ## In progress now
-Phase 8b app part: pinned "Daily Check-in" chat rendering `checkin_prompt` cards (task chips: pick for morning, Done / In progress / Pending for evening -> POST /checkins), header line "Aapke reports admin dekh sakte hain", Admin Reports screen (GET /admin/checkins, user history, settings), local daily reminders from /checkins/today settings. API in backend.md.
+Nothing. Phase 8b is built (server + app), untested by design. Remaining: Phase 7 deploy (only when told). Manual steps before use: run `server/sql/migrate_005.sql` then `migrate_006.sql` on an existing DB, set `TZ=Asia/Kolkata` in `server/.env`; the JS-only app changes load through Metro into the existing dev build.
 
 ## Local test pass (2026-11-16, done; no more testing without a new go-ahead)
 - Setup: project-local MySQL 8.4 on 127.0.0.1:3307 (`server/scripts/localdb-start.ps1`), fresh `schema.sql` (matches migrate_001..004), seed, AI mock.
@@ -37,7 +37,7 @@ Phase 8b app part: pinned "Daily Check-in" chat rendering `checkin_prompt` cards
 - Untested: real speech -> text (the emulator mic gets no host voice), Hindi/Hinglish accuracy, auto-stop after 60 s, behaviour on the OnePlus. The phone still runs Expo Go (no voice there); voice needs the dev build installed on the phone, to be done only after the user agrees.
 
 ## Next step
-Phase 8b app part (above). Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
+Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
 
 ## Known gaps / manual steps
 - Existing DB must run the missing `server/sql/migrate_001..006.sql` in order (a fresh DB just runs `schema.sql`).

@@ -6,6 +6,7 @@ import { light, dark } from '../theme';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
+import ReportsScreen, { CheckinSettingsScreen } from './ReportsScreen';
 
 type Row = { id: number; phone: string; name: string; role: string; active: boolean; activated: boolean };
 
@@ -18,6 +19,8 @@ export default function AdminScreen() {
   const [invite, setInvite] = useState<{ label: string; code: string } | null>(null);
   const [err, setErr] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [sub, setSub] = useState<'main' | 'reports' | 'settings'>('main');
+  const toMain = useCallback(() => setSub('main'), []);
 
   const load = useCallback(async () => {
     try {
@@ -81,6 +84,9 @@ export default function AdminScreen() {
     </View>;
   }
 
+  if (sub === 'reports') return <ReportsScreen onBack={toMain} />;
+  if (sub === 'settings') return <CheckinSettingsScreen onBack={toMain} />;
+
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: t.background }}>
       <FlatList
@@ -95,6 +101,15 @@ export default function AdminScreen() {
         }
         ListHeaderComponent={
           <View>
+            <Text style={{ color: t.text, fontWeight: '700', fontSize: 16, marginBottom: 8 }}>Daily check-ins</Text>
+            <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+              <TouchableOpacity onPress={() => setSub('reports')} style={{ ...btn, flex: 1, marginRight: 8 }}>
+                <Text style={{ color: '#fff', fontWeight: '600' }}>Reports</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setSub('settings')} style={{ ...btn, flex: 1, backgroundColor: t.primary }}>
+                <Text style={{ color: '#fff', fontWeight: '600' }}>Check-in settings</Text>
+              </TouchableOpacity>
+            </View>
             <Text style={{ color: t.text, fontWeight: '700', fontSize: 16, marginBottom: 8 }}>Add member</Text>
             <TextInput style={input} placeholder="Name" placeholderTextColor={t.subtext} value={name} onChangeText={setName} />
             <TextInput style={input} placeholder="Phone" placeholderTextColor={t.subtext} keyboardType="phone-pad"
