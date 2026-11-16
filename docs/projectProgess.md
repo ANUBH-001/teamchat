@@ -7,7 +7,7 @@
 | 2 | WhatsApp UI + chat: groups/DMs, realtime, history, soft delete, reconnect + outbox | DONE (built, not tested by design) |
 | 3 | Tasks tab, filters, counts, My Tasks, task APIs + realtime | DONE (built, not tested by design) |
 | 4 | AI engine: assign / complete / summary / undo (mock, OpenAI, Gemini providers; Team Assistant bot cards) | DONE (built, not tested by design) |
-| 5 | Offline / backup / push: reconnect + outbox (Phase 2), nightly JSON backup, FCM push (token API, offline-only push, tap opens chat) | DONE (built, not tested by design) |
+| 5 | Offline / backup / push: reconnect + outbox (Phase 2), nightly JSON backup, local notifications from WebSocket events (no FCM; tap opens chat) | DONE (built, not tested by design) |
 | 6 | Git: repo https://github.com/ANUBH-001/teamchat (branch main), first commit pushed, no secrets. User said keep pushing future phases there | DONE |
 | 7 | Deploy: release APK + server (only when told, after Git) | TODO |
 
@@ -28,5 +28,5 @@ Phase 7: deploy (only when told). Until then: commit + push each change to origi
 - Code is unverified: nothing has been run or tested (by design).
 - react-native-gifted-chat was replaced by a plain FlatList; swipe-to-reply was skipped.
 - No UI yet for viewing deleted messages; the API exists (`GET /admin/chats/:id/messages?includeDeleted=1`).
-- Push needs the user to add `app/google-services.json` and a Firebase service account json (`FIREBASE_SERVICE_ACCOUNT` in `server/.env`); steps in Frontend.md. Run `npm install` again in `app/` (expo-notifications) and `server/` (firebase-admin). Push does not work in Expo Go.
-- Backup: `server/backup/` nightly after `BACKUP_HOUR` (default 2, local time); `npm run backup` for a manual run. Decisions: simple 1-minute check instead of cron; push only to members with no live WebSocket; bot pushes only for a newly assigned task.
+- Firebase removed (2026-11-16): realtime is WebSocket only; local notifications while the app process is alive. Run `npm install` again in `server/` (firebase-admin gone). Not in Expo Go. One local test pass is pending.
+- Backup: `server/backup/` nightly after `BACKUP_HOUR` (default 2, local time); `npm run backup` for a manual run. Decisions: simple 1-minute check instead of cron; local alerts only for a newly assigned bot task.

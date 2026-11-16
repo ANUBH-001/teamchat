@@ -10,7 +10,7 @@ Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5; no
 
 ## Structure
 - `App.tsx`: AuthProvider; shows spinner (loading), LoginScreen (no user), or bottom tabs Chats | Tasks | Admin ("Account" for members). Starts realtime when logged in, stops on logout.
-- `src/config.ts` server URL | `src/api.ts` fetch wrapper `api(method, path, body)` with Bearer token (expo-secure-store), throws `ApiError(message, status)`, status 0 = "Cannot reach server" | `src/auth.tsx` AuthContext (login, activate, logout, session restore via GET /auth/me) | `src/chatTypes.ts` Chat, Msg (incl. `type`, `payload`), BotPayload, Person | `src/taskTypes.ts` Task, Summary, status labels/colors | `src/realtime.ts` | `src/outbox.ts` | `src/push.ts` (registerPush, notification taps) | `src/theme.ts`, `src/useTheme.ts`.
+- `src/config.ts` server URL | `src/api.ts` fetch wrapper `api(method, path, body)` with Bearer token (expo-secure-store), throws `ApiError(message, status)`, status 0 = "Cannot reach server" | `src/auth.tsx` AuthContext (login, activate, logout, session restore via GET /auth/me) | `src/chatTypes.ts` Chat, Msg (incl. `type`, `payload`), BotPayload, Person | `src/taskTypes.ts` Task, Summary, status labels/colors | `src/realtime.ts` | `src/outbox.ts` | `src/push.ts` (local notifications, taps) | `src/theme.ts`, `src/useTheme.ts`.
 - `src/screens/`: LoginScreen, ChatsScreen, ChatScreen, NewChatScreen, AdminScreen, TasksScreen, Placeholder.
 - `src/components/`: Avatar, ChatRow, Bubble, BotCard, Tick, Chip, StatusPill, TaskRow, TaskModal.
 
@@ -22,12 +22,9 @@ Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5; no
 - AdminScreen (boss): add member (name + phone) -> one-time invite code with Share; member list with Reset PIN and an active switch. Members only see Log out.
 - TasksScreen: two views, All Tasks and My Tasks. All Tasks: my counts line, per-person count cards, filter chips (All / person / Todo / Doing / Done with counts), task list with status pill. Tap a task: boss edits (title, assignee, due date, status, delete, undo); an assignee changes status/undo on own tasks; others' tasks are read-only. Boss '+' creates a task. My Tasks: bullet lists Done / Doing / Todo. Reloads on WS `task`, `task_deleted` and reconnect.
 
-## Push (Android FCM)
-After login `registerPush()` creates the `messages` channel, asks notification permission, gets the native FCM token (`getDevicePushTokenAsync`) and POSTs it to `/push/token`; errors are ignored. Tapping a notification opens that chat (`ChatsScreen` via synthetic event `_open_chat` or a pending id on cold start). Needs a dev/release build, not Expo Go. One-time Firebase setup (free):
-1. console.firebase.google.com -> create a project -> add an Android app with package `com.teamchat.app`.
-2. Download `google-services.json` into `app/` (path in `app.json` -> `android.googleServicesFile`; git-ignored).
-3. Project settings -> Service accounts -> Generate new private key; save the json somewhere safe (git-ignored, e.g. `server/firebase-service-account.json`) and set `FIREBASE_SERVICE_ACCOUNT` to it in `server/.env`.
-4. `npm install` in `app/` and `server/`, then build with `npx expo run:android` (or EAS). Without these files the app still works, just no push.
+## Notifications (local only, no Firebase)
+After login `setupNotifications()` creates the `messages` channel and asks permission. `listenMessageAlerts` watches WebSocket `message` events (not mine, not deleted): app in background/inactive -> local notification (sender + text; bot only for a task newly assigned to me); app in foreground but in another chat -> short vibration. Tapping a notification opens that chat (`_open_chat` event or pending id on cold start). `ChatsScreen` reports the open chat via `setActiveChat`. Needs a dev/release build, not Expo Go.
+Honest limit: works only while the app process is alive (foreground or recently backgrounded). A fully killed app gets no alerts until reopened; messages are fetched on open. Later option (not built): Android foreground service to keep the socket alive.
 
 ## Theme
 `theme.ts` exports `light` and `dark` (primary, accent, bubbleOut, bubbleIn, background, card, text, subtext, border), `tickRead`, and `colorFor(userId)` for sender name colors. Follows the phone's color scheme via `useTheme()`. WhatsApp greens (#075E54 / #25D366 in light).

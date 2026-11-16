@@ -2,7 +2,7 @@
 Plan: C:\Users\Manish\.claude\plans\pasted-content-id-0595-joyful-frost.md (read only the section you need)
 
 ## Rules
-- ZERO TESTING: never write/run/set up tests unless Manish says so. Agent only BUILDS. Tell every sub-agent "no tests".
+- TESTING: default is none. Manish said (2026-11-16) to do ONE full local test pass after Firebase removal, using a local MySQL. Only that pass is allowed; any further testing needs his new go-ahead. Tell every sub-agent whether tests are allowed.
 - Keep it SIMPLE: Express + MySQL (mysql2, plain SQL) + Expo RN. No Docker, ORM, monorepo tools, extra frameworks.
 - Order: build -> Git (only when told; never commit .env/secrets; ask before push) -> deploy (only when told). Local build only until then.
 - AI keys only in server .env. Soft delete only (deleted_at).

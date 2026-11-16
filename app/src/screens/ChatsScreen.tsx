@@ -6,7 +6,7 @@ import { useAuth } from '../auth';
 import { useTheme } from '../useTheme';
 import { Chat } from '../chatTypes';
 import { onEvent } from '../realtime';
-import { takePendingChat } from '../push';
+import { takePendingChat, setActiveChat } from '../push';
 import ChatRow from '../components/ChatRow';
 import ChatScreen from './ChatScreen';
 import NewChatScreen from './NewChatScreen';
@@ -22,6 +22,10 @@ export default function ChatsScreen() {
   const [q, setQ] = useState('');
   const viewRef = useRef(view);
   viewRef.current = view;
+  useEffect(() => {
+    setActiveChat(view.k === 'chat' ? view.chat.id : null);
+    return () => setActiveChat(null);
+  }, [view]);
 
   const load = useCallback(async () => {
     try { setChats((await api<{ chats: Chat[] }>('GET', '/chats')).chats); } catch (e) {}

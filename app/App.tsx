@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { startRealtime, stopRealtime } from './src/realtime';
-import { registerPush, listenNotificationTaps } from './src/push';
+import { setupNotifications, listenNotificationTaps, listenMessageAlerts } from './src/push';
 import { useColorScheme, View, ActivityIndicator } from 'react-native';
 import { AuthProvider, useAuth } from './src/auth';
 import LoginScreen from './src/screens/LoginScreen';
@@ -28,9 +28,10 @@ function Root() {
   useEffect(() => {
     if (!user) return;
     startRealtime();
-    registerPush();
+    setupNotifications();
     const offTaps = listenNotificationTaps();
-    return () => { stopRealtime(); offTaps(); };
+    const offAlerts = listenMessageAlerts(user.id);
+    return () => { stopRealtime(); offTaps(); offAlerts(); };
   }, [user]);
   if (loading) {
     return (

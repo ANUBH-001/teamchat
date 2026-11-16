@@ -33,7 +33,10 @@ Green top bar, bottom tabs Chats | Tasks | Admin (members see "Account"). Light 
 - No testing: tests are never written or run unless Manish says so. Agents only build.
 
 ## Phases
-0 Setup (folders, schema, server, app skeleton, seed). 1 Login + Admin. 2 WhatsApp UI + chat. 3 Tasks tab. 4 AI engine. 5 Offline/backup/push. 6 Git. 7 Deploy. Status is in projectProgess.md.
+0 Setup (folders, schema, server, app skeleton, seed). 1 Login + Admin. 2 WhatsApp UI + chat. 3 Tasks tab. 4 AI engine. 5 Offline/backup/local alerts. 6 Git. 7 Deploy. Status is in projectProgess.md.
 
 ## Open items
-AI key (OpenAI/Gemini); hosting/domain details; Firebase project (free) for push.
+AI key (OpenAI/Gemini); hosting/domain details.
+
+## Decision: no Firebase
+No Firebase/FCM. Realtime = existing WebSocket only; local notifications while the app process is alive. Killed app gets nothing until reopened (accepted limit; foreground service is a possible later step).

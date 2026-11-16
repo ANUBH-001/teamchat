@@ -4,13 +4,13 @@ Node + Express + `ws` + MySQL (mysql2, plain SQL). Built through Phase 5. Not te
 
 ## Setup / run
 1. `cd server; npm install`.
-2. Copy `.env.example` to `.env`: `DB_HOST=localhost`, `DB_USER=root`, `DB_PASSWORD=`, `DB_NAME=teamchat`, `PORT=3000`, `JWT_SECRET=change-me` (set a real one), `AI_PROVIDER=mock|openai|gemini`, `AI_API_KEY=`, `AI_MODEL=` (optional; defaults `gpt-4.1-mini` / `gemini-2.5-flash`). No key -> mock. `BACKUP_HOUR=2` (local hour of the nightly backup), `FIREBASE_SERVICE_ACCOUNT=` (path to Firebase service account json; empty = push off).
+2. Copy `.env.example` to `.env`: `DB_HOST=localhost`, `DB_USER=root`, `DB_PASSWORD=`, `DB_NAME=teamchat`, `PORT=3000`, `JWT_SECRET=change-me` (set a real one), `AI_PROVIDER=mock|openai|gemini`, `AI_API_KEY=`, `AI_MODEL=` (optional; defaults `gpt-4.1-mini` / `gemini-2.5-flash`). No key -> mock. `BACKUP_HOUR=2` (local hour of the nightly backup).
 3. Schema: new DB -> run `sql/schema.sql` (creates DB `teamchat`). Existing older DB -> run the missing ones in order: `sql/migrate_001.sql` (auth lockout, invite hash size), `migrate_002.sql` (read/delivered pointers, messages.client_id), `migrate_003.sql` (tasks.completed_at, task_events.source), `migrate_004.sql` (users.is_bot, messages.type + payload, task_events.message_id).
 4. `npm run seed` (once): creates 11 users (phones 9000000001..9000000011; Rishit 9000000004 is boss), the "Team Assistant" bot user and the "All Team" chat, and prints one-time invite codes (plaintext only shown there; DB keeps SHA-256). Re-run skips activated users and issues fresh codes for the others.
 5. `npm start` -> server on `PORT` (default 3000). Secrets live only in `.env` (git-ignored).
 
 ## Layout
-`src/index.js` (app, route mounting, /health, http+ws server) | `src/db.js` (mysql pool) | `src/middleware/auth.js` (requireAuth, requireBoss) | `src/realtime.js` (WebSocket) | `src/tasks.js` (task logic, shared by routes and AI) | `src/ai/{provider,engine,names,bot}.js` (AI task engine) | `src/routes/{auth,admin,chats,tasks,misc}.js` | `src/push.js` (FCM push + POST /push/token) | `src/backup.js` (nightly backup) | `src/seed.js` | `sql/schema.sql`, `sql/migrate_001..004.sql`.
+`src/index.js` (app, route mounting, /health, http+ws server) | `src/db.js` (mysql pool) | `src/middleware/auth.js` (requireAuth, requireBoss) | `src/realtime.js` (WebSocket) | `src/tasks.js` (task logic, shared by routes and AI) | `src/ai/{provider,engine,names,bot}.js` (AI task engine) | `src/routes/{auth,admin,chats,tasks,misc}.js` | `src/backup.js` (nightly backup) | `src/seed.js` | `sql/schema.sql`, `sql/migrate_001..004.sql`.
 
 ## DB tables
 - users(id, phone UNIQUE, name, role boss|member, pin_hash, active, failed_attempts, locked_until, is_bot, created_at)
@@ -19,7 +19,7 @@ Node + Express + `ws` + MySQL (mysql2, plain SQL). Built through Phase 5. Not te
 - chat_members(chat_id, user_id, left_at, last_read_message_id, last_delivered_message_id)
 - messages(chat_id, sender_id, body, edited_at, deleted_at, client_id, type text|bot, payload JSON text; UNIQUE sender_id+client_id)
 - tasks(title, description, assignee_id, created_by, source_message_id, status todo|in_progress|done, due_at, completed_at, deleted_at); task_events(task_id, actor_id, event created|status|title|description|assignee|due|deleted, old_value, new_value, source manual|ai, message_id)
-- push_tokens(user_id, token UNIQUE). message_revisions exists but is not written yet (backed up anyway).
+- push_tokens(user_id, token UNIQUE) is unused now (no Firebase; table left in place, harmless). message_revisions exists but is not written yet (backed up anyway).
 
 ## Auth
 Header `Authorization: Bearer <JWT>` (30 days, payload {id}). requireAuth re-reads the user each call. All errors are `{ "error": "message" }`. Missing/bad token or unknown/inactive user: 401 `Not authenticated`. Boss-only routes: 403 `Not allowed`. Unexpected failure: 500 `Server error`.
@@ -56,8 +56,6 @@ Message object: `{id, chatId, senderId, senderName, text (null if deleted and vi
 - `{kind:'summary', replyTo, userId, userName, counts:{done,in_progress,todo}, done:[{id,title,dueDate}] (max 10 each), in_progress, todo}`
 - `{kind:'clarify', replyTo, text, options:[{id,title,assigneeName}]}` | `{kind:'info', replyTo, text}`. `text` always holds a plain fallback.
 
-### /push (any logged-in user)
-- POST /push/token body `{token}` (FCM device token, max 255) -> 200 `{ok:true}`. Upsert: an existing token is moved to the caller. 400 `Invalid token`.
 
 ### /health
 GET /health -> 200 `{ok:true, db:true}`; 500 `{ok:false, db:false}`. Note: currently behind auth because of route order (see projectProgess.md).
@@ -89,8 +87,8 @@ Connect `ws://host:port/?token=<JWT>`. Bad/inactive token -> closed with code 44
 - Client -> server: `{type:'typing', chatId}` (relayed to the other members; ignored if not a member).
 - Ticks: sent < delivered (every other member connected) < read (every other member read). On connect, all of the user's chats are marked delivered.
 
-## Push (src/push.js)
-Off unless `FIREBASE_SERVICE_ACCOUNT` points to a service account json (logged once: "push: disabled"); then uses `firebase-admin` (FCM HTTP v1, `sendEach`). `notifyMessage(message)` is called after a chat message is broadcast and after a bot message is posted, never awaited by the sender and never throws. Text message: pushed to chat members who have no live WebSocket (title = group name or sender name, body = "Sender: text" in groups, text trimmed to 100 chars). Bot messages: only a created task card pushes, to the assignee only ("New task: title"); other bot messages and deleted messages never push. Data `{chatId}`, Android channel `messages`. Invalid/unregistered tokens are deleted; all other push errors are swallowed.
+## Realtime alerts
+No Firebase/FCM. The server only sends WebSocket events; the app raises local notifications (see Frontend.md). A killed app gets no alerts until reopened (messages are fetched on open).
 
 ## Backup (src/backup.js)
 Started from `index.js`; checks every minute and writes `server/backup/YYYY-MM-DD.json` once per day after `BACKUP_HOUR` (local time, default 2; also catches up if the server was down). Contains users (no pin_hash; there is no invite data), chats, chat_members, messages (including soft-deleted with deleted_at), message_revisions, tasks, task_events. Keeps the last 30 files. Manual run: `npm run backup`. The folder is git-ignored.

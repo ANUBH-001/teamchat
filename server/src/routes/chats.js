@@ -220,7 +220,6 @@ router.post('/:id/messages', async (req, res) => {
     }
     for (const u of members) rt.sendToUser(u, { type: 'message', message });
     await rt.pushStatus(chatId);
-    require('../push').notifyMessage(message);
     res.status(201).json({ message });
     // AI task engine runs after the reply; it can never delay or fail the send.
     setImmediate(() => require('../ai/engine').onMessage(message, req.user).catch((e) => console.error('ai engine:', e.message)));

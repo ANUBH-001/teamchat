@@ -25,7 +25,6 @@ async function postBot(chatId, body, payload) {
   const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [r.insertId]);
   const message = formatMessage(row, { role: 'member' });
   for (const u of await rt.memberIds(chatId)) rt.sendToUser(u, { type: 'message', message });
-  require('../push').notifyMessage(message);
 }
 
 function clarify(chatId, replyTo, text, options = []) {

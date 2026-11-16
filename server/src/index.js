@@ -17,7 +17,6 @@ app.get('/health', async (req, res) => {
 app.use('/auth', require('./routes/auth'));
 app.use('/admin', require('./routes/admin'));
 app.use('/chats', require('./routes/chats'));
-app.use('/push', require('./push').router);
 app.use('/tasks', require('./routes/tasks'));
 app.use('/', require('./routes/misc'));
 
