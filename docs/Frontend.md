@@ -6,7 +6,8 @@ Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5. Ty
 1. `cd app; npm install` (includes `@react-native-async-storage/async-storage` 1.23.1 for the outbox). In a folder path with `&`, `npx` fails under cmd; use `node node_modules/typescript/lib/tsc.js --noEmit` / `node node_modules/expo/bin/cli ...`.
 2. Server must be running (see backend.md).
 3. `npx expo start` (or `npm run android`) and open on an emulator or phone.
-4. Server address: `app/app.json` -> `expo.extra.serverUrl`. Default `http://10.0.2.2:3000` = host PC as seen from the Android emulator. For a real phone use the PC's LAN IP (e.g. `http://192.168.1.20:3000`, same Wi-Fi). Later: the public HTTPS domain (a release APK blocks plain `http://` unless cleartext is enabled, so use HTTPS for release). Read in `src/config.ts`; the WebSocket URL is derived (http -> ws).
+4. Emulator: SDK in `D:\Android\Sdk`, JDK 17 in `D:\Android\jdk17` (user env `ANDROID_HOME`, `JAVA_HOME`, PATH set). AVD `teamchat_test` (Pixel 6, Android 34, google_apis x86_64, WHPX). Start it with `server/scripts/emulator-start.ps1` (waits until booted), then `npx expo start --android`.
+5. Server address: `app/app.json` -> `expo.extra.serverUrl`. Default `http://10.0.2.2:3000` = host PC as seen from the Android emulator. For a real phone use the PC's LAN IP (e.g. `http://192.168.1.20:3000`, same Wi-Fi). Later: the public HTTPS domain (a release APK blocks plain `http://` unless cleartext is enabled, so use HTTPS for release). Read in `src/config.ts`; the WebSocket URL is derived (http -> ws).
 
 ## Structure
 - `App.tsx`: AuthProvider; shows spinner (loading), LoginScreen (no user), or bottom tabs Chats | Tasks | Admin ("Account" for members). Starts realtime when logged in, stops on logout.
