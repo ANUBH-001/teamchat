@@ -32,7 +32,7 @@ export default function LoginScreen() {
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: t.background }}>
-      <Text style={{ fontSize: 28, fontWeight: '700', color: t.primary, textAlign: 'center', marginBottom: 4 }}>
+      <Text style={{ fontSize: 28, fontWeight: '700', color: t.accent, textAlign: 'center', marginBottom: 4 }}>
         Team Chat
       </Text>
       <Text style={{ color: t.subtext, textAlign: 'center', marginBottom: 24 }}>
@@ -57,7 +57,7 @@ export default function LoginScreen() {
       </TouchableOpacity>
       <TouchableOpacity onPress={() => { setErr(''); setMode(mode === 'login' ? 'activate' : 'login'); }}
         style={{ marginTop: 16, alignItems: 'center' }}>
-        <Text style={{ color: t.primary }}>
+        <Text style={{ color: t.accent }}>
           {mode === 'login' ? 'I have an invite code' : 'Back to log in'}
         </Text>
       </TouchableOpacity>
