@@ -10,6 +10,7 @@
 | 5 | Offline / backup / push: reconnect + outbox (Phase 2), nightly JSON backup, local notifications from WebSocket events (no FCM; tap opens chat) | DONE (server tested 2026-11-16) |
 | 6 | Git: repo https://github.com/ANUBH-001/teamchat (branch main), first commit pushed, no secrets. User said keep pushing future phases there | DONE |
 | 6b | Firebase removed + ONE local test pass (allowed once by Manish, 2026-11-16) | DONE |
+| 6c | Voice input (mic) in chat: on-device Android speech recognition, hi-IN / en-IN, needs the dev build (see Frontend.md) | DONE (emulator UI check, see below) |
 | 7 | Deploy: release APK + server (only when told, after Git) | TODO |
 
 ## In progress now
@@ -26,6 +27,12 @@ Nothing. Waiting for the go-ahead.
 - Passed: invite activation + PIN, login (boss), auto-login after restart, logout; chat list (All Team pinned, unread badges, search, live reorder), group create (pick members), DM, bubbles/date separator/sender colors, ticks sent/delivered/read (blue), typing indicator, live incoming messages, long-press delete -> "This message was deleted"; boss message "Anubhav ko landing page banana hai aur Tushar ko site delete karni hai" -> two live Team Assistant cards, Undo deletes the task; Tasks (counts per person, filter chips, My Tasks, boss "+" create, status change, live update from AI); Admin (list, add member -> invite code, reset PIN, deactivate/reactivate); offline: message queued (clock tick), delivered on reconnect, missed messages fetched; local notification while backgrounded, tap opens the chat; dark mode.
 - Bugs fixed: Metro failed to start (`expo-asset` missing), `expo-font` missing for icons, react-native 0.76.5 -> 0.76.9; react-navigation latest needed newer safe-area-context (ref error) and logged navigate deprecation -> pinned to SDK 52 versions (bottom-tabs 7.2.0, native 7.0.14, overrides elements 2.2.5 / core 7.3.1 / routers 7.1.2); tab bar had no icons; "No chats" flashed before load; buttons/list rows needed two taps while the keyboard was open (Admin add, picker, chat list); missed messages were skipped after reconnect when the outbox sent first (ChatScreen now tracks the last id received from the server); AI titles like "Banana landing page" (prompt asks for the sender's words).
 - Not tested: real phone, release/dev build (Expo Go only: notifications are local and only while the app process lives; Expo Go warns remote push is unsupported), killed-app alerts, very long chats/scrolling older pages, member-side UI (assignee status change from the app).
+
+## Voice input (2026-11-16, emulator dev build; no real phone yet)
+- Built: mic button / recording bar (X, live waveform, हिं/EN chip, stop, send), `useVoiceInput` hook, `expo-speech-recognition` 1.1.1 + `expo-system-ui` + `expo-file-system`, RECORD_AUDIO. Native debug dev build (see Frontend.md); `app/android/` gitignored.
+- Verified on emulator (dev build): mic shows when the box is empty and Send when there is text; permission prompt; deny -> friendly alert with Open settings; allow -> recording bar, waveform moves with volume events; chip switches hi-IN -> en-IN and restarts the recognizer (logcat) and is remembered; X returns to the normal bar; stop/send with silence -> toast 'Kuch sunai nahi diya', nothing sent; dark mode; no crash. Expo Go: no crash, mic hidden, Send as before.
+- Bug fixed: dev build had no icons (expo-asset needs expo-file-system natively).
+- Untested: real speech -> text (the emulator mic gets no host voice), Hindi/Hinglish accuracy, auto-stop after 60 s, behaviour on the OnePlus. The phone still runs Expo Go (no voice there); voice needs the dev build installed on the phone, to be done only after the user agrees.
 
 ## Next step
 Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).

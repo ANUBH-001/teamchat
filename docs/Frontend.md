@@ -12,9 +12,9 @@ Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5. Ty
 
 ## Structure
 - `App.tsx`: AuthProvider; shows spinner (loading), LoginScreen (no user), or bottom tabs Chats | Tasks | Admin ("Account" for members). Starts realtime when logged in, stops on logout.
-- `src/config.ts` server URL | `src/api.ts` fetch wrapper `api(method, path, body)` with Bearer token (expo-secure-store), throws `ApiError(message, status)`, status 0 = "Cannot reach server" | `src/auth.tsx` AuthContext (login, activate, logout, session restore via GET /auth/me) | `src/chatTypes.ts` Chat, Msg (incl. `type`, `payload`), BotPayload, Person | `src/taskTypes.ts` Task, Summary, status labels/colors | `src/realtime.ts` | `src/outbox.ts` | `src/push.ts` (local notifications, taps) | `src/theme.ts`, `src/useTheme.ts`.
+- `src/config.ts` server URL | `src/api.ts` fetch wrapper `api(method, path, body)` with Bearer token (expo-secure-store), throws `ApiError(message, status)`, status 0 = "Cannot reach server" | `src/auth.tsx` AuthContext (login, activate, logout, session restore via GET /auth/me) | `src/chatTypes.ts` Chat, Msg (incl. `type`, `payload`), BotPayload, Person | `src/taskTypes.ts` Task, Summary, status labels/colors | `src/realtime.ts` | `src/outbox.ts` | `src/push.ts` (local notifications, taps) | `src/theme.ts`, `src/useTheme.ts` | `src/useVoiceInput.ts` (voice typing hook).
 - `src/screens/`: LoginScreen, ChatsScreen, ChatScreen, NewChatScreen, AdminScreen, TasksScreen, Placeholder.
-- `src/components/`: Avatar, ChatRow, Bubble, BotCard, Tick, Chip, StatusPill, TaskRow, TaskModal.
+- `src/components/`: Avatar, ChatRow, Bubble, BotCard, Tick, Chip, StatusPill, TaskRow, TaskModal, VoiceBar (+ MicButton).
 
 ## Screens
 - LoginScreen: login (phone + PIN) or "I have an invite code" (phone + code + new 4-6 digit PIN). Errors shown inline.
@@ -23,6 +23,19 @@ Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5. Ty
 - ChatScreen: green/white bubbles, sender name in groups, date separators, ticks, typing subtitle, older messages load on scroll, long-press -> Delete (own message, or any if boss; unsent ones are just removed from the outbox). Deleted shows "This message was deleted". Bot messages (`type 'bot'`) render via `BotCard` as "Team Assistant" (left, green edge): task card = action, title, assignee, due, status pill, **Undo** (create card: boss only -> DELETE task; status card: boss or assignee -> POST /tasks/:id/undo; shows "Undone" after, local only); summary = bullet lists Done / In progress / Pending with counts; clarify/info = plain text.
 - AdminScreen (boss): add member (name + phone) -> one-time invite code with Share; member list with Reset PIN and an active switch. Members only see Log out.
 - TasksScreen: two views, All Tasks and My Tasks. All Tasks: my counts line, per-person count cards, filter chips (All / person / Todo / Doing / Done with counts), task list with status pill. Tap a task: boss edits (title, assignee, due date, status, delete, undo); an assignee changes status/undo on own tasks; others' tasks are read-only. Boss '+' creates a task. My Tasks: bullet lists Done / Doing / Todo. Reloads on WS `task`, `task_deleted` and reconnect.
+
+## Voice input (mic)
+- Chat input: empty text box -> mic button, text -> Send. Mic -> recording bar: X (discard) | live waveform (volume events; dots when quiet) | language chip हिं / EN | stop (square: transcript goes into the text box to edit) | send (up arrow: sent at once through the normal outbox with a clientId). Live partial text shows above the bar. Nothing heard -> toast "Kuch sunai nahi diya".
+- Engine: `expo-speech-recognition` 1.1.1 (SDK 52 line) = Android's SpeechRecognizer (Google app's recognizer; free, no API key; may use the network). Decision: the only AI key is Anthropic (no speech-to-text), so no cloud STT. Default language `hi-IN` (Hinglish; may return Devanagari, which the AI engine handles), `en-IN` via the chip; saved in AsyncStorage `voiceLang`. Changing it while recording restarts the recognizer and keeps the text so far.
+- Continuous mode; stops itself after 60 s, or when the recognizer ends (silence/error): then the text goes into the box like stop. Mic permission asked on first use; if denied, an alert offers Open settings.
+- Expo Go has no such native module: `requireOptionalNativeModule` returns null, the mic is hidden and Send shows as before. Voice needs the dev build below.
+
+## Dev build (native debug APK, needed for voice)
+`android/` is generated (gitignored). The repo path has `&`, which breaks native builds, so map a drive first. From PowerShell:
+1. `subst T: 'd:\r&D\team-app'` ; `cd T:\app` ; `node node_modules/expo/bin/cli prebuild --platform android --clean` (after app.json/plugin/native dep changes; then restore `package.json` scripts if prebuild rewrote them).
+2. `$env:JAVA_HOME='D:\Android\jdk17'; $env:ANDROID_HOME='D:\Android\Sdk'; $env:GRADLE_USER_HOME='D:\Android\gradle'` ; `cd android` ; `.\gradlew.bat assembleDebug '-PreactNativeArchitectures=x86_64,arm64-v8a'` (SDK parts: build-tools 35.0.0, platform 35, NDK 26.1.10909125, CMake 3.22.1 via `cmdline-tools\latest\bin\android.exe sdk install ...`).
+First build about 15 min (incremental about 1.5 min); debug APK about 92 MB (two ABIs, JS not embedded). The dev build needs `expo-file-system` (expo-asset uses it to load the icon font; Expo Go has it built in).
+3. APK: `app/android/app/build/outputs/apk/debug/app-debug.apk` -> `adb -s <serial> install -r <apk>`. It loads JS from Metro on the device's `localhost:8081`: `adb -s <serial> reverse tcp:8081 tcp:<metro port>` and `reverse tcp:3000 tcp:3000`, Metro started with `EXPO_PUBLIC_SERVER_URL=http://localhost:3000` (`expo start --localhost --port <port>`). On the emulator a debug build looks for Metro at `10.0.2.2:8081`; to use another port, set the app's `debug_http_host` pref to `localhost:8081` (dev menu > Change bundle location).
 
 ## Notifications (local only, no Firebase)
 After login `setupNotifications()` creates the `messages` channel and asks permission. `listenMessageAlerts` watches WebSocket `message` events (not mine, not deleted): app in background/inactive -> local notification (sender + text; bot only for a task newly assigned to me); app in foreground but in another chat -> short vibration. Tapping a notification opens that chat (`_open_chat` event or pending id on cold start). `ChatsScreen` reports the open chat via `setActiveChat`. Works in Expo Go SDK 52 (local only; Expo Go warns that remote push is unsupported, which is not used).
@@ -46,7 +59,7 @@ Token kept in SecureStore. On start, if a token exists the app calls `/auth/me`:
 - Known: plain FlatList chat (no gifted-chat); swipe-to-reply not built.
 
 ## Real phone (USB, Expo Go SDK 52)
-Works only while the PC runs the server and the phone is on USB (or the same Wi-Fi). Restart, from `d:&D	eam-app` (adb = `D:\Android\Sdk\platform-toolsdb.exe`, phone serial `de4eaf03`; always pass `-s` because the emulator is also attached):
+Works only while the PC runs the server and the phone is on USB (or the same Wi-Fi). Restart, from `d:\r&D\team-app` (adb = `D:\Android\Sdk\platform-tools\adb.exe`, phone serial `de4eaf03`; always pass `-s` because the emulator is also attached):
 1. DB (if 127.0.0.1:3307 is down): `powershell -ExecutionPolicy Bypass -File server/scripts/localdb-start.ps1`
 2. Server: `cd server; node src/index.js` (port 3000).
 3. USB tunnel (repeat after every re-plug): `adb -s de4eaf03 reverse tcp:3000 tcp:3000` and `adb -s de4eaf03 reverse tcp:8081 tcp:8081`.
