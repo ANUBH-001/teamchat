@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Pressable, TextInput, Alert } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, FlatList, Pressable, TextInput, Alert, RefreshControl, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useTheme } from '../useTheme';
 import { Chat, Person } from '../chatTypes';
 import Avatar from '../components/Avatar';
+import { useLiveRefresh, usePullRefresh } from '../useLive';
 
 // mode 'dm': tap a person to start a chat. mode 'group': pick members -> name -> create.
 export default function NewChatScreen({
@@ -19,9 +20,14 @@ export default function NewChatScreen({
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    api<{ users: Person[] }>('GET', '/users').then((r) => setPeople(r.users)).catch(() => {});
+  const [loaded, setLoaded] = useState(false);
+  const load = useCallback(async () => {
+    try { setPeople((await api<{ users: Person[] }>('GET', '/users')).users); } catch (e) {}
+    setLoaded(true);
   }, []);
+  useEffect(() => { load(); }, [load]);
+  useLiveRefresh(load, []); // reconnect / foreground / manual refresh
+  const { refreshing, onRefresh } = usePullRefresh(load);
 
   const startDm = async (p: Person) => {
     try { onOpen((await api<{ chat: Chat }>('POST', '/chats/dm', { userId: p.id })).chat); }
@@ -71,6 +77,14 @@ export default function NewChatScreen({
           />
           <FlatList
             keyboardShouldPersistTaps="handled"
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.accent]} />}
+            initialNumToRender={16}
+            windowSize={9}
+            ListEmptyComponent={
+              loaded
+                ? <Text style={{ color: t.subtext, textAlign: 'center', marginTop: 30 }}>No people found</Text>
+                : <ActivityIndicator color={t.accent} style={{ marginTop: 30 }} />
+            }
             data={shown}
             keyExtractor={(p) => String(p.id)}
             renderItem={({ item }) => {

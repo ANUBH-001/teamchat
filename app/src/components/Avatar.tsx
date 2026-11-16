@@ -7,7 +7,7 @@ export function initials(name: string) {
   return ((p[0]?.[0] ?? '?') + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase();
 }
 
-export default function Avatar({ name, id, size = 48 }: { name: string; id: number; size?: number }) {
+function AvatarBase({ name, id, size = 48 }: { name: string; id: number; size?: number }) {
   return (
     <View
       style={{
@@ -19,3 +19,5 @@ export default function Avatar({ name, id, size = 48 }: { name: string; id: numb
     </View>
   );
 }
+
+export default React.memo(AvatarBase);

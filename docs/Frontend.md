@@ -56,7 +56,11 @@ Token kept in SecureStore. On start, if a token exists the app calls `/auth/me`:
 - New screen: add `src/screens/X.tsx`; register it in `App.tsx` as a `Tab.Screen` (tab) or add a view state in `ChatsScreen` (sub-screen). Use `useTheme()` for colors.
 - New API call: `api('GET', '/path')` from `src/api.ts` (token added automatically); add the type to `chatTypes.ts` and document the endpoint in backend.md.
 - New realtime event: handle it inside `onEvent` in the screen and add it to the WebSocket section of backend.md.
-- Known: plain FlatList chat (no gifted-chat); swipe-to-reply not built.
+- Known: plain FlatList chat (no gifted-chat).
+
+## Swipe-to-reply and live updates (Phase 8a, built, untested)
+- Swipe a bubble right (`components/SwipeReply.tsx`, PanResponder + Animated, no native module) -> reply bar above the input (name + snippet, X cancels) -> message sent with `replyToId` (kept in the outbox too). Bubble shows a quote block (accent bar, sender, 2-line snippet; deleted original -> "This message was deleted"); tapping it scrolls to and flashes the original if loaded, else a toast. Not on bot cards, deleted or unsent messages. Works for voice-sent text too.
+- `src/useLive.ts`: `useLiveRefresh(load, eventTypes)` refetches (debounced) on those WS events, on reconnect (`_open`), on the local `refresh` event (`emitEvent({type:'refresh'})`) and when the app returns to the foreground; `usePullRefresh(load)` gives the RefreshControl props. Used by Chats list (`message|deleted|chat`), Tasks (`task|task_deleted`, counts and chips derive from it), Admin (`users`, boss), New chat people list. All lists have pull-to-refresh and windowed FlatLists; the chat screen also refetches missed messages on foreground and loads older pages when scrolling up (spinner at the top). Rows are `React.memo` (Avatar, ChatRow, TaskRow, Bubble, BotCard).
 
 ## Real phone (USB, Expo Go SDK 52)
 Works only while the PC runs the server and the phone is on USB (or the same Wi-Fi). Restart, from `d:\r&D\team-app` (adb = `D:\Android\Sdk\platform-tools\adb.exe`, phone serial `de4eaf03`; always pass `-s` because the emulator is also attached):

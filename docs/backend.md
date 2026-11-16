@@ -5,13 +5,13 @@ Node + Express + `ws` + MySQL (mysql2, plain SQL). Built through Phase 5; one fu
 ## Setup / run
 1. `cd server; npm install`.
 2. Copy `.env.example` to `.env`: `DB_HOST=localhost`, `DB_PORT=3306`, `DB_USER=root`, `DB_PASSWORD=`, `DB_NAME=teamchat`, `PORT=3000`, `JWT_SECRET` (required: the server exits if it is empty or `change-me`), `AI_PROVIDER=mock|openai|gemini|anthropic`, `AI_API_KEY=`, `AI_MODEL=` (optional; defaults `gpt-4.1-mini` / `gemini-2.5-flash` / `claude-haiku-5-5`; key prefixes: OpenAI `sk-`, Gemini `AIza`, Anthropic `sk-ant-`). No key -> mock. `BACKUP_HOUR=2` (local hour of the nightly backup). `src/env.js` loads `server/.env`, then `server/src/.env` (fills only unset/empty keys; real env vars win), whatever the working directory.
-3. Schema: new DB -> run `sql/schema.sql` (creates DB `teamchat`). Existing older DB -> run the missing ones in order: `sql/migrate_001.sql` (auth lockout, invite hash size), `migrate_002.sql` (read/delivered pointers, messages.client_id), `migrate_003.sql` (tasks.completed_at, task_events.source), `migrate_004.sql` (users.is_bot, messages.type + payload, task_events.message_id).
+3. Schema: new DB -> run `sql/schema.sql` (creates DB `teamchat`). Existing older DB -> run the missing ones in order: `sql/migrate_001.sql` (auth lockout, invite hash size), `migrate_002.sql` (read/delivered pointers, messages.client_id), `migrate_003.sql` (tasks.completed_at, task_events.source), `migrate_004.sql` (users.is_bot, messages.type + payload, task_events.message_id), `migrate_005.sql` (messages.reply_to_id, swipe-to-reply).
 4. `npm run seed` (once): creates 11 users (phones 9000000001..9000000011; Rishit 9000000004 is boss), the "Team Assistant" bot user and the "All Team" chat, and prints one-time invite codes (plaintext only shown there; DB keeps SHA-256). Re-run skips activated users and issues fresh codes for the others.
 5. `npm start` -> server on `PORT` (default 3000). Secrets live only in `.env` (git-ignored).
 6. Local dev DB (optional, Windows, MySQL 8.4 installed): `powershell -ExecutionPolicy Bypass -File server/scripts/localdb-start.ps1` runs a project-local mysqld on 127.0.0.1:3307 (root, no password, data in `.localdb/`, git-ignored; first run creates it and loads `schema.sql`); set `DB_HOST=127.0.0.1`, `DB_PORT=3307` in `.env`. Stop: `server/scripts/localdb-stop.ps1` (data kept). It uses `--no-defaults`, so another MySQL install is not touched.
 
 ## Layout
-`src/index.js` (app, route mounting, /health, http+ws server) | `src/db.js` (mysql pool) | `src/middleware/auth.js` (requireAuth, requireBoss) | `src/realtime.js` (WebSocket) | `src/tasks.js` (task logic, shared by routes and AI) | `src/ai/{provider,engine,names,bot}.js` (AI task engine) | `src/routes/{auth,admin,chats,tasks,misc}.js` | `src/backup.js` (nightly backup) | `src/seed.js` | `sql/schema.sql`, `sql/migrate_001..004.sql`.
+`src/index.js` (app, route mounting, /health, http+ws server) | `src/db.js` (mysql pool) | `src/middleware/auth.js` (requireAuth, requireBoss) | `src/realtime.js` (WebSocket) | `src/tasks.js` (task logic, shared by routes and AI) | `src/ai/{provider,engine,names,bot}.js` (AI task engine) | `src/routes/{auth,admin,chats,tasks,misc}.js` | `src/backup.js` (nightly backup) | `src/seed.js` | `sql/schema.sql`, `sql/migrate_001..005.sql`.
 
 ## DB tables
 - users(id, phone UNIQUE, name, role boss|member, pin_hash, active, failed_attempts, locked_until, is_bot, created_at)
@@ -45,14 +45,14 @@ Public user object: `{id, phone, name, role}`.
 - POST /chats body `{name, memberIds:[id]}` (group). 201 `{chat}`. 400 `Group name is required` | `Pick at least one member` | `Invalid member`. Members get WS `chat`.
 - POST /chats/dm body `{userId}`. 201 `{chat}` new, 200 existing. 400 `Invalid user`. 404 `User not found`.
 - GET /chats/:id/messages?limit=(1-200, default 30)&before=<id> or &after=<id> (ascending, max 500; used for missed messages) -> 200 `{messages, hasMore, status:{delivered,read}}`. 403 `Not allowed`.
-- POST /chats/:id/messages body `{text (max 4000), clientId}` -> 201 `{message}`; same sender+clientId again -> 200 `{message, duplicate:true}` (idempotent). 400 `Message is empty or too long` | `clientId is required`. 403 `Not allowed`. Broadcasts WS `message` to all members (including sender). Then (async, after the reply) the AI engine may post a bot message.
+- POST /chats/:id/messages body `{text (max 4000), clientId, replyToId?}` -> 201 `{message}`; same sender+clientId again -> 200 `{message, duplicate:true}` (idempotent). 400 `Message is empty or too long` | `clientId is required` | `Invalid replyToId` | `Replied message not found in this chat` (replyToId must be a message of the same chat). 403 `Not allowed`. Broadcasts WS `message` to all members (including sender). Then (async, after the reply) the AI engine may post a bot message.
 - POST /chats/:id/read body `{messageId?}` (default latest) -> 200 `{ok:true}`. 403 `Not allowed`.
 
 ### Messages and users (any logged-in user)
 - DELETE /messages/:id -> 200 `{ok:true}`. Soft delete (sets deleted_at); allowed for the sender or the boss, who must be a chat member. 404 `Message not found`. 403 `Not allowed`. Broadcasts WS `deleted`.
 - GET /users -> 200 `{users:[{id,name,phone}]}` (active, excluding self; for the DM/group picker).
 
-Message object: `{id, chatId, senderId, senderName, text (null if deleted and viewer is not boss), deleted, clientId, createdAt, type 'text'|'bot', payload}`. `payload` (bot only, else null):
+Message object: `{id, chatId, senderId, senderName, text (null if deleted and viewer is not boss), deleted, clientId, createdAt, type 'text'|'bot', payload, replyTo}`. `replyTo` = null or `{id, senderName, text (null if the original was deleted), deleted}` (text cut to 200 chars); also inside WS `message` events. Backup export includes `messages.reply_to_id`. `payload` (bot only, else null):
 - `{kind:'task', replyTo, action:'created'|'completed'|'updated', task:{id,title,assigneeId,assigneeName,status,dueDate}, undo:'delete'|'status'|null}`
 - `{kind:'summary', replyTo, userId, userName, counts:{done,in_progress,todo}, done:[{id,title,dueDate}] (max 10 each), in_progress, todo}`
 - `{kind:'clarify', replyTo, text, options:[{id,title,assigneeName}]}` | `{kind:'info', replyTo, text}`. `text` always holds a plain fallback.
@@ -84,7 +84,7 @@ Task object: `{id,title,description,assigneeId,assigneeName,createdBy,status,due
 
 ## WebSocket
 Connect `ws://host:port/?token=<JWT>`. Bad/inactive token -> closed with code 4401. Server pings every 30 s and drops dead sockets.
-- Server -> client: `hello` | `message {message}` | `deleted {chatId,messageId}` | `read {chatId,read,delivered}` (pointers for your own messages) | `typing {chatId,userId,name}` | `chat {chatId}` (you were added to a new chat) | `task {task}` and `task_deleted {taskId}` (sent to assignee, creator and all bosses).
+- Server -> client: `hello` | `message {message}` | `deleted {chatId,messageId}` | `read {chatId,read,delivered}` (pointers for your own messages) | `typing {chatId,userId,name}` | `chat {chatId}` (you were added to a new chat) | `task {task}` and `task_deleted {taskId}` (sent to assignee, creator and all bosses) | `users {}` (bosses only: member list changed - added, PIN reset, activated, (de)activated).
 - Client -> server: `{type:'typing', chatId}` (relayed to the other members; ignored if not a member).
 - Ticks: sent < delivered (every other member connected) < read (every other member read). On connect, all of the user's chats are marked delivered.
 

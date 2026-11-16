@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { useTheme } from '../useTheme';
 import { useAuth } from '../auth';
 import { api } from '../api';
-import { onEvent } from '../realtime';
+import { useLiveRefresh, usePullRefresh } from '../useLive';
 import { Mine, STATUSES, STATUS_COLOR, STATUS_LABEL, Status, Summary, Task } from '../taskTypes';
 import Chip from '../components/Chip';
 import TaskRow from '../components/TaskRow';
@@ -22,6 +22,7 @@ export default function TasksScreen() {
   const [filter, setFilter] = useState<Filter>({ kind: 'all' });
   const [modal, setModal] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
   const [err, setErr] = useState('');
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -32,12 +33,14 @@ export default function TasksScreen() {
       ]);
       setTasks(a.tasks); setSum(b); setMine(c); setErr('');
     } catch (e: any) { setErr(e.message); }
+    setLoaded(true);
   }, []);
 
-  useEffect(() => {
-    load();
-    return onEvent((e) => { if (e.type === 'task' || e.type === 'task_deleted' || e.type === '_open') load(); });
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+  // counts, chips and lists update from WebSocket events, reconnect and app foreground
+  useLiveRefresh(load, ['task', 'task_deleted']);
+  const { refreshing, onRefresh } = usePullRefresh(load);
+  const refreshControl = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.accent]} />;
 
   const my = sum?.users.find((u) => u.id === user?.id);
   const withTasks = sum?.users.filter((u) => u.total > 0) ?? [];
@@ -45,7 +48,9 @@ export default function TasksScreen() {
     filter.kind === 'all' ? true : filter.kind === 'user' ? x.assigneeId === filter.id : x.status === filter.s), [tasks, filter]);
   const count = (s: Status) => tasks.filter((x) => x.status === s).length;
   const open = (task: Task | null) => setModal({ open: true, task });
-  const canOpen = (x: Task) => isBoss || x.assigneeId === user?.id;
+  const onRow = useCallback((x: Task) => {
+    if (isBoss || x.assigneeId === user?.id) setModal({ open: true, task: x });
+  }, [isBoss, user?.id]);
   const card = { backgroundColor: t.card, borderRadius: 10, padding: 10, marginRight: 8, minWidth: 130 };
   const hScroll = { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 10 } } as const;
 
@@ -72,7 +77,8 @@ export default function TasksScreen() {
       </Text>
 
       {tab === 'mine' ? (
-        <ScrollView contentContainerStyle={{ padding: 14 }}>
+        <ScrollView contentContainerStyle={{ padding: 14 }} refreshControl={refreshControl}>
+          {!mine && <ActivityIndicator color={t.accent} style={{ marginTop: 20 }} />}
           {mine && !mine.done.length && !mine.in_progress.length && !mine.todo.length && (
             <Text style={{ color: t.subtext }}>No tasks yet.</Text>
           )}
@@ -106,8 +112,15 @@ export default function TasksScreen() {
           <FlatList
             data={shown}
             keyExtractor={(x) => String(x.id)}
-            renderItem={({ item }) => <TaskRow task={item} onPress={() => canOpen(item) && open(item)} />}
-            ListEmptyComponent={<Text style={{ color: t.subtext, padding: 16 }}>No tasks.</Text>}
+            refreshControl={refreshControl}
+            initialNumToRender={14}
+            windowSize={9}
+            renderItem={({ item }) => <TaskRow task={item} onPress={onRow} />}
+            ListEmptyComponent={
+              loaded
+                ? <Text style={{ color: t.subtext, padding: 16 }}>No tasks.</Text>
+                : <ActivityIndicator color={t.accent} style={{ marginTop: 30 }} />
+            }
           />
         </>
       )}

@@ -11,6 +11,8 @@
 | 6 | Git: repo https://github.com/ANUBH-001/teamchat (branch main), first commit pushed, no secrets. User said keep pushing future phases there | DONE |
 | 6b | Firebase removed + ONE local test pass (allowed once by Manish, 2026-11-16) | DONE |
 | 6c | Voice input (mic) in chat: on-device Android speech recognition, hi-IN / en-IN, needs the dev build (see Frontend.md) | DONE (emulator UI check, see below) |
+| 8a | UI: swipe-to-reply (migrate_005), live updates everywhere + pull-to-refresh + foreground/reconnect refetch + paging, memoized rows, loading/empty states | DONE, UNTESTED (build only) |
+| 8b | Daily check-in chat (see plan 11b) | NEXT |
 | 7 | Deploy: release APK + server (only when told, after Git) | TODO |
 
 ## In progress now
@@ -35,10 +37,10 @@ Nothing. Waiting for the go-ahead.
 - Untested: real speech -> text (the emulator mic gets no host voice), Hindi/Hinglish accuracy, auto-stop after 60 s, behaviour on the OnePlus. The phone still runs Expo Go (no voice there); voice needs the dev build installed on the phone, to be done only after the user agrees.
 
 ## Next step
-Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
+Phase 8b: daily check-in chat. Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
 
 ## Known gaps / manual steps
-- Existing DB must run the missing `server/sql/migrate_001..004.sql` in order (a fresh DB just runs `schema.sql`).
+- Existing DB must run the missing `server/sql/migrate_001..005.sql` in order (a fresh DB just runs `schema.sql`).
 - AI: set `AI_PROVIDER=openai|gemini` + `AI_API_KEY` in `server/.env` for a real model; default `mock` (keyword rules). Server timezone should be IST so "kal/aaj" due dates are right.
 - AI limits: members asking to assign are ignored silently; card "Undo" state is local (resets on reload; server still validates); a status Undo reverts the latest status change even if someone changed it after the card.
 - Run `npm run seed` in `server/` once; it prints one-time invite codes for each user.
@@ -46,7 +48,8 @@ Phase 7: deploy (only when told). Until then: commit + push each change to origi
 - Set `serverUrl` in `app/app.json` (`extra.serverUrl`) for a real phone (PC LAN IP); default `http://10.0.2.2:3000` is the Android emulator.
 - Run `npm install` in `server/` and in `app/` (new dep `@react-native-async-storage/async-storage`).
 - Server verified locally and the app tested on the emulator in Expo Go (above); no real phone or build yet.
-- react-native-gifted-chat was replaced by a plain FlatList; swipe-to-reply was skipped.
+- react-native-gifted-chat was replaced by a plain FlatList; swipe-to-reply built in Phase 8a (untested).
+- Phase 8a manual step: existing DB must run `server/sql/migrate_005.sql` (adds messages.reply_to_id).
 - No UI yet for viewing deleted messages; the API exists (`GET /admin/chats/:id/messages?includeDeleted=1`).
 - Firebase removed (2026-11-16): realtime is WebSocket only; local notifications while the app process is alive. Run `npm install` again in `server/` (firebase-admin gone). Release APK needs an HTTPS server URL (plain http is blocked in release builds).
 - Backup: `server/backup/` nightly after `BACKUP_HOUR` (default 2, local time); `npm run backup` for a manual run. Decisions: simple 1-minute check instead of cron; local alerts only for a newly assigned bot task.

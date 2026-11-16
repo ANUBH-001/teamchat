@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform,
+  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, AppState, ActivityIndicator,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { useTheme } from '../useTheme';
-import { Chat, Msg } from '../chatTypes';
+import { Chat, Msg, ReplyRef } from '../chatTypes';
 import { onEvent, sendTyping } from '../realtime';
 import { enqueue, flushOutbox, newClientId, onSent, pendingFor, removeFromOutbox } from '../outbox';
 import Avatar from '../components/Avatar';
@@ -49,6 +50,15 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
   const [status, setStatus] = useState({ delivered: 0, read: 0 });
   const [hasMore, setHasMore] = useState(false);
   const [text, setText] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [replyTo, setReplyTo] = useState<Msg | null>(null);
+  const [flashId, setFlashId] = useState<number | null>(null);
+  const listRef = useRef<FlatList<Item>>(null);
+  const inputRef = useRef<TextInput>(null);
+  const loadingOlder = useRef(false);
+  const hasMoreRef = useRef(false);
+  hasMoreRef.current = hasMore;
   const [typingName, setTypingName] = useState<string | null>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSent = useRef(0);
@@ -71,6 +81,7 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
       setStatus(r.status);
       markRead();
     } catch (e) {}
+    setLoaded(true);
   }, [chat.id, me.id, me.name, markRead]);
 
   const loadMissed = useCallback(async () => {
@@ -85,15 +96,27 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
     } catch (e) {}
   }, [chat.id, loadLatest, markRead]);
 
-  const loadOlder = async () => {
-    const first = msgs.find((m) => m.id)?.id;
-    if (!hasMore || !first) return;
+  const loadOlder = useCallback(async () => {
+    const first = msgsRef.current.find((m) => m.id)?.id;
+    if (!hasMoreRef.current || !first || loadingOlder.current) return;
+    loadingOlder.current = true;
+    setLoadingMore(true);
     try {
       const r = await api<{ messages: Msg[]; hasMore: boolean }>('GET', '/chats/' + chat.id + '/messages?limit=30&before=' + first);
       setMsgs((cur) => merge(cur, r.messages));
       setHasMore(r.hasMore);
     } catch (e) {}
-  };
+    loadingOlder.current = false;
+    setLoadingMore(false);
+  }, [chat.id]);
+
+  // original message was deleted: update quotes that point to it
+  const markDeleted = useCallback((id: number) => {
+    setMsgs((cur) => cur.map((m) =>
+      m.id === id ? { ...m, deleted: true }
+        : m.replyTo && m.replyTo.id === id ? { ...m, replyTo: { ...m.replyTo, deleted: true, text: null } } : m));
+    setReplyTo((r) => (r && r.id === id ? null : r));
+  }, []);
 
   useEffect(() => {
     loadLatest();
@@ -108,7 +131,7 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
         setMsgs((cur) => merge(cur, [e.message]));
         if (e.message.senderId !== me.id) markRead();
       } else if (e.type === 'deleted' && e.chatId === chat.id) {
-        setMsgs((cur) => cur.map((m) => (m.id === e.messageId ? { ...m, deleted: true } : m)));
+        markDeleted(e.messageId);
       } else if (e.type === 'read' && e.chatId === chat.id) {
         setStatus({ delivered: e.delivered, read: e.read });
       } else if (e.type === 'typing' && e.chatId === chat.id && e.userId !== me.id) {
@@ -118,7 +141,8 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
       }
     });
     const retry = setInterval(flushOutbox, 15000);
-    return () => { off(); offSent(); clearInterval(retry); if (typingTimer.current) clearTimeout(typingTimer.current); };
+    const app = AppState.addEventListener('change', (st) => { if (st === 'active') { loadMissed(); flushOutbox(); } });
+    return () => { off(); offSent(); app.remove(); clearInterval(retry); if (typingTimer.current) clearTimeout(typingTimer.current); };
   }, [chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const voice = useVoiceInput();
@@ -128,11 +152,16 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
     if (!body) return;
     const clientId = newClientId();
     const createdAt = new Date().toISOString();
+    const ref: ReplyRef | null = replyTo && replyTo.id
+      ? { id: replyTo.id, senderName: replyTo.senderName, text: (replyTo.text || '').slice(0, 200), deleted: false }
+      : null;
     setMsgs((cur) => merge(cur, [{
       clientId, chatId: chat.id, senderId: me.id, senderName: me.name, text: body, deleted: false, createdAt, pending: true,
+      replyTo: ref,
     }]));
     setText('');
-    enqueue(chat.id, body, clientId, createdAt);
+    setReplyTo(null);
+    enqueue(chat.id, body, clientId, createdAt, ref);
   };
 
   // voice: stop -> transcript goes into the text box to edit; send -> sent at once; X -> discarded
@@ -153,7 +182,7 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
     if (v && now - lastTypingSent.current > 2000) { lastTypingSent.current = now; sendTyping(chat.id); }
   };
 
-  const longPress = (m: Msg) => {
+  const longPress = useCallback((m: Msg) => {
     if (m.deleted) return;
     if (m.senderId !== me.id && me.role !== 'boss') return;
     Alert.alert('Message', undefined, [
@@ -167,13 +196,19 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
           }
           try {
             await api('DELETE', '/messages/' + m.id);
-            setMsgs((cur) => cur.map((x) => (x.id === m.id ? { ...x, deleted: true } : x)));
+            markDeleted(m.id);
           } catch (e: any) { Alert.alert('Could not delete', e.message); }
         },
       },
       { text: 'Cancel', style: 'cancel' },
     ]);
-  };
+  }, [me.id, me.role, markDeleted]);
+
+  const startReply = useCallback((m: Msg) => {
+    if (!m.id || m.deleted) return;
+    setReplyTo(m);
+    inputRef.current?.focus();
+  }, []);
 
   const items = useMemo(() => {
     const asc: Item[] = [];
@@ -185,6 +220,18 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
     }
     return asc.reverse();
   }, [msgs]);
+
+  const itemsRef = useRef<Item[]>([]);
+  itemsRef.current = items;
+
+  // tap on a quote: scroll to the original if it is loaded
+  const jumpTo = useCallback((id: number) => {
+    const idx = itemsRef.current.findIndex((i) => i.kind === 'msg' && i.msg.id === id);
+    if (idx < 0) { toast('Original message is not loaded'); return; }
+    listRef.current?.scrollToIndex({ index: idx, viewPosition: 0.5, animated: true });
+    setFlashId(id);
+    setTimeout(() => setFlashId((f) => (f === id ? null : f)), 1500);
+  }, []);
 
   const tickOf = (m: Msg): TickStatus => {
     if (!m.id) return 'pending';
@@ -210,12 +257,27 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
         </View>
       </View>
       <FlatList
+        ref={listRef}
         inverted
         data={items}
         keyExtractor={(i) => i.key}
         onEndReached={loadOlder}
-        onEndReachedThreshold={0.3}
+        onEndReachedThreshold={0.5}
+        keyboardShouldPersistTaps="handled"
+        initialNumToRender={20}
+        maxToRenderPerBatch={12}
+        windowSize={11}
         contentContainerStyle={{ paddingVertical: 8 }}
+        onScrollToIndexFailed={(info) => {
+          listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+          setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true }), 300);
+        }}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={t.accent} style={{ padding: 12 }} /> : null}
+        ListEmptyComponent={
+          <View style={{ transform: [{ scaleY: -1 }], padding: 30, alignItems: 'center' }}>
+            {loaded ? <Text style={{ color: t.subtext }}>No messages yet. Say hi!</Text> : <ActivityIndicator color={t.accent} />}
+          </View>
+        }
         renderItem={({ item }) =>
           item.kind === 'date' ? (
             <View style={{ alignItems: 'center', marginVertical: 8 }}>
@@ -230,13 +292,29 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
               showSender={chat.type !== 'dm'}
               status={tickOf(item.msg)}
               t={t}
-              onLongPress={() => longPress(item.msg)}
+              onLongPress={longPress}
+              onReply={startReply}
+              onQuotePress={jumpTo}
               meId={me.id}
               isBoss={me.role === 'boss'}
+              highlight={!!item.msg.id && item.msg.id === flashId}
             />
           )
         }
       />
+      {!!replyTo && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, paddingHorizontal: 10, paddingTop: 8 }}>
+          <View style={{ flex: 1, borderLeftWidth: 4, borderLeftColor: t.accent, backgroundColor: t.background, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+            <Text numberOfLines={1} style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>
+              {replyTo.senderId === me.id ? 'You' : replyTo.senderName}
+            </Text>
+            <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 13 }}>{replyTo.text || ''}</Text>
+          </View>
+          <Pressable onPress={() => setReplyTo(null)} hitSlop={10} style={{ padding: 8 }}>
+            <Ionicons name="close" size={22} color={t.subtext} />
+          </Pressable>
+        </View>
+      )}
       {voice.recording ? (
         <VoiceBar
           t={t} levels={voice.levels} transcript={voice.transcript} lang={voice.lang} bottom={insets.bottom}
@@ -245,6 +323,7 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
       ) : (
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', padding: 8, paddingBottom: 8 + insets.bottom }}>
         <TextInput
+          ref={inputRef}
           value={text}
           onChangeText={onChange}
           placeholder="Message"

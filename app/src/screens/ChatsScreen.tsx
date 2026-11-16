@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, FlatList, TextInput, Pressable, Alert, BackHandler } from 'react-native';
+import { View, Text, FlatList, TextInput, Pressable, Alert, BackHandler, RefreshControl, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { useTheme } from '../useTheme';
 import { Chat } from '../chatTypes';
 import { onEvent } from '../realtime';
+import { useLiveRefresh, usePullRefresh } from '../useLive';
 import { takePendingChat, setActiveChat } from '../push';
 import ChatRow from '../components/ChatRow';
 import ChatScreen from './ChatScreen';
@@ -47,16 +48,15 @@ export default function ChatsScreen() {
     load();
     const pending = takePendingChat();
     if (pending) openChat(pending);
-    let tm: ReturnType<typeof setTimeout> | null = null;
-    const off = onEvent((e) => {
-      if (e.type === '_open_chat') { takePendingChat(); openChat(e.chatId); return; }
-      if (['message', 'deleted', 'chat', '_open'].includes(e.type)) {
-        if (tm) clearTimeout(tm);
-        tm = setTimeout(load, 300);
-      }
+    return onEvent((e) => {
+      if (e.type === '_open_chat') { takePendingChat(); openChat(e.chatId); }
     });
-    return () => { off(); if (tm) clearTimeout(tm); };
   }, [load, openChat]);
+
+  // chat list stays live: new/deleted messages, new chats, reconnect, app foreground, manual refresh
+  useLiveRefresh(load, ['message', 'deleted', 'chat']);
+  const { refreshing, onRefresh } = usePullRefresh(load);
+  const openRow = useCallback((c: Chat) => setView({ k: 'chat', chat: c }), []);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -96,10 +96,15 @@ export default function ChatsScreen() {
         data={shown}
         keyExtractor={(c) => String(c.id)}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => (
-          <ChatRow chat={item} t={t} meId={user!.id} onPress={() => setView({ k: 'chat', chat: item })} />
-        )}
-        ListEmptyComponent={<Text style={{ color: t.subtext, textAlign: 'center', marginTop: 40 }}>{loaded ? 'No chats' : 'Loading...'}</Text>}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.accent]} />}
+        initialNumToRender={14}
+        windowSize={9}
+        renderItem={({ item }) => <ChatRow chat={item} t={t} meId={user!.id} onPress={openRow} />}
+        ListEmptyComponent={
+          loaded
+            ? <Text style={{ color: t.subtext, textAlign: 'center', marginTop: 40 }}>{q ? 'No chats match' : 'No chats yet'}</Text>
+            : <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} />
+        }
       />
       <Pressable
         onPress={fab}

@@ -4,11 +4,11 @@ import { useTheme } from '../useTheme';
 import { Task } from '../taskTypes';
 import StatusPill from './StatusPill';
 
-export default function TaskRow({ task, onPress }: { task: Task; onPress: () => void }) {
+function TaskRowBase({ task, onPress }: { task: Task; onPress: (t: Task) => void }) {
   const t = useTheme();
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={() => onPress(task)}
       style={{ flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: t.card,
         borderBottomWidth: 1, borderBottomColor: t.border }}
     >
@@ -24,3 +24,5 @@ export default function TaskRow({ task, onPress }: { task: Task; onPress: () => 
     </TouchableOpacity>
   );
 }
+
+export default React.memo(TaskRowBase);

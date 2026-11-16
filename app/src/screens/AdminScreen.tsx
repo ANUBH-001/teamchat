@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList, Alert, Share, Switch, useColorScheme,
+  View, Text, TextInput, TouchableOpacity, FlatList, Alert, Share, Switch, useColorScheme, RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { light, dark } from '../theme';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { useLiveRefresh, usePullRefresh } from '../useLive';
 
 type Row = { id: number; phone: string; name: string; role: string; active: boolean; activated: boolean };
 
@@ -16,6 +17,7 @@ export default function AdminScreen() {
   const [phone, setPhone] = useState('');
   const [invite, setInvite] = useState<{ label: string; code: string } | null>(null);
   const [err, setErr] = useState('');
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -23,11 +25,15 @@ export default function AdminScreen() {
     } catch (e: any) {
       setErr(e.message);
     }
+    setLoaded(true);
   }, []);
 
-  useEffect(() => {
-    if (user?.role === 'boss') load();
-  }, [user, load]);
+  const isBoss = user?.role === 'boss';
+  const loadIfBoss = useCallback(() => { if (isBoss) return load(); }, [isBoss, load]);
+  useEffect(() => { loadIfBoss(); }, [loadIfBoss]);
+  // member list stays live: server pushes `users` to bosses on add / reset / activate / deactivate
+  useLiveRefresh(loadIfBoss, ['users']);
+  const { refreshing, onRefresh } = usePullRefresh(loadIfBoss);
 
   const run = async (fn: () => Promise<void>) => {
     setErr('');
@@ -81,6 +87,12 @@ export default function AdminScreen() {
         data={users}
         keyExtractor={(u) => String(u.id)}
         keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.accent]} />}
+        initialNumToRender={12}
+        windowSize={9}
+        ListEmptyComponent={
+          loaded ? <Text style={{ color: t.subtext }}>No members yet.</Text> : <ActivityIndicator color={t.accent} />
+        }
         ListHeaderComponent={
           <View>
             <Text style={{ color: t.text, fontWeight: '700', fontSize: 16, marginBottom: 8 }}>Add member</Text>

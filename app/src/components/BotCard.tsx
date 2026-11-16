@@ -10,10 +10,10 @@ const SECTIONS: { key: 'done' | 'in_progress' | 'todo'; label: string }[] = [
   { key: 'done', label: 'Done' }, { key: 'in_progress', label: 'In progress' }, { key: 'todo', label: 'Pending' },
 ];
 
-type Props = { msg: Msg; t: Theme; meId: number; isBoss: boolean; time: string; onLongPress: () => void };
+type Props = { msg: Msg; t: Theme; meId: number; isBoss: boolean; time: string; onLongPress: (m: Msg) => void };
 
 // Team Assistant message: task card (with Undo), bullet summary, or a plain question/info bubble.
-export default function BotCard({ msg, t, meId, isBoss, time, onLongPress }: Props) {
+function BotCardBase({ msg, t, meId, isBoss, time, onLongPress }: Props) {
   const [undone, setUndone] = useState(false);
   const [busy, setBusy] = useState(false);
   const p = msg.payload as BotPayload | null | undefined;
@@ -83,7 +83,7 @@ export default function BotCard({ msg, t, meId, isBoss, time, onLongPress }: Pro
   return (
     <View style={{ paddingHorizontal: 10, marginVertical: 2, alignItems: 'flex-start' }}>
       <Pressable
-        onLongPress={onLongPress}
+        onLongPress={() => onLongPress(msg)}
         style={{ maxWidth: '85%', minWidth: '55%', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, backgroundColor: t.bubbleIn, borderLeftWidth: 3, borderLeftColor: t.accent }}
       >
         <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13, marginBottom: 3 }}>Team Assistant</Text>
@@ -93,3 +93,5 @@ export default function BotCard({ msg, t, meId, isBoss, time, onLongPress }: Pro
     </View>
   );
 }
+
+export default React.memo(BotCardBase);

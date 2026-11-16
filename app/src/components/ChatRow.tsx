@@ -13,7 +13,7 @@ function when(iso: string) {
   return d.toLocaleDateString();
 }
 
-export default function ChatRow({ chat, t, meId, onPress }: { chat: Chat; t: Theme; meId: number; onPress: () => void }) {
+function ChatRowBase({ chat, t, meId, onPress }: { chat: Chat; t: Theme; meId: number; onPress: (c: Chat) => void }) {
   const lm = chat.lastMessage;
   let preview = 'No messages yet';
   if (lm) {
@@ -23,7 +23,7 @@ export default function ChatRow({ chat, t, meId, onPress }: { chat: Chat; t: The
   }
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => onPress(chat)}
       style={{
         flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10,
         backgroundColor: t.card, borderBottomWidth: 1, borderBottomColor: t.border,
@@ -61,3 +61,5 @@ export default function ChatRow({ chat, t, meId, onPress }: { chat: Chat; t: The
     </Pressable>
   );
 }
+
+export default React.memo(ChatRowBase);

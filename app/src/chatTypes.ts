@@ -15,6 +15,8 @@ export type Chat = {
   };
 };
 
+export type ReplyRef = { id: number; senderName: string; text: string | null; deleted: boolean };
+
 export type Msg = {
   id?: number; // missing while still in the outbox
   clientId: string;
@@ -27,6 +29,7 @@ export type Msg = {
   pending?: boolean;
   type?: 'text' | 'bot'; // 'bot' = Team Assistant (AI task engine)
   payload?: BotPayload | null;
+  replyTo?: ReplyRef | null; // quoted message (swipe-to-reply)
 };
 
 // Payload of a 'bot' message (server/src/ai/engine.js)
