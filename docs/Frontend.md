@@ -1,12 +1,13 @@
 # Frontend (app/)
 
-Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5. Type-checked (`tsc --noEmit` clean) and `expo config` valid on 2026-11-16; not yet run on a phone.
+Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5. Type-checked and run on the Android emulator in Expo Go 2.32.20 (2026-11-16, see projectProgess.md); not yet run on a real phone.
 
 ## Run
 1. `cd app; npm install` (includes `@react-native-async-storage/async-storage` 1.23.1 for the outbox). In a folder path with `&`, `npx` fails under cmd; use `node node_modules/typescript/lib/tsc.js --noEmit` / `node node_modules/expo/bin/cli ...`.
 2. Server must be running (see backend.md).
 3. `npx expo start` (or `npm run android`) and open on an emulator or phone.
-4. Emulator: SDK in `D:\Android\Sdk`, JDK 17 in `D:\Android\jdk17` (user env `ANDROID_HOME`, `JAVA_HOME`, PATH set). AVD `teamchat_test` (Pixel 6, Android 34, google_apis x86_64, WHPX). Start it with `server/scripts/emulator-start.ps1` (waits until booted), then `npx expo start --android`.
+4. Emulator: SDK in `D:\Android\Sdk`, JDK 17 in `D:\Android\jdk17` (user env `ANDROID_HOME`, `JAVA_HOME`, PATH set). AVD `teamchat_test` (Pixel 6, Android 34, google_apis x86_64, WHPX). Start it with `server/scripts/emulator-start.ps1` (waits until booted), then `npx expo start --android`. With a real phone also plugged in, run `expo start` and open the app on the emulator only: `adb -s emulator-5554 shell am start -a android.intent.action.VIEW -d exp://10.0.2.2:8081` (Expo Go for SDK 52 must be installed on it). Expo Go dismisses its dev menu sheet with Back.
+6. Dependencies: keep react-navigation on the SDK 52 versions pinned in `package.json` (`overrides` for elements/core/routers); newer ones need a newer `react-native-safe-area-context`. Add native packages with `expo install`. Tab icons use `@expo/vector-icons` (Ionicons).
 5. Server address: `app/app.json` -> `expo.extra.serverUrl`. Default `http://10.0.2.2:3000` = host PC as seen from the Android emulator. For a real phone use the PC's LAN IP (e.g. `http://192.168.1.20:3000`, same Wi-Fi). Later: the public HTTPS domain (a release APK blocks plain `http://` unless cleartext is enabled, so use HTTPS for release). Read in `src/config.ts`; the WebSocket URL is derived (http -> ws).
 
 ## Structure
@@ -24,7 +25,7 @@ Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5. Ty
 - TasksScreen: two views, All Tasks and My Tasks. All Tasks: my counts line, per-person count cards, filter chips (All / person / Todo / Doing / Done with counts), task list with status pill. Tap a task: boss edits (title, assignee, due date, status, delete, undo); an assignee changes status/undo on own tasks; others' tasks are read-only. Boss '+' creates a task. My Tasks: bullet lists Done / Doing / Todo. Reloads on WS `task`, `task_deleted` and reconnect.
 
 ## Notifications (local only, no Firebase)
-After login `setupNotifications()` creates the `messages` channel and asks permission. `listenMessageAlerts` watches WebSocket `message` events (not mine, not deleted): app in background/inactive -> local notification (sender + text; bot only for a task newly assigned to me); app in foreground but in another chat -> short vibration. Tapping a notification opens that chat (`_open_chat` event or pending id on cold start). `ChatsScreen` reports the open chat via `setActiveChat`. Needs a dev/release build, not Expo Go.
+After login `setupNotifications()` creates the `messages` channel and asks permission. `listenMessageAlerts` watches WebSocket `message` events (not mine, not deleted): app in background/inactive -> local notification (sender + text; bot only for a task newly assigned to me); app in foreground but in another chat -> short vibration. Tapping a notification opens that chat (`_open_chat` event or pending id on cold start). `ChatsScreen` reports the open chat via `setActiveChat`. Works in Expo Go SDK 52 (local only; Expo Go warns that remote push is unsupported, which is not used).
 Honest limit: works only while the app process is alive (foreground or recently backgrounded). A fully killed app gets no alerts until reopened; messages are fetched on open. Later option (not built): Android foreground service to keep the socket alive.
 
 ## Theme
@@ -36,7 +37,7 @@ Token kept in SecureStore. On start, if a token exists the app calls `/auth/me`:
 ## Realtime and outbox
 - `realtime.ts`: one WebSocket with auto-reconnect (backoff 2 s up to 15 s). Screens subscribe with `onEvent`. Synthetic events `_open` / `_close`. `sendTyping(chatId)` (throttled to 2 s in ChatScreen).
 - `outbox.ts`: a sent message goes into an AsyncStorage queue with a `clientId`, then is POSTed. Unsent messages show a clock tick and survive restarts. Flushed on send, on reconnect (`_open`) and every 15 s while a chat is open. The server dedupes by (sender, clientId). 4xx rejections (except 401/429) drop the item; network/server errors keep it and stop, to preserve order.
-- On reconnect ChatScreen fetches `?after=<last id>` to get missed messages.
+- On reconnect ChatScreen fetches `?after=<last id received from the server>` (history or WebSocket; not raised by its own HTTP send) to get missed messages.
 
 ## How to collaborate
 - New screen: add `src/screens/X.tsx`; register it in `App.tsx` as a `Tab.Screen` (tab) or add a view state in `ChatsScreen` (sub-screen). Use `useTheme()` for colors.
