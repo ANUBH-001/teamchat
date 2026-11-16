@@ -4,6 +4,7 @@ import { colorFor, Theme } from '../theme';
 import Tick, { TickStatus } from './Tick';
 import { Msg } from '../chatTypes';
 import BotCard from './BotCard';
+import CheckinCard from './CheckinCard';
 import SwipeReply from './SwipeReply';
 
 export const timeOf = (iso: string) =>
@@ -21,9 +22,13 @@ type Props = {
   meId: number;
   isBoss: boolean;
   highlight: boolean;
+  onCardMic?: (cb: (said: string) => void) => void;
 };
 
-function BubbleBase({ msg, mine, showSender, status, t, onLongPress, onReply, onQuotePress, meId, isBoss, highlight }: Props) {
+function BubbleBase({ msg, mine, showSender, status, t, onLongPress, onReply, onQuotePress, meId, isBoss, highlight, onCardMic }: Props) {
+  if (msg.type === 'checkin_prompt' && !msg.deleted && msg.payload) {
+    return <CheckinCard msg={msg} t={t} time={timeOf(msg.createdAt)} onMic={onCardMic} />;
+  }
   if (msg.type === 'bot') {
     return <BotCard msg={msg} t={t} meId={meId} isBoss={isBoss} time={timeOf(msg.createdAt)} onLongPress={onLongPress} />;
   }

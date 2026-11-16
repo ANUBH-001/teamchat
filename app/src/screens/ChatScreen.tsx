@@ -165,15 +165,28 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
   };
 
   // voice: stop -> transcript goes into the text box to edit; send -> sent at once; X -> discarded
+  const cardTarget = useRef<((said: string) => void) | null>(null); // set while voice types into a check-in card
+  const cardMic = useMemo(() => (voice.available ? (cb: (said: string) => void) => {
+    cardTarget.current = cb;
+    voice.start(toBoxRef.current);
+  } : undefined), [voice.available]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toBoxRef = useRef<(said: string) => void>(() => {});
   const toBox = (said: string) => {
+    const target = cardTarget.current;
+    cardTarget.current = null;
     if (!said) { toast('Kuch sunai nahi diya'); return; }
+    if (target) { target(said); return; }
     setText((cur) => (cur ? cur + ' ' + said : said));
   };
+  toBoxRef.current = toBox;
   const voiceStop = async () => toBox(await voice.finish());
   const voiceSend = async () => {
     const said = await voice.finish();
-    if (!said) { toast('Kuch sunai nahi diya'); return; }
-    send(said);
+    if (!said) { cardTarget.current = null; toast('Kuch sunai nahi diya'); return; }
+    const target = cardTarget.current;
+    cardTarget.current = null;
+    if (target) target(said);
+    else send(said);
   };
 
   const onChange = (v: string) => {
@@ -242,6 +255,7 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
 
   const subtitle = typingName
     ? (chat.type === 'dm' ? 'typing...' : typingName + ' is typing...')
+    : chat.type === 'checkin' ? 'Aapke reports admin dekh sakte hain'
     : chat.type === 'dm' ? '' : chat.membersCount + ' members';
 
   return (
@@ -289,12 +303,13 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
             <Bubble
               msg={item.msg}
               mine={item.msg.senderId === me.id}
-              showSender={chat.type !== 'dm'}
+              showSender={chat.type === 'group' || chat.type === 'all'}
               status={tickOf(item.msg)}
               t={t}
               onLongPress={longPress}
               onReply={startReply}
               onQuotePress={jumpTo}
+              onCardMic={cardMic}
               meId={me.id}
               isBoss={me.role === 'boss'}
               highlight={!!item.msg.id && item.msg.id === flashId}
@@ -318,7 +333,7 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
       {voice.recording ? (
         <VoiceBar
           t={t} levels={voice.levels} transcript={voice.transcript} lang={voice.lang} bottom={insets.bottom}
-          onToggleLang={voice.toggleLang} onCancel={voice.cancel} onStop={voiceStop} onSend={voiceSend}
+          onToggleLang={voice.toggleLang} onCancel={() => { cardTarget.current = null; voice.cancel(); }} onStop={voiceStop} onSend={voiceSend}
         />
       ) : (
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', padding: 8, paddingBottom: 8 + insets.bottom }}>
@@ -335,7 +350,7 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
           }}
         />
         {voice.available && !text.trim() ? (
-          <MicButton t={t} onPress={() => voice.start(toBox)} />
+          <MicButton t={t} onPress={() => { cardTarget.current = null; voice.start(toBox); }} />
         ) : (
           <Pressable
             onPress={() => send()}

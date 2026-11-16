@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
+import { AppState } from 'react-native';
 import { startRealtime, stopRealtime } from './src/realtime';
-import { setupNotifications, listenNotificationTaps, listenMessageAlerts } from './src/push';
+import { setupNotifications, listenNotificationTaps, listenMessageAlerts, clearCheckinReminders } from './src/push';
+import { loadCheckinToday, clearCheckinToday } from './src/checkinStore';
 import { useColorScheme, View, ActivityIndicator } from 'react-native';
 import { AuthProvider, useAuth } from './src/auth';
 import LoginScreen from './src/screens/LoginScreen';
@@ -35,6 +37,15 @@ function Root() {
     const offTaps = listenNotificationTaps();
     const offAlerts = listenMessageAlerts(user.id);
     return () => { stopRealtime(); offTaps(); offAlerts(); };
+  }, [user]);
+  // members: phone reminders for the daily check-ins (local notifications; settings come from the server)
+  useEffect(() => {
+    if (!user) return;
+    if (user.role !== 'member') { clearCheckinReminders(); return; }
+    const sync = () => { loadCheckinToday(true).catch(() => {}); };
+    sync();
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') sync(); });
+    return () => { sub.remove(); clearCheckinToday(); clearCheckinReminders(); };
   }, [user]);
   if (loading) {
     return (

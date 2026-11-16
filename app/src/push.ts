@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform, Vibration } from 'react-native';
 import { emitEvent, onEvent } from './realtime';
+import { CheckinSettings } from './chatTypes';
 
 // No Firebase/FCM: alerts are LOCAL notifications raised from WebSocket 'message' events.
 // They only work while the app process is alive (foreground or recently backgrounded).
@@ -82,4 +83,66 @@ export function listenNotificationTaps() {
   Notifications.getLastNotificationResponseAsync().then(opened).catch(() => {});
   const sub = Notifications.addNotificationResponseReceivedListener(opened);
   return () => sub.remove();
+}
+
+// ---- Daily check-in reminders: LOCAL weekly notifications (no Firebase) ----
+// Members only. Times come from GET /checkins/today (settings) and are the phone's local time
+// (the server uses the same zone, Asia/Kolkata by default). Stable identifiers: checkin-<kind>-<day 0-6>.
+const KINDS = ['morning', 'evening'] as const;
+let lastSchedule = ''; // signature of what is scheduled now (skip rescheduling when unchanged)
+let scheduling: Promise<void> = Promise.resolve();
+
+const parseTime = (v: string) => {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v);
+  return m ? { hour: Number(m[1]), minute: Number(m[2]) } : null;
+};
+
+export function applyCheckinSchedule(s: CheckinSettings, chatId: number | null) {
+  const sig = JSON.stringify([s.enabled, s.morningTime, s.eveningTime, [...s.days].sort(), chatId]);
+  if (sig === lastSchedule) return scheduling;
+  lastSchedule = sig;
+  scheduling = scheduling.then(async () => {
+    try {
+      // cancel all 14 stable ids first (cancelling a missing id is harmless), then schedule the wanted ones
+      for (const k of KINDS) for (let d = 0; d < 7; d++) {
+        await Notifications.cancelScheduledNotificationAsync('checkin-' + k + '-' + d).catch(() => {});
+      }
+      if (!s.enabled) return;
+      for (const k of KINDS) {
+        const time = parseTime(k === 'morning' ? s.morningTime : s.eveningTime);
+        if (!time) continue;
+        for (const d of s.days) {
+          if (!Number.isInteger(d) || d < 0 || d > 6) continue;
+          await Notifications.scheduleNotificationAsync({
+            identifier: 'checkin-' + k + '-' + d,
+            content: {
+              title: 'Daily Check-in',
+              body: k === 'morning' ? 'Good morning! Aaj ka plan bhejo.' : 'Din ka report bhejo: kya kiya, kya pending.',
+              data: chatId ? { chatId } : {},
+            },
+            trigger: {
+              type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+              weekday: d + 1, // expo: 1 = Sunday; server: 0 = Sunday
+              hour: time.hour, minute: time.minute,
+              ...(Platform.OS === 'android' ? { channelId: 'messages' } : {}),
+            },
+          });
+        }
+      }
+    } catch (e) {
+      lastSchedule = ''; // retry on the next sync
+    }
+  });
+  return scheduling;
+}
+
+// Remove every check-in reminder (logout / boss) and forget the signature.
+export function clearCheckinReminders() {
+  lastSchedule = '';
+  scheduling = scheduling.then(async () => {
+    for (const k of KINDS) for (let d = 0; d < 7; d++) {
+      await Notifications.cancelScheduledNotificationAsync('checkin-' + k + '-' + d).catch(() => {});
+    }
+  });
+  return scheduling;
 }

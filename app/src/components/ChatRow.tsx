@@ -18,7 +18,7 @@ function ChatRowBase({ chat, t, meId, onPress }: { chat: Chat; t: Theme; meId: n
   let preview = 'No messages yet';
   if (lm) {
     const body = lm.deleted ? 'This message was deleted' : lm.text ?? '';
-    const who = lm.senderId === meId ? 'You: ' : chat.type !== 'dm' ? lm.senderName + ': ' : '';
+    const who = lm.senderId === meId ? 'You: ' : chat.type === 'group' || chat.type === 'all' ? lm.senderName + ': ' : '';
     preview = who + body;
   }
   return (
@@ -33,7 +33,7 @@ function ChatRowBase({ chat, t, meId, onPress }: { chat: Chat; t: Theme; meId: n
       <View style={{ flex: 1, marginLeft: 12 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           <Text numberOfLines={1} style={{ flex: 1, color: t.text, fontSize: 16, fontWeight: '600' }}>
-            {chat.type === 'all' ? '📌 ' : ''}{chat.name}
+            {chat.type === 'all' ? '📌 ' : chat.type === 'checkin' ? '📝 ' : ''}{chat.name}
           </Text>
           {lm && (
             <Text style={{ color: chat.unread ? t.accent : t.subtext, fontSize: 12, marginLeft: 8 }}>{when(lm.createdAt)}</Text>
