@@ -1,5 +1,5 @@
 # Team Chat + AI Task Tracker (Android, WhatsApp-style)
-Plan: C:\Users\Manish\.claude\plans\pasted-content-id-0595-joyful-frost.md (read only the section you need)
+START HERE: docs/HANDOFF.md (current state, how to run, owner rules, gotchas). Original plan: docs/PLAN.md (read only the section you need). Owner writes Hindi/Hinglish: reply in Hindi/Hinglish.
 
 ## Rules
 - ZERO TESTING again (2026-11-16): the earlier test passes are finished. Build only; do not write/run tests, start servers or run the app to test, until Manish explicitly says. Tell every sub-agent "no tests". Latest features (swipe-reply, live updates, daily check-ins) are built but UNTESTED by design.
