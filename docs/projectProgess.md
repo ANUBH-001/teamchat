@@ -8,14 +8,14 @@
 | 3 | Tasks tab, filters, counts, My Tasks, task APIs + realtime | DONE (built, not tested by design) |
 | 4 | AI engine: assign / complete / summary / undo (mock, OpenAI, Gemini providers; Team Assistant bot cards) | DONE (built, not tested by design) |
 | 5 | Offline / backup / push: reconnect + outbox (Phase 2), nightly JSON backup, FCM push (token API, offline-only push, tap opens chat) | DONE (built, not tested by design) |
-| 6 | Git: init, .gitignore, first commit, push (only when told, ask before push) | TODO |
+| 6 | Git: repo https://github.com/ANUBH-001/teamchat (branch main), first commit pushed, no secrets. User said keep pushing future phases there | DONE |
 | 7 | Deploy: release APK + server (only when told, after Git) | TODO |
 
 ## In progress now
 Nothing. Waiting for the go-ahead.
 
 ## Next step
-Phase 6: Git (only when told; ask before push).
+Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
 
 ## Known gaps / manual steps
 - Existing DB must run the missing `server/sql/migrate_001..004.sql` in order (a fresh DB just runs `schema.sql`).
