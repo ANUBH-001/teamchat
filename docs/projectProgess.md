@@ -12,11 +12,11 @@
 | 6b | Firebase removed + ONE local test pass (allowed once by Manish, 2026-11-16) | DONE |
 | 6c | Voice input (mic) in chat: on-device Android speech recognition, hi-IN / en-IN, needs the dev build (see Frontend.md) | DONE (emulator UI check, see below) |
 | 8a | UI: swipe-to-reply (migrate_005), live updates everywhere + pull-to-refresh + foreground/reconnect refetch + paging, memoized rows, loading/empty states | DONE, UNTESTED (build only) |
-| 8b | Daily check-in chat (see plan 11b) | NEXT |
+| 8b | Daily check-in chat (see plan 11b). Server DONE, UNTESTED (build only): migrate_006, scheduler, member + boss Reports APIs, privacy guard. App part NEXT | IN PROGRESS |
 | 7 | Deploy: release APK + server (only when told, after Git) | TODO |
 
 ## In progress now
-Nothing. Waiting for the go-ahead.
+Phase 8b app part: pinned "Daily Check-in" chat rendering `checkin_prompt` cards (task chips: pick for morning, Done / In progress / Pending for evening -> POST /checkins), header line "Aapke reports admin dekh sakte hain", Admin Reports screen (GET /admin/checkins, user history, settings), local daily reminders from /checkins/today settings. API in backend.md.
 
 ## Local test pass (2026-11-16, done; no more testing without a new go-ahead)
 - Setup: project-local MySQL 8.4 on 127.0.0.1:3307 (`server/scripts/localdb-start.ps1`), fresh `schema.sql` (matches migrate_001..004), seed, AI mock.
@@ -37,10 +37,10 @@ Nothing. Waiting for the go-ahead.
 - Untested: real speech -> text (the emulator mic gets no host voice), Hindi/Hinglish accuracy, auto-stop after 60 s, behaviour on the OnePlus. The phone still runs Expo Go (no voice there); voice needs the dev build installed on the phone, to be done only after the user agrees.
 
 ## Next step
-Phase 8b: daily check-in chat. Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
+Phase 8b app part (above). Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
 
 ## Known gaps / manual steps
-- Existing DB must run the missing `server/sql/migrate_001..005.sql` in order (a fresh DB just runs `schema.sql`).
+- Existing DB must run the missing `server/sql/migrate_001..006.sql` in order (a fresh DB just runs `schema.sql`).
 - AI: set `AI_PROVIDER=openai|gemini` + `AI_API_KEY` in `server/.env` for a real model; default `mock` (keyword rules). Server timezone should be IST so "kal/aaj" due dates are right.
 - AI limits: members asking to assign are ignored silently; card "Undo" state is local (resets on reload; server still validates); a status Undo reverts the latest status change even if someone changed it after the card.
 - Run `npm run seed` in `server/` once; it prints one-time invite codes for each user.
@@ -49,7 +49,7 @@ Phase 8b: daily check-in chat. Phase 7: deploy (only when told). Until then: com
 - Run `npm install` in `server/` and in `app/` (new dep `@react-native-async-storage/async-storage`).
 - Server verified locally and the app tested on the emulator in Expo Go (above); no real phone or build yet.
 - react-native-gifted-chat was replaced by a plain FlatList; swipe-to-reply built in Phase 8a (untested).
-- Phase 8a manual step: existing DB must run `server/sql/migrate_005.sql` (adds messages.reply_to_id).
+- Phase 8a/8b manual step: existing DB must run `server/sql/migrate_005.sql`, then `migrate_006.sql` (check-ins; the server needs it before start). Set `TZ=Asia/Kolkata` in `server/.env` (default anyway).
 - No UI yet for viewing deleted messages; the API exists (`GET /admin/chats/:id/messages?includeDeleted=1`).
 - Firebase removed (2026-11-16): realtime is WebSocket only; local notifications while the app process is alive. Run `npm install` again in `server/` (firebase-admin gone). Release APK needs an HTTPS server URL (plain http is blocked in release builds).
 - Backup: `server/backup/` nightly after `BACKUP_HOUR` (default 2, local time); `npm run backup` for a manual run. Decisions: simple 1-minute check instead of cron; local alerts only for a newly assigned bot task.
