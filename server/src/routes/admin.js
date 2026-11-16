@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const pool = require('../db');
 const { requireAuth, requireBoss } = require('../middleware/auth');
 const { hashCode } = require('./auth');
+const rt = require('../realtime');
 
 const router = express.Router();
 router.use(requireAuth, requireBoss);
@@ -98,6 +99,7 @@ router.patch('/users/:id', async (req, res) => {
     if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
     const [r] = await pool.query('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ? AND is_bot = 0', [...vals, id]);
     if (!r.affectedRows) return res.status(404).json({ error: 'User not found' });
+    if (req.body.active !== undefined && !req.body.active) rt.closeUser(id);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });

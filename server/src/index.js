@@ -1,4 +1,8 @@
 require('dotenv').config();
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'change-me') {
+  console.error('Set a real JWT_SECRET in server/.env');
+  process.exit(1);
+}
 const http = require('http');
 const express = require('express');
 const pool = require('./db');

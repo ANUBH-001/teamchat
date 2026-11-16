@@ -8,7 +8,7 @@ async function requireAuth(req, res, next) {
     if (!token) return res.status(401).json({ error: 'Not authenticated' });
     let payload;
     try {
-      payload = jwt.verify(token, process.env.JWT_SECRET);
+      payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     } catch (e) {
       return res.status(401).json({ error: 'Not authenticated' });
     }

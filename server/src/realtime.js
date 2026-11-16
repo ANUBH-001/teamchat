@@ -51,19 +51,26 @@ async function markDeliveredOnConnect(userId) {
   }
 }
 
+// Drop every live socket of a user (e.g. deactivated by the boss).
+function closeUser(userId) {
+  const set = clients.get(userId);
+  if (set) for (const ws of set) ws.close(4401, 'Not authenticated');
+}
+
 function attach(server) {
   const wss = new WebSocketServer({ server });
   wss.on('connection', async (ws, req) => {
     let user;
     try {
       const token = new url.URL(req.url, 'http://x').searchParams.get('token');
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
       const [[u]] = await pool.query('SELECT id, name, active FROM users WHERE id = ?', [payload.id]);
       if (!u || !u.active) throw new Error('bad user');
       user = u;
     } catch (e) {
       return ws.close(4401, 'Not authenticated');
     }
+    if (ws.readyState !== 1) return; // client left while we were checking the token
     if (!clients.has(user.id)) clients.set(user.id, new Set());
     clients.get(user.id).add(ws);
     ws.isAlive = true;
@@ -96,4 +103,4 @@ function attach(server) {
   }, 30000);
 }
 
-module.exports = { attach, isOnline, sendToUser, sendToChat, memberIds, pushStatus };
+module.exports = { attach, closeUser, isOnline, sendToUser, sendToChat, memberIds, pushStatus };
