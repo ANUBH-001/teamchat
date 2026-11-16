@@ -15,7 +15,9 @@ const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); retur
 // ---------- strict output parsing ----------
 const str = (v, max) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
 const posInt = (v) => (Number.isInteger(v) && v > 0 ? v : null);
-const date = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)) ? v : null);
+// real calendar dates only (2026-02-31 -> null)
+const date = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) &&
+  !isNaN(Date.parse(v)) && new Date(v + 'T00:00:00Z').toISOString().slice(0, 10) === v ? v : null);
 const item = (o) => ({
   title: str(o.title, 255), assignee_name: str(o.assignee_name, 100),
   assignee_id: posInt(o.assignee_id), due_date: date(o.due_date),

@@ -45,7 +45,10 @@ async function notify(task, deleted) {
 
 function cleanDate(v) {
   if (v == null || v === '') return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v)) || isNaN(Date.parse(v))) throw new TaskError(400, 'Invalid due date');
+  const d = new Date(String(v) + 'T00:00:00Z');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v)) || isNaN(d) || d.toISOString().slice(0, 10) !== v) {
+    throw new TaskError(400, 'Invalid due date');
+  }
   return v + ' 00:00:00';
 }
 
@@ -108,6 +111,7 @@ async function updateTask(id, f, actor, source = 'manual', messageId = null) {
     await ev(id, actor, 'description', task.description, f.description);
   }
   if (f.assigneeId !== undefined) {
+    f = { ...f, assigneeId: parseInt(f.assigneeId, 10) || 0 };
     await checkAssignee(f.assigneeId);
     set.push('assignee_id = ?'); vals.push(f.assigneeId);
     if (f.assigneeId !== task.assigneeId) await ev(id, actor, 'assignee', task.assigneeId, f.assigneeId);
