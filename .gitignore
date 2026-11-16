@@ -1,0 +1,8 @@
+node_modules/
+.env
+backup/
+*.apk
+.expo/
+google-services.json
+firebase*.json
+*service-account*.json

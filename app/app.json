@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "TeamChat",
+    "slug": "teamchat",
+    "version": "0.1.0",
+    "platforms": ["android"],
+    "userInterfaceStyle": "automatic",
+    "android": { "package": "com.teamchat.app", "googleServicesFile": "./google-services.json" },
+    "plugins": ["expo-notifications"],
+    "extra": { "serverUrl": "http://10.0.2.2:3000" }
+  }
+}
