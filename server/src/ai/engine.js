@@ -58,7 +58,7 @@ async function chatContext(chatId) {
 }
 
 async function onMessage(message, user) {
-  if (!message || message.type === 'bot' || !message.text) return;
+  if (!message || (message.type && message.type !== 'text') || !message.text) return; // bot / check-in prompts never trigger
   const text = message.text.slice(0, 1000);
   if (text.length < 3 || !TASK_RE.test(text)) return;
 

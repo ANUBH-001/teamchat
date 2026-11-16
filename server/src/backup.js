@@ -21,6 +21,11 @@ async function runBackup() {
     message_revisions: await q('SELECT * FROM message_revisions'),
     tasks: await q('SELECT * FROM tasks'),
     task_events: await q('SELECT * FROM task_events'),
+    // dates as plain 'YYYY-MM-DD' strings (no timezone shift)
+    checkins: await q("SELECT id, user_id, DATE_FORMAT(date, '%Y-%m-%d') date, kind, text, summary, payload, message_id, created_at, updated_at FROM checkins"),
+    checkin_revisions: await q('SELECT * FROM checkin_revisions'),
+    checkin_prompts: await q("SELECT user_id, DATE_FORMAT(date, '%Y-%m-%d') date, kind, message_id, created_at FROM checkin_prompts"),
+    app_settings: await q('SELECT * FROM app_settings'),
   };
   fs.mkdirSync(DIR, { recursive: true });
   const file = path.join(DIR, today() + '.json');

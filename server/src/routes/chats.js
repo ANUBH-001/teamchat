@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const rt = require('../realtime');
+const checkins = require('../checkins');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -40,17 +41,13 @@ const MSG_SELECT =
   'FROM messages m JOIN users u ON u.id = m.sender_id ' +
   'LEFT JOIN messages rm ON rm.id = m.reply_to_id LEFT JOIN users ru ON ru.id = rm.sender_id ';
 
-async function isMember(chatId, userId) {
-  const [[r]] = await pool.query(
-    'SELECT 1 x FROM chat_members cm JOIN chats c ON c.id = cm.chat_id ' +
-    'WHERE cm.chat_id = ? AND cm.user_id = ? AND cm.left_at IS NULL AND c.deleted_at IS NULL', [chatId, userId]);
-  return !!r;
-}
+// Membership incl. the check-in privacy guard (realtime.MEMBER_OK): nobody but the owner can open a check-in chat.
+const isMember = (chatId, userId) => rt.isChatMember(chatId, userId);
 
 async function statusFor(chatId, userId) {
   const [rows] = await pool.query(
-    'SELECT user_id, last_read_message_id r, last_delivered_message_id d FROM chat_members ' +
-    'WHERE chat_id = ? AND left_at IS NULL AND user_id <> ?', [chatId, userId]);
+    'SELECT cm.user_id, cm.last_read_message_id r, cm.last_delivered_message_id d ' + rt.MEMBER_FROM +
+    'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND cm.user_id <> ? AND ' + rt.MEMBER_OK, [chatId, userId]);
   if (!rows.length) return { delivered: 0, read: 0 };
   const read = Math.min(...rows.map((o) => Number(o.r || 0)));
   const delivered = Math.max(read, Math.min(...rows.map((o) => Number(o.d || 0))));
@@ -69,7 +66,8 @@ async function chatSummaries(user, onlyChatId) {
      JOIN chats c ON c.id = cm.chat_id
      LEFT JOIN messages lm ON lm.id = (SELECT MAX(id) FROM messages WHERE chat_id = c.id)
      LEFT JOIN users su ON su.id = lm.sender_id
-     WHERE cm.user_id = ? AND cm.left_at IS NULL AND c.deleted_at IS NULL` + (onlyChatId ? ' AND c.id = ?' : ''),
+     WHERE cm.user_id = ? AND cm.left_at IS NULL AND c.deleted_at IS NULL
+       AND (c.type <> 'checkin' OR c.owner_id = cm.user_id)` + (onlyChatId ? ' AND c.id = ?' : ''),
     onlyChatId ? [user.id, user.id, onlyChatId] : [user.id, user.id]);
   const dmIds = rows.filter((r) => r.type === 'dm').map((r) => r.id);
   const others = {};
@@ -95,8 +93,9 @@ async function chatSummaries(user, onlyChatId) {
       createdAt: r.lm_at,
     } : null,
   }));
+  const rank = (c) => (c.type === 'all' ? 0 : c.type === 'checkin' ? 1 : 2); // All Team, then Daily Check-in, then newest
   list.sort((a, b) => {
-    if ((a.type === 'all') !== (b.type === 'all')) return a.type === 'all' ? -1 : 1;
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
     const ta = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
     const tb = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
     return tb - ta;
@@ -221,6 +220,8 @@ router.post('/:id/messages', async (req, res) => {
     }
     const [[saved]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [id]);
     const message = formatMessage(saved, req.user);
+    const [[chatRow]] = await pool.query('SELECT type FROM chats WHERE id = ?', [chatId]);
+    const checkinChat = !!chatRow && chatRow.type === 'checkin';
 
     // sender has seen their own message; connected recipients get it delivered
     const members = await rt.memberIds(chatId);
@@ -234,11 +235,14 @@ router.post('/:id/messages', async (req, res) => {
         'UPDATE chat_members SET last_delivered_message_id = GREATEST(COALESCE(last_delivered_message_id, 0), ?) ' +
         'WHERE chat_id = ? AND user_id IN (?)', [id, chatId, online]);
     }
+    if (checkinChat) await checkins.botSeen(chatId, id); // Team Assistant "reads" check-in replies (ticks)
     for (const u of members) rt.sendToUser(u, { type: 'message', message });
     await rt.pushStatus(chatId);
     res.status(201).json({ message });
     // AI task engine runs after the reply; it can never delay or fail the send.
     setImmediate(() => require('../ai/engine').onMessage(message, req.user).catch((e) => console.error('ai engine:', e.message)));
+    // A typed/voice reply in the member's own check-in chat is also stored as today's check-in text.
+    if (checkinChat) setImmediate(() => checkins.onChatMessage(message, req.user).catch((e) => console.error('checkin:', e.message)));
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }

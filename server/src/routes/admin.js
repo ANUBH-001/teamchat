@@ -4,6 +4,7 @@ const pool = require('../db');
 const { requireAuth, requireBoss } = require('../middleware/auth');
 const { hashCode } = require('./auth');
 const rt = require('../realtime');
+const checkins = require('../checkins');
 
 const router = express.Router();
 router.use(requireAuth, requireBoss);
@@ -22,11 +23,14 @@ async function createInvite(userId) {
   return code;
 }
 
-// Boss: read any chat, optionally with soft-deleted messages (text included)
+// Boss: read any chat, optionally with soft-deleted messages (text included).
+// Never a member's private check-in chat: the boss reads check-ins only via /admin/checkins.
 router.get('/chats/:id/messages', async (req, res) => {
   try {
     const { formatMessage, MSG_SELECT } = require('./chats');
     const chatId = parseInt(req.params.id, 10);
+    const [[chat]] = await pool.query('SELECT type FROM chats WHERE id = ?', [chatId]);
+    if (chat && chat.type === 'checkin') return res.status(403).json({ error: 'Not allowed' });
     const before = parseInt(req.query.before, 10);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
     const incl = req.query.includeDeleted === '1';
@@ -62,6 +66,7 @@ router.post('/users', async (req, res) => {
     const [r] = await pool.query('INSERT INTO users (phone, name, role) VALUES (?, ?, ?)', [phone, name, role]);
     const [[chat]] = await pool.query("SELECT id FROM chats WHERE type = 'all' AND deleted_at IS NULL LIMIT 1");
     if (chat) await pool.query('INSERT IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)', [chat.id, r.insertId]);
+    if (role === 'member') await checkins.ensureChat(r.insertId).catch((e) => console.error('checkin chat:', e.message)); // private 'Daily Check-in' chat (member + bot only)
     const inviteCode = await createInvite(r.insertId);
     rt.sendToBosses({ type: 'users' }).catch(() => {});
     if (chat) rt.sendToChat(chat.id, { type: 'chat', chatId: chat.id }).catch(() => {});
@@ -103,6 +108,7 @@ router.patch('/users/:id', async (req, res) => {
     const [r] = await pool.query('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ? AND is_bot = 0', [...vals, id]);
     if (!r.affectedRows) return res.status(404).json({ error: 'User not found' });
     if (req.body.active !== undefined && !req.body.active) rt.closeUser(id);
+    if (req.body.active) await checkins.ensureChat(id).catch((e) => console.error('checkin chat:', e.message)); // no-op for bosses or if it exists
     rt.sendToBosses({ type: 'users' }).catch(() => {});
     res.json({ ok: true });
   } catch (e) {

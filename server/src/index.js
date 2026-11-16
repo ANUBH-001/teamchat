@@ -19,7 +19,9 @@ app.get('/health', async (req, res) => {
 });
 
 app.use('/auth', require('./routes/auth'));
+app.use('/admin/checkins', require('./routes/checkins').admin); // boss-only Reports (before /admin)
 app.use('/admin', require('./routes/admin'));
+app.use('/checkins', require('./routes/checkins').member);
 app.use('/chats', require('./routes/chats'));
 app.use('/tasks', require('./routes/tasks'));
 app.use('/', require('./routes/misc'));
@@ -30,3 +32,4 @@ require('./realtime').attach(server);
 const port = process.env.PORT || 3000;
 server.listen(port, () => console.log('Server on :' + port));
 require('./backup').start();
+require('./checkins').start(); // daily check-in prompts / nudges (1-minute tick, TZ)

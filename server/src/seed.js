@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const pool = require('./db');
 const { hashCode } = require('./routes/auth');
 const { botUserId } = require('./ai/bot');
+const { ensureChat } = require('./checkins');
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function newCode() {
@@ -40,7 +41,9 @@ for (let i = 5; i <= 11; i++) {
     await pool.query('INSERT IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)', [chat.id, id]);
   }
   await botUserId(); // 'Team Assistant' system user for AI bot messages
-  console.log('Seeded ' + ids.length + ' users, Team Assistant bot and All Team chat');
+  // private 'Daily Check-in' chat (member + bot) for every member; the boss gets none
+  for (let i = 0; i < people.length; i++) if (people[i][2] === 'member') await ensureChat(ids[i]);
+  console.log('Seeded ' + ids.length + ' users, Team Assistant bot, All Team chat and Daily Check-in chats');
 
   // Invite codes (SHA-256 hashed, same as routes/admin.js). Plaintext shown only here, once.
   console.log('\nInvite codes (shown once):');

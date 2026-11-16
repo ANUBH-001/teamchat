@@ -20,9 +20,22 @@ async function sendToBosses(event) {
   for (const r of rows) sendToUser(r.id, event);
 }
 
+// Privacy guard (aliases c = chats, cm = chat_members, u = users of cm): a 'checkin' chat counts only its owner
+// and the bot as members, even if some other chat_members row existed by mistake (boss included).
+const MEMBER_OK = "(c.type <> 'checkin' OR cm.user_id = c.owner_id OR u.is_bot = 1)";
+const MEMBER_FROM = 'FROM chat_members cm JOIN chats c ON c.id = cm.chat_id JOIN users u ON u.id = cm.user_id ';
+
 async function memberIds(chatId) {
-  const [rows] = await pool.query('SELECT user_id FROM chat_members WHERE chat_id = ? AND left_at IS NULL', [chatId]);
+  const [rows] = await pool.query(
+    'SELECT cm.user_id ' + MEMBER_FROM + 'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND ' + MEMBER_OK, [chatId]);
   return rows.map((r) => r.user_id);
+}
+
+async function isChatMember(chatId, userId) {
+  const [[r]] = await pool.query(
+    'SELECT 1 x ' + MEMBER_FROM + 'WHERE cm.chat_id = ? AND cm.user_id = ? AND cm.left_at IS NULL AND c.deleted_at IS NULL AND ' +
+    MEMBER_OK, [chatId, userId]);
+  return !!r;
 }
 
 async function sendToChat(chatId, event, exceptUserId) {
@@ -32,9 +45,10 @@ async function sendToChat(chatId, event, exceptUserId) {
 // Per member S: lowest delivered/read pointer among the OTHER members (own messages with id <= pointer got that tick).
 async function pushStatus(chatId) {
   const [rows] = await pool.query(
-    'SELECT user_id, last_read_message_id r, last_delivered_message_id d FROM chat_members WHERE chat_id = ? AND left_at IS NULL',
-    [chatId]);
+    'SELECT cm.user_id, u.is_bot, cm.last_read_message_id r, cm.last_delivered_message_id d ' + MEMBER_FROM +
+    'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND ' + MEMBER_OK, [chatId]);
   for (const me of rows) {
+    if (me.is_bot) continue;
     const others = rows.filter((o) => o.user_id !== me.user_id);
     if (!others.length) continue;
     const read = Math.min(...others.map((o) => Number(o.r || 0)));
@@ -46,7 +60,7 @@ async function pushStatus(chatId) {
 // Mark everything in the user's chats as delivered (they are now connected).
 async function markDeliveredOnConnect(userId) {
   const [chats] = await pool.query(
-    'SELECT chat_id FROM chat_members WHERE user_id = ? AND left_at IS NULL', [userId]);
+    'SELECT cm.chat_id ' + MEMBER_FROM + 'WHERE cm.user_id = ? AND cm.left_at IS NULL AND ' + MEMBER_OK, [userId]);
   for (const { chat_id } of chats) {
     const [r] = await pool.query(
       `UPDATE chat_members SET last_delivered_message_id = (SELECT MAX(id) FROM messages WHERE chat_id = ?)
@@ -89,9 +103,7 @@ function attach(server) {
         const m = JSON.parse(String(raw));
         if (m.type !== 'typing') return;
         const chatId = parseInt(m.chatId, 10);
-        const [[mem]] = await pool.query(
-          'SELECT 1 x FROM chat_members WHERE chat_id = ? AND user_id = ? AND left_at IS NULL', [chatId, user.id]);
-        if (mem) await sendToChat(chatId, { type: 'typing', chatId, userId: user.id, name: user.name }, user.id);
+        if (await isChatMember(chatId, user.id)) await sendToChat(chatId, { type: 'typing', chatId, userId: user.id, name: user.name }, user.id);
       } catch (e) { /* ignore bad frames */ }
     });
     ws.on('close', () => {
@@ -109,4 +121,6 @@ function attach(server) {
   }, 30000);
 }
 
-module.exports = { attach, closeUser, isOnline, sendToUser, sendToChat, sendToBosses, memberIds, pushStatus };
+module.exports = {
+  attach, closeUser, isOnline, sendToUser, sendToChat, sendToBosses, memberIds, isChatMember, pushStatus, MEMBER_OK, MEMBER_FROM,
+};
