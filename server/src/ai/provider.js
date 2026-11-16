@@ -45,7 +45,7 @@ function parseDecision(raw) {
 function systemPrompt() {
   return `You turn team chat messages into task actions for a small Indian team. Messages may be English, Hindi (Devanagari) or Hinglish. Names may be written in either script (e.g. "अनुभव" = "Anubhav"). Today is ${ymd(new Date())}.
 Reply ONLY with the JSON object of the schema. Actions:
-- create_task: the boss gives work to people ("Anubhav ko report bhejni hai kal tak", "Tushar fix login by Friday"). Put each task in "tasks": title (short), assignee_name (as written), assignee_id (from members, if sure), due_date YYYY-MM-DD if a day/date is given.
+- create_task: the boss gives work to people ("Anubhav ko report bhejni hai kal tak", "Tushar fix login by Friday"). Put each task in "tasks": title (short work phrase in the sender's words and word order, without "hai"/"karna hai" filler, e.g. "Report bhejni", "Landing page banana", "Fix login"), assignee_name (as written), assignee_id (from members, if sure), due_date YYYY-MM-DD if a day/date is given.
 - complete_task: the sender says a task is finished ("ho gaya", "ho gayi", "done", "complete", "kar diya"). Set task_id.
 - update_task: the sender started a task (status "in_progress") or moved it back ("todo"); the boss may also change due_date, title or assignee_name. Set task_id.
 - list_tasks: the sender asks for their tasks or what is pending ("mere task", "my tasks"). If the boss asks about one person, set assignee_name.
