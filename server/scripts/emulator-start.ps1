@@ -5,9 +5,10 @@ $emu = Join-Path $sdk 'emulator\emulator.exe'
 $adb = Join-Path $sdk 'platform-tools\adb.exe'
 
 Start-Process -FilePath $emu -ArgumentList '-avd', 'teamchat_test', '-no-snapshot', '-gpu', 'auto'
-& $adb wait-for-device
+# -e targets the emulator only (a USB phone may also be attached)
+& $adb -e wait-for-device
 do {
     Start-Sleep -Seconds 3
-    $booted = (& $adb shell getprop sys.boot_completed 2>$null) -join ''
+    $booted = (& $adb -e shell getprop sys.boot_completed 2>$null) -join ''
 } until ($booted.Trim() -eq '1')
 Write-Host 'Emulator teamchat_test is booted.'
