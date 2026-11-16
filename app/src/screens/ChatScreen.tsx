@@ -12,6 +12,8 @@ import { enqueue, flushOutbox, newClientId, onSent, pendingFor, removeFromOutbox
 import Avatar from '../components/Avatar';
 import Bubble from '../components/Bubble';
 import { TickStatus } from '../components/Tick';
+import VoiceBar, { MicButton } from '../components/VoiceBar';
+import { toast, useVoiceInput } from '../useVoiceInput';
 
 type Item = { kind: 'date'; key: string; label: string } | { kind: 'msg'; key: string; msg: Msg };
 
@@ -119,8 +121,10 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
     return () => { off(); offSent(); clearInterval(retry); if (typingTimer.current) clearTimeout(typingTimer.current); };
   }, [chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const send = () => {
-    const body = text.trim();
+  const voice = useVoiceInput();
+
+  const send = (raw = text) => {
+    const body = raw.trim();
     if (!body) return;
     const clientId = newClientId();
     const createdAt = new Date().toISOString();
@@ -129,6 +133,18 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
     }]));
     setText('');
     enqueue(chat.id, body, clientId, createdAt);
+  };
+
+  // voice: stop -> transcript goes into the text box to edit; send -> sent at once; X -> discarded
+  const toBox = (said: string) => {
+    if (!said) { toast('Kuch sunai nahi diya'); return; }
+    setText((cur) => (cur ? cur + ' ' + said : said));
+  };
+  const voiceStop = async () => toBox(await voice.finish());
+  const voiceSend = async () => {
+    const said = await voice.finish();
+    if (!said) { toast('Kuch sunai nahi diya'); return; }
+    send(said);
   };
 
   const onChange = (v: string) => {
@@ -221,6 +237,12 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
           )
         }
       />
+      {voice.recording ? (
+        <VoiceBar
+          t={t} levels={voice.levels} transcript={voice.transcript} lang={voice.lang} bottom={insets.bottom}
+          onToggleLang={voice.toggleLang} onCancel={voice.cancel} onStop={voiceStop} onSend={voiceSend}
+        />
+      ) : (
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', padding: 8, paddingBottom: 8 + insets.bottom }}>
         <TextInput
           value={text}
@@ -233,13 +255,18 @@ export default function ChatScreen({ chat, onBack }: { chat: Chat; onBack: () =>
             paddingHorizontal: 14, paddingVertical: 8, fontSize: 16,
           }}
         />
-        <Pressable
-          onPress={send}
-          style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', marginLeft: 6 }}
-        >
-          <Text style={{ color: '#fff', fontSize: 20 }}>{'➤'}</Text>
-        </Pressable>
+        {voice.available && !text.trim() ? (
+          <MicButton t={t} onPress={() => voice.start(toBox)} />
+        ) : (
+          <Pressable
+            onPress={() => send()}
+            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', marginLeft: 6 }}
+          >
+            <Text style={{ color: '#fff', fontSize: 20 }}>{'➤'}</Text>
+          </Pressable>
+        )}
       </View>
+      )}
     </KeyboardAvoidingView>
   );
 }

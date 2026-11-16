@@ -9,12 +9,22 @@
     ],
     "userInterfaceStyle": "automatic",
     "android": {
-      "package": "com.teamchat.app"
+      "package": "com.teamchat.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       "expo-notifications",
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "TeamChat uses the microphone for voice typing.",
+          "speechRecognitionPermission": "TeamChat uses speech recognition for voice typing."
+        }
+      ]
     ],
     "extra": {
       "serverUrl": "http://10.0.2.2:3000"

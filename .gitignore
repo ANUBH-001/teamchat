@@ -7,3 +7,5 @@ google-services.json
 firebase*.json
 *service-account*.json
 .localdb/
+app/android/
+app/ios/
