@@ -1,6 +1,6 @@
 # Frontend (app/)
 
-Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5. Type-checked and run on the Android emulator in Expo Go 2.32.20 (2026-11-16, see projectProgess.md); not yet run on a real phone.
+Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5. Type-checked and run on the Android emulator in Expo Go 2.32.20 (2026-11-16, see projectProgess.md); run on a real OnePlus phone over USB in Expo Go (2026-11-16: login + chat send OK).
 
 ## Run
 1. `cd app; npm install` (includes `@react-native-async-storage/async-storage` 1.23.1 for the outbox). In a folder path with `&`, `npx` fails under cmd; use `node node_modules/typescript/lib/tsc.js --noEmit` / `node node_modules/expo/bin/cli ...`.
@@ -44,3 +44,11 @@ Token kept in SecureStore. On start, if a token exists the app calls `/auth/me`:
 - New API call: `api('GET', '/path')` from `src/api.ts` (token added automatically); add the type to `chatTypes.ts` and document the endpoint in backend.md.
 - New realtime event: handle it inside `onEvent` in the screen and add it to the WebSocket section of backend.md.
 - Known: plain FlatList chat (no gifted-chat); swipe-to-reply not built.
+
+## Real phone (USB, Expo Go SDK 52)
+Works only while the PC runs the server and the phone is on USB (or the same Wi-Fi). Restart, from `d:&D	eam-app` (adb = `D:\Android\Sdk\platform-toolsdb.exe`, phone serial `de4eaf03`; always pass `-s` because the emulator is also attached):
+1. DB (if 127.0.0.1:3307 is down): `powershell -ExecutionPolicy Bypass -File server/scripts/localdb-start.ps1`
+2. Server: `cd server; node src/index.js` (port 3000).
+3. USB tunnel (repeat after every re-plug): `adb -s de4eaf03 reverse tcp:3000 tcp:3000` and `adb -s de4eaf03 reverse tcp:8081 tcp:8081`.
+4. Expo: `cd app; $env:EXPO_PUBLIC_SERVER_URL='http://localhost:3000'; $env:ANDROID_SERIAL='de4eaf03'; node node_modules/expo/bin/cli start --android --localhost` (installs/opens Expo Go; or in Expo Go use "Enter URL manually": `exp://127.0.0.1:8081`).
+`EXPO_PUBLIC_SERVER_URL` overrides `app.json` serverUrl (config.ts), so the emulator default `10.0.2.2` stays in the repo. Wi-Fi route instead: skip step 3, set `EXPO_PUBLIC_SERVER_URL=http://<PC LAN IP>:3000`, start Expo without `--localhost`, open `exp://<PC LAN IP>:8081`; allow ports 3000/8081 in Windows Firewall.
