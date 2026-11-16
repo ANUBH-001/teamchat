@@ -1,12 +1,23 @@
 {
   "expo": {
+    "newArchEnabled": true,
     "name": "TeamChat",
     "slug": "teamchat",
     "version": "0.1.0",
-    "platforms": ["android"],
+    "platforms": [
+      "android"
+    ],
     "userInterfaceStyle": "automatic",
-    "android": { "package": "com.teamchat.app" },
-    "plugins": ["expo-notifications"],
-    "extra": { "serverUrl": "http://10.0.2.2:3000" }
+    "android": {
+      "package": "com.teamchat.app"
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-asset",
+      "expo-font"
+    ],
+    "extra": {
+      "serverUrl": "http://10.0.2.2:3000"
+    }
   }
 }
