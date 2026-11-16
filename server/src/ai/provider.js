@@ -1,4 +1,4 @@
-// Swappable AI provider. AI_PROVIDER = mock (default) | openai | gemini; AI_API_KEY, AI_MODEL optional.
+// Swappable AI provider. AI_PROVIDER = mock (default) | openai | gemini | anthropic; AI_API_KEY, AI_MODEL optional.
 // decide({message, sender, members, openTasks}) -> decision (always passed through parseDecision):
 //   {action: create_task|complete_task|update_task|list_tasks|none|clarify,
 //    task_id, status, title, assignee_name, assignee_id, due_date, tasks:[{title, assignee_name, assignee_id, due_date}], confidence}
@@ -137,6 +137,22 @@ async function gemini(ctx) {
   return parts && parts[0] ? parts[0].text : null;
 }
 
+// Anthropic Messages API: forced tool use returns the decision schema as tool input.
+// SCHEMA has type arrays ([x,'null']) which Anthropic accepts as JSON Schema.
+async function anthropic(ctx) {
+  const data = await post('https://api.anthropic.com/v1/messages',
+    { 'x-api-key': process.env.AI_API_KEY, 'anthropic-version': '2023-06-01' }, {
+      model: process.env.AI_MODEL || 'claude-haiku-5-5',
+      max_tokens: 1024,
+      system: systemPrompt(),
+      messages: [{ role: 'user', content: userPrompt(ctx) }],
+      tools: [{ name: 'task_action', description: 'Report the task action for the chat message.', input_schema: SCHEMA }],
+      tool_choice: { type: 'tool', name: 'task_action' },
+    });
+  const block = data && Array.isArray(data.content) && data.content.find((b) => b && b.type === 'tool_use');
+  return block ? block.input : null;
+}
+
 // ---------- mock: deterministic keyword rules (works without a key) ----------
 const CREATE_VERB = /(karna|karni|karne|karo|kar do|kar dena|kar lena|bhejna|bhejni|bhej do|bhejo|banana|banani|banao|dekhna|dekh lo|chahiye|करना|करनी|करो|कर दो|कर देना|भेजना|भेजनी|भेज दो|बनाना|बनानी|देखना|चाहिए)/i;
 const DONE_RE = /(ho gaya|ho gayi|ho gya|ho gyi|ho gai|hogaya|hogayi|kar diya|kar di|kar liya|complete|completed|\bdone\b|finished|khatam|हो गया|हो गई|हो गयी|कर दिया|कर दी|पूरा|खत्म)/i;
@@ -202,6 +218,7 @@ async function decide(ctx) {
   try {
     if (p === 'openai' && process.env.AI_API_KEY) raw = await openai(ctx);
     else if (p === 'gemini' && process.env.AI_API_KEY) raw = await gemini(ctx);
+    else if (p === 'anthropic' && process.env.AI_API_KEY) raw = await anthropic(ctx);
     else raw = mock(ctx); // mock, unknown provider, or missing key
   } catch (e) {
     // bad key / quota / timeout / network: keep the feature working with the keyword rules
