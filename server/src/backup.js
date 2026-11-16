@@ -1,5 +1,5 @@
 // Nightly JSON backup -> server/backup/YYYY-MM-DD.json (keeps the last 30). `npm run backup` runs one now.
-require('dotenv').config();
+require('./env');
 const fs = require('fs');
 const path = require('path');
 const pool = require('./db');

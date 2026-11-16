@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('./env');
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'change-me') {
   console.error('Set a real JWT_SECRET in server/.env');
   process.exit(1);

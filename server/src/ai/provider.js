@@ -141,7 +141,7 @@ async function gemini(ctx) {
 const CREATE_VERB = /(karna|karni|karne|karo|kar do|kar dena|kar lena|bhejna|bhejni|bhej do|bhejo|banana|banani|banao|dekhna|dekh lo|chahiye|करना|करनी|करो|कर दो|कर देना|भेजना|भेजनी|भेज दो|बनाना|बनानी|देखना|चाहिए)/i;
 const DONE_RE = /(ho gaya|ho gayi|ho gya|ho gyi|ho gai|hogaya|hogayi|kar diya|kar di|kar liya|complete|completed|\bdone\b|finished|khatam|हो गया|हो गई|हो गयी|कर दिया|कर दी|पूरा|खत्म)/i;
 const START_RE = /(shuru|start|started|kar raha|kar rahi|working on|in progress|chal raha|शुरू|कर रहा|कर रही)/i;
-const LIST_RE = /((mere|meri|my)\s+(sare\s+|saare\s+|all\s+)?(tasks?|kaam)|tasks?\s+(list|status|summary|batao|dikhao)|pending|baaki|baki|मेरे\s*(काम|टास्क)|बाकी)/i;
+const LIST_RE = /((mere|meri|my)\s+(sare\s+|saare\s+|all\s+)?(tasks?|kaam)|(tasks?|kaam)\s+(\S+\s+)?(list|status|summary|batao|dikhao)|pending|baaki|baki|मेरे\s*(काम|टास्क)|बाकी)/i;
 const TAIL = /\s*(karna hai|karni hai|karne hai|karna h|kar dena|kar do|kar lena|karo|hai|h|करना है|करनी है|कर दो|कर देना|करो|है)\s*[.!।]*\s*$/i;
 const DUE_WORDS = /\s*\b(by\s+)?(kal|aaj|parso|tomorrow|today)(\s+tak)?\b|\s*(कल|आज|परसों)(\s+तक)?/gi;
 
@@ -184,7 +184,8 @@ function mock({ message, sender, members, openTasks }) {
   if (sender.role === 'boss' && assign) {
     return { action: 'create_task', tasks: [{ title: assign[1], assignee_name: assign[2], due_date: dueFrom(message) }], confidence: 0.9 };
   }
-  if (DONE_RE.test(message)) return pickTask('complete_task', message, openTasks);
+  // "shuru kar diya" = started, not done
+  if (DONE_RE.test(message) && !/(shuru|start|शुरू)/i.test(message)) return pickTask('complete_task', message, openTasks);
   if (START_RE.test(message)) return pickTask('update_task', message, openTasks, { status: 'in_progress' });
   if (LIST_RE.test(message)) {
     const lower = message.toLowerCase();
@@ -198,9 +199,15 @@ function mock({ message, sender, members, openTasks }) {
 async function decide(ctx) {
   const p = (process.env.AI_PROVIDER || 'mock').toLowerCase();
   let raw;
-  if (p === 'openai' && process.env.AI_API_KEY) raw = await openai(ctx);
-  else if (p === 'gemini' && process.env.AI_API_KEY) raw = await gemini(ctx);
-  else raw = mock(ctx); // mock, unknown provider, or missing key
+  try {
+    if (p === 'openai' && process.env.AI_API_KEY) raw = await openai(ctx);
+    else if (p === 'gemini' && process.env.AI_API_KEY) raw = await gemini(ctx);
+    else raw = mock(ctx); // mock, unknown provider, or missing key
+  } catch (e) {
+    // bad key / quota / timeout / network: keep the feature working with the keyword rules
+    console.error('ai provider ' + p + ' failed (' + (e.name === 'AbortError' ? 'timeout' : e.message) + '), using mock rules');
+    raw = mock(ctx);
+  }
   return parseDecision(raw);
 }
 
