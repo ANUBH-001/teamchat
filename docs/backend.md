@@ -1,13 +1,14 @@
 # Backend (server/)
 
-Node + Express + `ws` + MySQL (mysql2, plain SQL). Built through Phase 5. Not tested (by design).
+Node + Express + `ws` + MySQL (mysql2, plain SQL). Built through Phase 5; one full local test pass done 2026-11-16 (see projectProgess.md).
 
 ## Setup / run
 1. `cd server; npm install`.
-2. Copy `.env.example` to `.env`: `DB_HOST=localhost`, `DB_USER=root`, `DB_PASSWORD=`, `DB_NAME=teamchat`, `PORT=3000`, `JWT_SECRET=change-me` (set a real one), `AI_PROVIDER=mock|openai|gemini`, `AI_API_KEY=`, `AI_MODEL=` (optional; defaults `gpt-4.1-mini` / `gemini-2.5-flash`). No key -> mock. `BACKUP_HOUR=2` (local hour of the nightly backup).
+2. Copy `.env.example` to `.env`: `DB_HOST=localhost`, `DB_PORT=3306`, `DB_USER=root`, `DB_PASSWORD=`, `DB_NAME=teamchat`, `PORT=3000`, `JWT_SECRET` (required: the server exits if it is empty or `change-me`), `AI_PROVIDER=mock|openai|gemini`, `AI_API_KEY=`, `AI_MODEL=` (optional; defaults `gpt-4.1-mini` / `gemini-2.5-flash`). No key -> mock. `BACKUP_HOUR=2` (local hour of the nightly backup).
 3. Schema: new DB -> run `sql/schema.sql` (creates DB `teamchat`). Existing older DB -> run the missing ones in order: `sql/migrate_001.sql` (auth lockout, invite hash size), `migrate_002.sql` (read/delivered pointers, messages.client_id), `migrate_003.sql` (tasks.completed_at, task_events.source), `migrate_004.sql` (users.is_bot, messages.type + payload, task_events.message_id).
 4. `npm run seed` (once): creates 11 users (phones 9000000001..9000000011; Rishit 9000000004 is boss), the "Team Assistant" bot user and the "All Team" chat, and prints one-time invite codes (plaintext only shown there; DB keeps SHA-256). Re-run skips activated users and issues fresh codes for the others.
 5. `npm start` -> server on `PORT` (default 3000). Secrets live only in `.env` (git-ignored).
+6. Local dev DB (optional, Windows, MySQL 8.4 installed): `powershell -ExecutionPolicy Bypass -File server/scripts/localdb-start.ps1` runs a project-local mysqld on 127.0.0.1:3307 (root, no password, data in `.localdb/`, git-ignored; first run creates it and loads `schema.sql`); set `DB_HOST=127.0.0.1`, `DB_PORT=3307` in `.env`. Stop: `server/scripts/localdb-stop.ps1` (data kept). It uses `--no-defaults`, so another MySQL install is not touched.
 
 ## Layout
 `src/index.js` (app, route mounting, /health, http+ws server) | `src/db.js` (mysql pool) | `src/middleware/auth.js` (requireAuth, requireBoss) | `src/realtime.js` (WebSocket) | `src/tasks.js` (task logic, shared by routes and AI) | `src/ai/{provider,engine,names,bot}.js` (AI task engine) | `src/routes/{auth,admin,chats,tasks,misc}.js` | `src/backup.js` (nightly backup) | `src/seed.js` | `sql/schema.sql`, `sql/migrate_001..004.sql`.
@@ -22,7 +23,7 @@ Node + Express + `ws` + MySQL (mysql2, plain SQL). Built through Phase 5. Not te
 - push_tokens(user_id, token UNIQUE) is unused now (no Firebase; table left in place, harmless). message_revisions exists but is not written yet (backed up anyway).
 
 ## Auth
-Header `Authorization: Bearer <JWT>` (30 days, payload {id}). requireAuth re-reads the user each call. All errors are `{ "error": "message" }`. Missing/bad token or unknown/inactive user: 401 `Not authenticated`. Boss-only routes: 403 `Not allowed`. Unexpected failure: 500 `Server error`.
+Header `Authorization: Bearer <JWT>` (HS256 only, 30 days, payload {id}). requireAuth re-reads the user each call. All errors are `{ "error": "message" }`. Missing/bad token or unknown/inactive user: 401 `Not authenticated`. Boss-only routes: 403 `Not allowed`. Unexpected failure: 500 `Server error`.
 
 ## API
 Public user object: `{id, phone, name, role}`.
@@ -36,7 +37,7 @@ Public user object: `{id, phone, name, role}`.
 - GET /admin/users -> 200 `{users:[{id,phone,name,role,active,activated,created_at}]}`.
 - POST /admin/users body `{name, phone, role?}` (role 'boss' else member). 201 `{user:{id,phone,name,role,active}, inviteCode}`. 400 `Name is required` | `Invalid phone number` (7-15 digits, optional +). 409 `Phone already exists`. Auto-added to All Team.
 - POST /admin/users/:id/invite -> 200 `{inviteCode}`; clears PIN and lock (reset PIN), voids older codes. 404 `User not found`.
-- PATCH /admin/users/:id body `{active?, name?}` -> 200 `{ok:true}`. 400 `Cannot deactivate yourself` | `Invalid name` | `Nothing to update`. 404 `User not found`.
+- PATCH /admin/users/:id body `{active?, name?}` -> 200 `{ok:true}`; deactivating also closes that user's live WebSockets (code 4401). 400 `Cannot deactivate yourself` | `Invalid name` | `Nothing to update`. 404 `User not found`.
 - GET /admin/chats/:id/messages?before=&limit=(1-200, default 50)&includeDeleted=1 -> 200 `{messages}` (any chat, deleted text included).
 
 ### /chats (any logged-in user; must be a member)
@@ -58,10 +59,10 @@ Message object: `{id, chatId, senderId, senderName, text (null if deleted and vi
 
 
 ### /health
-GET /health -> 200 `{ok:true, db:true}`; 500 `{ok:false, db:false}`. Note: currently behind auth because of route order (see projectProgess.md).
+GET /health (public) -> 200 `{ok:true, db:true}`; 500 `{ok:false, db:false}`.
 
 ### /tasks (token required; `/health` is public)
-Task object: `{id,title,description,assigneeId,assigneeName,createdBy,status,dueDate 'YYYY-MM-DD'|null,completedAt,createdAt,updatedAt}`. Errors: 400 `Title is required` | `Invalid assignee` | `Invalid due date` | `Invalid status` | `Nothing to update` | `Nothing to undo`; 403 `Not allowed`; 404 `Task not found`.
+Task object: `{id,title,description,assigneeId,assigneeName,createdBy,status,dueDate 'YYYY-MM-DD'|null,completedAt,createdAt,updatedAt}`. Errors: 400 `Title is required` | `Invalid assignee` | `Invalid due date` (format or impossible date like 2026-02-31) | `Invalid status` | `Nothing to update` | `Nothing to undo`; 403 `Not allowed`; 404 `Task not found`.
 - GET /tasks?assignee=<id|all>&status=&q= -> `{tasks}`. Decision: everyone may read all tasks (read-only); default is all for boss, own for member. Sorted open first, by due date.
 - GET /tasks/summary -> `{users:[{id,name,total,todo,in_progress,done}], overall:{...}}` (active users).
 - GET /tasks/mine/summary -> `{done:[{id,title,dueDate}], in_progress:[...], todo:[...]}` for the caller.

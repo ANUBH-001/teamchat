@@ -2,17 +2,24 @@
 
 | Phase | What | Status |
 |---|---|---|
-| 0 | Folders, MySQL schema, Express server, Expo skeleton, seed users + All Team | DONE (built, not tested by design) |
-| 1 | Login (phone + PIN + invite), Admin add members | DONE (built, not tested by design) |
-| 2 | WhatsApp UI + chat: groups/DMs, realtime, history, soft delete, reconnect + outbox | DONE (built, not tested by design) |
-| 3 | Tasks tab, filters, counts, My Tasks, task APIs + realtime | DONE (built, not tested by design) |
-| 4 | AI engine: assign / complete / summary / undo (mock, OpenAI, Gemini providers; Team Assistant bot cards) | DONE (built, not tested by design) |
-| 5 | Offline / backup / push: reconnect + outbox (Phase 2), nightly JSON backup, local notifications from WebSocket events (no FCM; tap opens chat) | DONE (built, not tested by design) |
+| 0 | Folders, MySQL schema, Express server, Expo skeleton, seed users + All Team | DONE (server tested 2026-11-16) |
+| 1 | Login (phone + PIN + invite), Admin add members | DONE (server tested 2026-11-16) |
+| 2 | WhatsApp UI + chat: groups/DMs, realtime, history, soft delete, reconnect + outbox | DONE (server tested 2026-11-16) |
+| 3 | Tasks tab, filters, counts, My Tasks, task APIs + realtime | DONE (server tested 2026-11-16) |
+| 4 | AI engine: assign / complete / summary / undo (mock, OpenAI, Gemini providers; Team Assistant bot cards) | DONE (server tested 2026-11-16) |
+| 5 | Offline / backup / push: reconnect + outbox (Phase 2), nightly JSON backup, local notifications from WebSocket events (no FCM; tap opens chat) | DONE (server tested 2026-11-16) |
 | 6 | Git: repo https://github.com/ANUBH-001/teamchat (branch main), first commit pushed, no secrets. User said keep pushing future phases there | DONE |
+| 6b | Firebase removed + ONE local test pass (allowed once by Manish, 2026-11-16) | DONE |
 | 7 | Deploy: release APK + server (only when told, after Git) | TODO |
 
 ## In progress now
 Nothing. Waiting for the go-ahead.
+
+## Local test pass (2026-11-16, done; no more testing without a new go-ahead)
+- Setup: project-local MySQL 8.4 on 127.0.0.1:3307 (`server/scripts/localdb-start.ps1`), fresh `schema.sql` (matches migrate_001..004), seed, AI mock.
+- Result: 186 automated API/WebSocket/AI checks (auth, admin, chats, WS events/ticks/reconnect, tasks/undo/events, AI mock Hinglish + Devanagari, AI failure handling with a stubbed provider: bad key, garbage output, out-of-scope task id, 15 s timeout), backup content, secret scan, SQL params: all pass after fixes. App: `tsc --noEmit` clean, `expo config` valid.
+- Bugs fixed: deactivated user's open WebSocket kept receiving events; impossible due date (2026-02-31) gave 500; assigneeId as string logged a fake reassign event; app dependency `async-storage@1.23.2` does not exist (npm install failed) -> 1.23.1. Hardening: JWT pinned to HS256; server refuses to start with an empty/`change-me` JWT_SECRET.
+- Not tested: real AI provider (the key file `d:\r&D\.env` was empty), the app on a phone/emulator (UI, local notifications, outbox, reconnect), Expo build. Mock AI does not assign in a DM when no name is given (the real model path handles it).
 
 ## Next step
 Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
@@ -25,8 +32,8 @@ Phase 7: deploy (only when told). Until then: commit + push each change to origi
 - Create `server/.env` from `.env.example` (set JWT_SECRET).
 - Set `serverUrl` in `app/app.json` (`extra.serverUrl`) for a real phone (PC LAN IP); default `http://10.0.2.2:3000` is the Android emulator.
 - Run `npm install` in `server/` and in `app/` (new dep `@react-native-async-storage/async-storage`).
-- Code is unverified: nothing has been run or tested (by design).
+- Server verified once locally (above); the app only type-checked.
 - react-native-gifted-chat was replaced by a plain FlatList; swipe-to-reply was skipped.
 - No UI yet for viewing deleted messages; the API exists (`GET /admin/chats/:id/messages?includeDeleted=1`).
-- Firebase removed (2026-11-16): realtime is WebSocket only; local notifications while the app process is alive. Run `npm install` again in `server/` (firebase-admin gone). Not in Expo Go. One local test pass is pending.
+- Firebase removed (2026-11-16): realtime is WebSocket only; local notifications while the app process is alive. Run `npm install` again in `server/` (firebase-admin gone). Release APK needs an HTTPS server URL (plain http is blocked in release builds).
 - Backup: `server/backup/` nightly after `BACKUP_HOUR` (default 2, local time); `npm run backup` for a manual run. Decisions: simple 1-minute check instead of cron; local alerts only for a newly assigned bot task.

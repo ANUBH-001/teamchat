@@ -1,12 +1,12 @@
 # Frontend (app/)
 
-Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5; not tested (by design).
+Expo (SDK 52) React Native + TypeScript, Android only. Built through Phase 5. Type-checked (`tsc --noEmit` clean) and `expo config` valid on 2026-11-16; not yet run on a phone.
 
 ## Run
-1. `cd app; npm install` (includes `@react-native-async-storage/async-storage` for the outbox).
+1. `cd app; npm install` (includes `@react-native-async-storage/async-storage` 1.23.1 for the outbox). In a folder path with `&`, `npx` fails under cmd; use `node node_modules/typescript/lib/tsc.js --noEmit` / `node node_modules/expo/bin/cli ...`.
 2. Server must be running (see backend.md).
 3. `npx expo start` (or `npm run android`) and open on an emulator or phone.
-4. Server address: `app/app.json` -> `expo.extra.serverUrl`. Default `http://10.0.2.2:3000` = host PC as seen from the Android emulator. For a real phone use the PC's LAN IP (e.g. `http://192.168.1.20:3000`, same Wi-Fi). Later: the public HTTPS domain. Read in `src/config.ts`; the WebSocket URL is derived (http -> ws).
+4. Server address: `app/app.json` -> `expo.extra.serverUrl`. Default `http://10.0.2.2:3000` = host PC as seen from the Android emulator. For a real phone use the PC's LAN IP (e.g. `http://192.168.1.20:3000`, same Wi-Fi). Later: the public HTTPS domain (a release APK blocks plain `http://` unless cleartext is enabled, so use HTTPS for release). Read in `src/config.ts`; the WebSocket URL is derived (http -> ws).
 
 ## Structure
 - `App.tsx`: AuthProvider; shows spinner (loading), LoginScreen (no user), or bottom tabs Chats | Tasks | Admin ("Account" for members). Starts realtime when logged in, stops on logout.
