@@ -80,6 +80,7 @@ export default function AdminScreen() {
       <FlatList
         data={users}
         keyExtractor={(u) => String(u.id)}
+        keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <View>
             <Text style={{ color: t.text, fontWeight: '700', fontSize: 16, marginBottom: 8 }}>Add member</Text>
@@ -118,7 +119,8 @@ export default function AdminScreen() {
               </TouchableOpacity>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Text style={{ color: t.subtext, marginRight: 6 }}>{u.active ? 'Active' : 'Deactivated'}</Text>
-                <Switch value={u.active} onValueChange={() => toggle(u)} disabled={u.id === user?.id} />
+                <Switch value={u.active} onValueChange={() => toggle(u)} disabled={u.id === user?.id}
+                  trackColor={{ true: t.accent, false: t.border }} thumbColor="#fff" />
               </View>
             </View>
           </View>

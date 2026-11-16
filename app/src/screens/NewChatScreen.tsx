@@ -70,6 +70,7 @@ export default function NewChatScreen({
             style={{ margin: 10, backgroundColor: t.background, color: t.text, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 }}
           />
           <FlatList
+            keyboardShouldPersistTaps="handled"
             data={shown}
             keyExtractor={(p) => String(p.id)}
             renderItem={({ item }) => {

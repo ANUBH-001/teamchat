@@ -11,6 +11,9 @@ import ChatsScreen from './src/screens/ChatsScreen';
 import TasksScreen from './src/screens/TasksScreen';
 import AdminScreen from './src/screens/AdminScreen';
 import { light, dark } from './src/theme';
+import { Ionicons } from '@expo/vector-icons';
+
+const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = { Chats: 'chatbubbles', Tasks: 'checkbox', Admin: 'people' };
 
 const Tab = createBottomTabNavigator();
 
@@ -45,13 +48,14 @@ function Root() {
     <NavigationContainer>
       <StatusBar style="light" />
       <Tab.Navigator
-        screenOptions={{
+        screenOptions={({ route }) => ({
+          tabBarIcon: ({ color, size }) => <Ionicons name={ICONS[route.name]} color={color} size={size} />,
           headerStyle: { backgroundColor: t.primary },
           headerTintColor: '#FFFFFF',
           tabBarStyle: { backgroundColor: t.card },
           tabBarActiveTintColor: t.accent,
           tabBarInactiveTintColor: t.subtext,
-        }}
+        })}
       >
         <Tab.Screen name="Chats" component={ChatsScreen} options={{ headerShown: false }} />
         <Tab.Screen name="Tasks" component={TasksScreen} />

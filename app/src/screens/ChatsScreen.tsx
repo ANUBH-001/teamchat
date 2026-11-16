@@ -20,6 +20,7 @@ export default function ChatsScreen() {
   const [view, setView] = useState<View_>({ k: 'list' });
   const [chats, setChats] = useState<Chat[]>([]);
   const [q, setQ] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const viewRef = useRef(view);
   viewRef.current = view;
   useEffect(() => {
@@ -29,6 +30,7 @@ export default function ChatsScreen() {
 
   const load = useCallback(async () => {
     try { setChats((await api<{ chats: Chat[] }>('GET', '/chats')).chats); } catch (e) {}
+    setLoaded(true);
   }, []);
 
   // notification tap -> open that chat
@@ -93,10 +95,11 @@ export default function ChatsScreen() {
       <FlatList
         data={shown}
         keyExtractor={(c) => String(c.id)}
+        keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => (
           <ChatRow chat={item} t={t} meId={user!.id} onPress={() => setView({ k: 'chat', chat: item })} />
         )}
-        ListEmptyComponent={<Text style={{ color: t.subtext, textAlign: 'center', marginTop: 40 }}>No chats</Text>}
+        ListEmptyComponent={<Text style={{ color: t.subtext, textAlign: 'center', marginTop: 40 }}>{loaded ? 'No chats' : 'Loading...'}</Text>}
       />
       <Pressable
         onPress={fab}
