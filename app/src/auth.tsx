@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { api, ApiError, clearToken, getToken, saveToken, User } from './api';
+import { endSession } from './background';
 
 type Ctx = {
   user: User | null;
@@ -25,7 +26,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (e) {
         // drop the token only when the server rejected it, not when offline
-        if (e instanceof ApiError && e.status === 401) await clearToken();
+        if (e instanceof ApiError && e.status === 401) { await clearToken(); await endSession(); }
       }
       setLoading(false);
     })();
@@ -43,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     activate: async (phone, inviteCode, pin) =>
       finish(await api('POST', '/auth/activate', { phone, inviteCode, pin })),
     logout: async () => {
+      await endSession(); // stops socket, alerts, foreground service, reminders
       await clearToken();
       setUser(null);
     },

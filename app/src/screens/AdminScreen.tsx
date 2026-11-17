@@ -7,6 +7,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
 import ReportsScreen, { CheckinSettingsScreen } from './ReportsScreen';
+import BackgroundCard from '../components/BackgroundCard';
 
 type Row = { id: number; phone: string; name: string; role: string; active: boolean; activated: boolean };
 
@@ -80,6 +81,7 @@ export default function AdminScreen() {
   if (user?.role !== 'boss') {
     return <View style={{ flex: 1, padding: 16, backgroundColor: t.background }}>
       <Text style={{ color: t.subtext }}>Only the boss can manage members.</Text>
+      <BackgroundCard />
       {logoutBtn}
     </View>;
   }
@@ -152,7 +154,7 @@ export default function AdminScreen() {
             </View>
           </View>
         )}
-        ListFooterComponent={logoutBtn}
+        ListFooterComponent={<View><BackgroundCard />{logoutBtn}</View>}
       />
     </View>
   );

@@ -4,7 +4,7 @@ import { emitEvent, onEvent } from './realtime';
 import { CheckinSettings } from './chatTypes';
 
 // No Firebase/FCM: alerts are LOCAL notifications raised from WebSocket 'message' events.
-// They only work while the app process is alive (foreground or recently backgrounded).
+// They only work while the app process is alive; the foreground service (background.ts) keeps it alive.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
 });

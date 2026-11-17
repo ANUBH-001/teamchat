@@ -1,0 +1,6 @@
+{
+  "name": "teamchat-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Expo module: Android foreground service that keeps the TeamChat WebSocket alive"
+}

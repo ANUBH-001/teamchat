@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { AppState } from 'react-native';
-import { startRealtime, stopRealtime } from './src/realtime';
-import { setupNotifications, listenNotificationTaps, listenMessageAlerts, clearCheckinReminders } from './src/push';
+import { setupNotifications, listenNotificationTaps, clearCheckinReminders } from './src/push';
+import { startSession } from './src/background';
 import { loadCheckinToday, clearCheckinToday } from './src/checkinStore';
 import { useColorScheme, View, ActivityIndicator } from 'react-native';
 import { AuthProvider, useAuth } from './src/auth';
@@ -32,11 +32,12 @@ function Root() {
   const { user, loading } = useAuth();
   useEffect(() => {
     if (!user) return;
-    startRealtime();
-    setupNotifications();
+    // socket + alerts + foreground service live in background.ts (kept when the UI unmounts, e.g. swiped
+    // from recents); they stop only in endSession() on logout (auth.tsx)
+    let live = true;
+    setupNotifications().then(() => { if (live) startSession(user.id); });
     const offTaps = listenNotificationTaps();
-    const offAlerts = listenMessageAlerts(user.id);
-    return () => { stopRealtime(); offTaps(); offAlerts(); };
+    return () => { live = false; offTaps(); };
   }, [user]);
   // members: phone reminders for the daily check-ins (local notifications; settings come from the server)
   useEffect(() => {
@@ -45,7 +46,7 @@ function Root() {
     const sync = () => { loadCheckinToday(true).catch(() => {}); };
     sync();
     const sub = AppState.addEventListener('change', (st) => { if (st === 'active') sync(); });
-    return () => { sub.remove(); clearCheckinToday(); clearCheckinReminders(); };
+    return () => { sub.remove(); clearCheckinToday(); }; // reminders are cleared on logout (endSession)
   }, [user]);
   if (loading) {
     return (
