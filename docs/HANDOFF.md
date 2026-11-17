@@ -4,17 +4,17 @@ Project: WhatsApp-style team chat + AI task tracker for an 11-person team (Andro
 Docs: `ProjectContent.md` (idea + decisions), `projectProgess.md` (status), `backend.md` (all APIs, tables, privacy), `Frontend.md` (run, screens, how to collaborate), `PLAN.md` (original approved plan, partly historical). Project rules are in `CLAUDE.md`.
 
 ## Rules from the owner (must keep)
-- **ZERO TESTING** unless he says so: do not write/run tests, start servers to test, run tsc/node --check. Build only. He allowed test passes earlier; they are finished. Latest features (Phase 8a swipe-reply/live updates, 8b daily check-ins) and the voice mic speech accuracy are UNTESTED on purpose.
+- **ZERO TESTING** unless he says so: do not write/run tests, start servers to test, run tsc/node --check. Build only. He allowed test passes earlier (last: 8a/8b on 2026-11-17); they are finished. Voice speech accuracy is still untested.
 - Local + Git only. **Deploy (Phase 7) only when he says.** Never commit `.env`, `.localdb/`, `server/backup/`, `app/android/`, APKs, Firebase files. Push only to `ANUBH-001/teamchat`.
 - Keep it simple: Express + MySQL (`mysql2`, plain SQL) + Expo React Native. No Docker/ORM/monorepo tools. No Firebase (removed): realtime = WebSocket; notifications are local, work only while the app process is alive (check-in reminders are scheduled local notifications).
 - CEO mode (global `C:\Users\Manish\.claude\CLAUDE.md`): main session plans/delegates, light-worker (haiku) / standard-worker (sonnet) / heavy-thinker (opus) / Critical -> Fable. Tell every sub-agent "no tests". Update the docs after every phase/change and keep them concise (condense old details; target < ~150 lines per doc).
 - Token rules: Grep/Glob before Read, read line ranges, Edit not rewrite, short replies, few agents.
 - Commit trailer he asked for: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` (earlier agents used an Opus line; not rewritten, would need force push, needs his OK).
 
-## State (2026-11-16)
-Phases 0-6 DONE (setup, login phone+PIN+invite, chat, tasks, AI engine, backup, Git) and tested once. Extras DONE: voice mic (on-device speech recognition `expo-speech-recognition`, needs the dev build, not Expo Go), Phase 8a (swipe-to-reply, live updates, pull-to-refresh, paging), Phase 8b (private "Daily Check-in" chat per member: morning plan / evening work report, linked to tasks; boss reads silently in Admin -> Reports; settings; local reminders). 8a/8b untested.
+## State (2026-11-17)
+Phases 0-6 DONE (setup, login phone+PIN+invite, chat, tasks, AI engine, backup, Git) and tested once. Extras DONE: voice mic (on-device speech recognition `expo-speech-recognition`, needs the dev build, not Expo Go), Phase 8a (swipe-to-reply, live updates, pull-to-refresh, paging), Phase 8b (private "Daily Check-in" chat per member: morning plan / evening work report, linked to tasks; boss reads silently in Admin -> Reports; settings; local reminders). 8a/8b tested 2026-11-17 (server, privacy, emulator UI, tab mic bar; 4 bugs fixed, see projectProgess.md). Local DB is migrated (005+006) and `server/.env` has `TZ=Asia/Kolkata`.
 **TODO:** Phase 7 deploy (user's own server, HTTPS domain, release APK that does not need the PC, MySQL on server, `TZ=Asia/Kolkata`); replace the 11 placeholder users with real names/phones via Admin; optional: stop task events reaching the boss for check-in-driven task changes; testing when he asks.
-**Local DB needs migrations:** `server/sql/migrate_005.sql` then `migrate_006.sql` must be run on the existing local DB (port 3307) BEFORE starting the new server code (chat queries use `chats.owner_id`). A fresh DB just uses `schema.sql`. The server process that may still be running was started before those changes: restart it after migrating.
+**Migrations:** the local DB (port 3307) already has 005+006. Any other existing DB must run `server/sql/migrate_005.sql` then `migrate_006.sql` before the server starts; a fresh DB just uses `schema.sql`.
 
 ## Environment on this PC (Windows 11)
 - Node v22. MySQL 8.4 is installed; the project uses its own instance: `powershell -ExecutionPolicy Bypass -File server/scripts/localdb-start.ps1` (127.0.0.1:3307, root, no password, data in `.localdb/`, git-ignored); stop with `localdb-stop.ps1`.
