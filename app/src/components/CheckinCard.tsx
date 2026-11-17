@@ -45,6 +45,7 @@ function CheckinCardBase({ msg, t, time, onMic }: Props) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const inited = useRef(false);
+  const seen = useRef<string | null>(null); // updatedAt of the submission this card last showed
 
   const isToday = !!today && today.date === p.date;
   const slot: CheckinSlot | null = today ? today[kind] : null;
@@ -67,9 +68,18 @@ function CheckinCardBase({ msg, t, time, onMic }: Props) {
       if (!alive) return;
       setToday(d);
       setFailed(false);
-      if (!inited.current && d.date === p.date) {
+      if (d.date !== p.date) return;
+      const stamp = d[kind].checkin ? String(d[kind].checkin!.updatedAt) : null;
+      if (!inited.current) {
         inited.current = true;
+        seen.current = stamp;
         setEditing(!d[kind].submitted);
+        fill(d);
+      } else if (stamp !== seen.current) {
+        // submitted/edited from another card (prompt + reminder) or a chat reply: show the new state,
+        // never keep an old form that could send stale task statuses back
+        seen.current = stamp;
+        setEditing(false);
         fill(d);
       }
     };
