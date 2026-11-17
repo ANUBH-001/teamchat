@@ -43,3 +43,14 @@ Apache rollback: `cp -p <vhost>.bak-teamchat-<time> <vhost>; apachectl configtes
 - Doosre apps/PM2/Apache/DB ko mat chhedo; sirf `team-chat-*` naam aur `/team_chat` path.
 - Member add: app ke Admin tab se (invite code wahi se). Backup roz 02:00 `server/backup/*.json` (server par), DB ka alag backup apne hisaab se.
 - Local `server/src/.env` me server password hai (git-ignored); chat/log me kabhi mat bhejo. Purane secrets rotate karne ki salah DEPLOYMENT_GUIDE.md me hai.
+
+## Release APK (Phase 7b, 2026-11-17)
+Output: `d:\r&D\TeamChat-release.apk` (~70 MB, Hermes bundle inside, talks to `https://apps.landauditors.com/team_chat`, no PC/Metro needed). `app.json` `extra.serverUrl` is the same URL.
+Keystore: `D:\Android\keystore\teamchat-release.jks` (alias `teamchat`); passwords only in `D:\Android\keystore\README-keystore.txt` and `D:\Android\gradle\gradle.properties` (`TEAMCHAT_*` keys). Back the keystore up: a lost key means no in-place updates.
+Rebuild (PowerShell; `subst T: "D:\r&D\team-app"` if missing; `android/` is generated, `app/build.gradle` release `signingConfig` reads the `TEAMCHAT_*` properties):
+```
+$env:EXPO_PUBLIC_SERVER_URL='https://apps.landauditors.com/team_chat'; $env:JAVA_HOME='D:\Android\jdk17'; $env:ANDROID_HOME='D:\Android\Sdk'; $env:GRADLE_USER_HOME='D:\Android\gradle'
+cd T:\app\android; .\gradlew.bat assembleRelease     # ~18 min first time
+```
+APK: `app/android/app/build/outputs/apk/release/app-release.apk`. If `expo prebuild` regenerates `android/`, re-apply the release signingConfig in `app/android/app/build.gradle`. Minify is off (default).
+Install: the old debug build has a different signature, so UNINSTALL it first. On OnePlus: App info -> Battery usage -> "Allow background activity".

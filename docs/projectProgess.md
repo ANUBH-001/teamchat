@@ -14,7 +14,7 @@
 | 8a | UI: swipe-to-reply (migrate_005), live updates everywhere + pull-to-refresh + foreground/reconnect refetch + paging, memoized rows, loading/empty states | DONE (tested 2026-11-17) |
 | 8b | Daily check-ins (plan 11b): server + app (check-in chat cards, boss Reports + settings, local reminders) | DONE (tested 2026-11-17) |
 | 9 | Background alerts without Firebase: Android foreground service (local Expo module `modules/teamchat-service`) keeps the WebSocket alive; Account-tab card + battery settings (see Frontend.md) | DONE (tested on the tab 2026-11-17) |
-| 7 | Deploy: release APK + server (only when told, after Git) | TODO |
+| 7 | Deploy: server (7a) + signed release APK (7b, 2026-11-17, not yet tested on device) | DONE |
 
 ## In progress now
 Phase 9 (foreground service) tested on the tab 2026-11-17 (below); 8a/8b tested 2026-11-17; zero-testing applies again. Each OnePlus phone needs App info -> Battery usage -> "Allow background activity". Remaining: Phase 7 deploy (only when told). Manual steps before use: run `server/sql/migrate_005.sql` then `migrate_006.sql` on an existing DB, set `TZ=Asia/Kolkata` in `server/.env`; the JS-only app changes load through Metro into the existing dev build.
@@ -52,7 +52,7 @@ Phase 9 (foreground service) tested on the tab 2026-11-17 (below); 8a/8b tested 
 - Untested: real speech -> text (the emulator mic gets no host voice), Hindi/Hinglish accuracy, auto-stop after 60 s, behaviour on the OnePlus. The phone still runs Expo Go (no voice there); voice needs the dev build installed on the phone, to be done only after the user agrees.
 
 ## Next step
-Phase 7: deploy (only when told). Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
+Phase 7 done (7a server, 7b release APK). Owner installs and tests the APK; then real AI key + real users. Until then: commit + push each change to origin/main (user approved pushing to ANUBH-001/teamchat only).
 
 ## Known gaps / manual steps
 - Existing DB must run the missing `server/sql/migrate_001..006.sql` in order (a fresh DB just runs `schema.sql`).
