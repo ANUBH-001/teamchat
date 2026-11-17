@@ -3,7 +3,7 @@ import { requireOptionalNativeModule } from 'expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getToken } from './api';
 import { startRealtime, stopRealtime } from './realtime';
-import { listenMessageAlerts, clearCheckinReminders } from './push';
+import { listenMessageAlerts, clearCheckinReminders, dismissMessageAlerts } from './push';
 
 // Background alerts without Firebase: the local module modules/teamchat-service runs an Android
 // foreground service ("TeamChat connected") that keeps this JS process + the WebSocket alive when the
@@ -43,6 +43,7 @@ export async function endSession() {
   try { Native?.stop(); } catch (e) {}
   if (releaseTask) { releaseTask(); releaseTask = null; }
   clearCheckinReminders();
+  dismissMessageAlerts();
   await AsyncStorage.removeItem(USER_KEY).catch(() => {});
 }
 

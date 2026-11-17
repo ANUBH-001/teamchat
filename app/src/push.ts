@@ -78,6 +78,11 @@ export function listenMessageAlerts(myId: number) {
   });
 }
 
+// Logout: remove this user's message alerts still in the shade (the next user must not see them).
+export function dismissMessageAlerts() {
+  Notifications.dismissAllNotificationsAsync().catch(() => {});
+}
+
 // Listens for notification taps; returns an unsubscribe function.
 export function listenNotificationTaps() {
   Notifications.getLastNotificationResponseAsync().then(opened).catch(() => {});

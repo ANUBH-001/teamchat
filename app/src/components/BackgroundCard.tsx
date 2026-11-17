@@ -34,7 +34,8 @@ export default function BackgroundCard() {
       )}
       <Text style={{ color: t.subtext, marginTop: 8, lineHeight: 19 }}>
         App band hone par bhi messages ke alerts aayein, iske liye: niche button dabao aur TeamChat ko "Allow" / Battery
-        "Unrestricted" karo. OnePlus: App info {'>'} Battery usage {'>'} Unrestricted (aur "Allow background activity" on).
+        "Unrestricted" karo. OnePlus/Oppo/Realme (zaroori, warna screen off hote hi alerts ruk jaate hain): App info {'>'}
+        Battery usage {'>'} "Allow background activity" chuno ("Smart mode" nahi).
         Xiaomi/Redmi: App info {'>'} Autostart ON aur Battery saver {'>'} No restrictions. Recents mein app ko lock bhi kar sakte ho.
       </Text>
       <TouchableOpacity onPress={open} style={{ backgroundColor: t.accent, borderRadius: 20, paddingVertical: 10, alignItems: 'center', marginTop: 10 }}>

@@ -2,7 +2,7 @@
 START HERE: docs/HANDOFF.md (current state, how to run, owner rules, gotchas). Original plan: docs/PLAN.md (read only the section you need). Owner writes Hindi/Hinglish: reply in Hindi/Hinglish.
 
 ## Rules
-- ZERO TESTING again: Manish allowed the 8a/8b (swipe-reply, live updates, daily check-ins) test pass on 2026-11-17; it is finished. Build only; do not write/run tests, start servers or run the app to test, until Manish explicitly says. Tell every sub-agent "no tests".
+- ZERO TESTING again: Manish allowed the 8a/8b (swipe-reply, live updates, daily check-ins) test pass on 2026-11-17 and the Phase 9 foreground-service test on the tab (2026-11-17); both are finished. Build only; do not write/run tests, start servers or run the app to test, until Manish explicitly says. Tell every sub-agent "no tests".
 - Keep it SIMPLE: Express + MySQL (mysql2, plain SQL) + Expo RN. No Docker, ORM, monorepo tools, extra frameworks.
 - Order: build -> Git (only when told; never commit .env/secrets; ask before push) -> deploy (only when told). Local build only until then.
 - AI keys only in server .env. Soft delete only (deleted_at).
