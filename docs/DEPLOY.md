@@ -1,7 +1,6 @@
 # DEPLOY: Team Chat backend on the company server (done 2026-11-17)
 
-Backend live hai (7a). Frontend = Android release APK 0.2.0 (versionCode 2, `d:
-&DTeamChat-0.2.0.apk`, also at `/team_chat/download/TeamChat.apk`). Koi secret is file me nahi hai.
+Backend live hai (7a). Frontend = Android release APK 0.2.0 (versionCode 2, `d:\r&D\TeamChat-0.2.0.apk`, also at `/team_chat/download/TeamChat.apk`). Koi secret is file me nahi hai.
 
 | Cheez | Value |
 |---|---|
