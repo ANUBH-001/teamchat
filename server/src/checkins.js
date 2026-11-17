@@ -235,12 +235,14 @@ function basicSummary(kind, tasks, text) {
   };
 }
 
-// One cheap AI call; only written if the text is still the same (a newer edit wins). Failure keeps the basic one.
-async function refineSummary(id, kind, tasks, text) {
+// One cheap AI call; only written if text AND payload are still the same (a newer edit wins, e.g. a later
+// status-only change). Failure keeps the basic one.
+async function refineSummary(id, kind, payload, text) {
   if (!text) return;
-  const s = await provider.summarize({ kind, text, tasks });
+  const s = await provider.summarize({ kind, text, tasks: payload.tasks });
   if (!s) return;
-  await pool.query('UPDATE checkins SET summary = ? WHERE id = ? AND text = ?', [JSON.stringify(s), id, text]);
+  await pool.query('UPDATE checkins SET summary = ? WHERE id = ? AND text = ? AND payload = ?',
+    [JSON.stringify(s), id, text, JSON.stringify(payload)]);
 }
 
 // ---------- submit (POST /checkins) ----------
@@ -330,14 +332,17 @@ async function submit(user, body) {
   const newText = text !== undefined ? (text || null) : (existing ? existing.text : null);
   const snapIds = new Set(kind === 'morning' ? selectedTaskIds : Object.keys(taskStatuses).map(Number));
   const tasks = (await userTasks(user.id)).filter((t) => snapIds.has(t.id)).map(brief);
-  const row = await saveRow(existing, user.id, date, kind, newText, basicSummary(kind, tasks, newText),
-    { selectedTaskIds, taskStatuses, tasks }, message.id);
+  const payload = { selectedTaskIds, taskStatuses, tasks };
+  const row = await saveRow(existing, user.id, date, kind, newText, basicSummary(kind, tasks, newText), payload, message.id);
 
-  // 4. after the reply: AI engine on the free text (completes tasks the member names) + AI summary
-  if (text) {
+  // 4. after the reply: AI engine on new free text (completes tasks the member names) + AI summary of the whole row
+  if (newText) {
     setImmediate(async () => {
-      try { await require('./ai/engine').onMessage({ ...message, text }, user); } catch (e) { console.error('ai engine (checkin):', e.message); }
-      try { await refineSummary(row.id, kind, tasks, newText); } catch (e) { console.error('checkin summary:', e.message); }
+      // only NEW text: an edit resends the same text, and re-reading it would override the picked statuses
+      if (text && (!existing || text !== existing.text)) {
+        try { await require('./ai/engine').onMessage({ ...message, text }, user); } catch (e) { console.error('ai engine (checkin):', e.message); }
+      }
+      try { await refineSummary(row.id, kind, payload, newText); } catch (e) { console.error('checkin summary:', e.message); }
     });
   }
   return { checkin: shape(row), created: !existing, message, tasks: changed };
@@ -360,7 +365,7 @@ async function onChatMessage(message, user) {
   const payload = { selectedTaskIds: p.selectedTaskIds || [], taskStatuses: p.taskStatuses || {}, tasks: p.tasks || [] };
   const row = await saveRow(existing, user.id, now.date, kind, text, basicSummary(kind, payload.tasks, text), payload,
     existing && existing.message_id ? existing.message_id : message.id);
-  await refineSummary(row.id, kind, payload.tasks, text);
+  await refineSummary(row.id, kind, payload, text);
 }
 
 // ---------- reads ----------

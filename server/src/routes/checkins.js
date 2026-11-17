@@ -17,7 +17,10 @@ const h = (fn) => async (req, res) => {
 const member = express.Router();
 member.use(requireAuth);
 member.get('/today', h((req) => C.today(req.user)));
-member.get('/mine', h((req) => C.history(req.user.id, req.query.from, req.query.to)));
+member.get('/mine', h((req) => {
+  if (req.user.role !== 'member') throw new C.CheckinError(403, 'Not allowed'); // boss uses /admin/checkins
+  return C.history(req.user.id, req.query.from, req.query.to);
+}));
 member.post('/', h(async (req, res) => {
   const out = await C.submit(req.user, req.body);
   res.status(out.created ? 201 : 200);
