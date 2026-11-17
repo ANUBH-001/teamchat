@@ -1,6 +1,7 @@
 # DEPLOY: Team Chat backend on the company server (done 2026-11-17)
 
-Backend live hai (7a). Frontend = Android release APK (7b, v1; feedback-round rebuild pending, see bottom). Koi secret is file me nahi hai.
+Backend live hai (7a). Frontend = Android release APK 0.2.0 (versionCode 2, `d:
+&DTeamChat-0.2.0.apk`, also at `/team_chat/download/TeamChat.apk`). Koi secret is file me nahi hai.
 
 | Cheez | Value |
 |---|---|
@@ -55,8 +56,9 @@ cd T:\app\android; .\gradlew.bat assembleRelease     # ~18 min first time
 APK: `app/android/app/build/outputs/apk/release/app-release.apk`. If `expo prebuild` regenerates `android/`, re-apply the release signingConfig in `app/android/app/build.gradle`. Minify is off (default).
 Install: the old debug build has a different signature, so UNINSTALL it first. On OnePlus: App info -> Battery usage -> "Allow background activity".
 Feedback-round build: versionCode 2 (`app.json` + `src/version.ts`), new native dep `expo-clipboard`; same command, same keystore (so in-place update works for installed release builds).
+Version bump checklist: `app.json` (version + android.versionCode), `src/version.ts`, AND the generated `app/android/app/build.gradle` (`versionCode` / `versionName`, not regenerated without prebuild). Check with `aapt dump badging <apk>`.
 
-## Feedback round update (2026-11-17, server par abhi NAHI gaya)
+## Feedback round update (DONE 2026-11-17: pushed 2a76c17, migrate_007 applied, AI=anthropic live, APK uploaded, latest=2, min=0; DB backup /root/team-chat-dbbackup/pre-007-*.sql)
 Order zaroor yahi. Server code, migration, AI key, APK aur force-update settings ek saath jaate hain.
 1. Migration (naya server start se PEHLE; file me `USE` nahi hai, DB naam dena zaroori). Prod par sirf 007 baaki (001-006 schema me hain):
    `mysql -u team_chat_user -p team_chat_db < /opt/node/team-chat/server/sql/migrate_007.sql`

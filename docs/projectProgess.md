@@ -11,12 +11,12 @@
 | 6 | Git: https://github.com/ANUBH-001/teamchat (branch main, no secrets) | DONE |
 | 6b | Firebase removed | DONE |
 | 6c | Voice input (on-device speech, hi-IN / en-IN) | DONE (emulator UI; speech accuracy untested) |
-| 7a | Backend deployed: https://apps.landauditors.com/team_chat | DONE (old build; new code not yet deployed) |
-| 7b | Signed release APK (v1) | DONE (rebuild pending, see feedback round) |
+| 7a | Backend deployed: https://apps.landauditors.com/team_chat | DONE (feedback-round code live 2026-11-17) |
+| 7b | Signed release APK (v1) | DONE (now 0.2.0, versionCode 2) |
 | 8a | Swipe-to-reply, live updates, pull-to-refresh, paging | DONE (tested 2026-11-17) |
 | 8b | Daily check-ins (private chat per member, boss Reports) | DONE (tested 2026-11-17) |
 | 9 | Background alerts: Android foreground service keeps socket alive | DONE (tested on tab 2026-11-17) |
-| 10 | Feedback round (2026-11-17): slash commands, groups, Tasks overview/board, Settings, QoL, force update | BUILT, waiting for owner UI approval |
+| 10 | Feedback round (2026-11-17): slash commands, groups, Tasks overview/board, Settings, QoL, force update | DONE: approved, pushed, deployed, APK 0.2.0 |
 
 ## Feedback round (2026-11-17, "real-phone feedback")
 - Bugs: mirrored "No messages yet" text; AI engine silent when unsure (no public "no open task" reply); bot replies can be private (`messages.visible_to`).
