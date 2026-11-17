@@ -14,6 +14,10 @@ import TasksScreen from './src/screens/TasksScreen';
 import AdminScreen from './src/screens/AdminScreen';
 import { light, dark } from './src/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { checkVersion } from './src/updateStore';
+import { UpdateBanner, UpdateScreen } from './src/components/UpdateScreen';
+import { useUpdateState } from './src/updateStore';
 
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = { Chats: 'chatbubbles', Tasks: 'checkbox', Admin: 'people' };
 
@@ -21,21 +25,30 @@ const Tab = createBottomTabNavigator();
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Root />
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <Root />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
 function Root() {
   const t = useColorScheme() === 'dark' ? dark : light;
   const { user, loading } = useAuth();
+  const { required } = useUpdateState();
+  // force update: ask the server on start and whenever the app returns to the foreground (any 426 also blocks)
+  useEffect(() => {
+    checkVersion();
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') checkVersion(); });
+    return () => sub.remove();
+  }, []);
   useEffect(() => {
     if (!user) return;
     // socket + alerts + foreground service live in background.ts (kept when the UI unmounts, e.g. swiped
     // from recents); they stop only in endSession() on logout (auth.tsx)
     let live = true;
-    setupNotifications().then(() => { if (live) startSession(user.id); });
+    setupNotifications().then(() => { if (live) startSession(user.id, user.role); });
     const offTaps = listenNotificationTaps();
     return () => { live = false; offTaps(); };
   }, [user]);
@@ -48,6 +61,7 @@ function Root() {
     const sub = AppState.addEventListener('change', (st) => { if (st === 'active') sync(); });
     return () => { sub.remove(); clearCheckinToday(); }; // reminders are cleared on logout (endSession)
   }, [user]);
+  if (required) return <UpdateScreen />;
   if (loading) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.background }}>
@@ -59,6 +73,7 @@ function Root() {
   return (
     <NavigationContainer>
       <StatusBar style="light" />
+      <UpdateBanner />
       <Tab.Navigator
         screenOptions={({ route }) => ({
           tabBarIcon: ({ color, size }) => <Ionicons name={ICONS[route.name]} color={color} size={size} />,

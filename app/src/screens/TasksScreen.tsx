@@ -1,138 +1,183 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, ScrollView, TextInput, Pressable, RefreshControl, ActivityIndicator, BackHandler } from 'react-native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../useTheme';
 import { useAuth } from '../auth';
 import { api } from '../api';
+import { usePublicSettings } from '../publicSettings';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
-import { Mine, STATUSES, STATUS_COLOR, STATUS_LABEL, Status, Summary, Task } from '../taskTypes';
+import { ActivityEvent, STATUSES, STATUS_COLOR, STATUS_LABEL, Status, Summary, Task } from '../taskTypes';
 import Chip from '../components/Chip';
 import TaskRow from '../components/TaskRow';
 import TaskModal from '../components/TaskModal';
+import TaskBoard from '../components/TaskBoard';
+import TaskOverview, { TileKey } from '../components/TaskOverview';
+import TaskDetailScreen from './TaskDetailScreen';
 
-type Filter = { kind: 'all' } | { kind: 'user'; id: number } | { kind: 'status'; s: Status };
+type Seg = 'overview' | 'board' | 'list';
+type Filters = { status: Status | 'overdue' | 'open' | 'all'; assignee: 'all' | 'me' | number; project: string; q: string };
+const NO_FILTER: Filters = { status: 'all', assignee: 'all', project: '', q: '' };
 
 export default function TasksScreen() {
   const t = useTheme();
   const { user } = useAuth();
-  const isBoss = user?.role === 'boss';
+  const ps = usePublicSettings();
+  const me = user!;
+  const isBoss = me.role === 'boss';
+  const canCreate = isBoss || ps.membersCanAssign;
+  const [seg, setSeg] = useState<Seg>('overview');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sum, setSum] = useState<Summary | null>(null);
-  const [mine, setMine] = useState<Mine | null>(null);
-  const [tab, setTab] = useState<'all' | 'mine'>('all');
-  const [filter, setFilter] = useState<Filter>({ kind: 'all' });
-  const [modal, setModal] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [filters, setFilters] = useState<Filters>(NO_FILTER);
+  const [detail, setDetail] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
   const [err, setErr] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const focused = useIsFocused();
+  const nav = useNavigation();
+  // the sub-view draws its own header, so hide the tab header while it is open
+  useEffect(() => { nav.setOptions({ headerShown: detail === null }); }, [nav, detail]);
+  useEffect(() => {
+    if (detail === null || !focused) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setDetail(null); return true; });
+    return () => sub.remove();
+  }, [detail, focused]);
 
   const load = useCallback(async () => {
     try {
       const [a, b, c] = await Promise.all([
         api<{ tasks: Task[] }>('GET', '/tasks?assignee=all'),
         api<Summary>('GET', '/tasks/summary'),
-        api<Mine>('GET', '/tasks/mine/summary'),
+        api<{ events: ActivityEvent[] }>('GET', '/tasks/activity?limit=50').catch(() => ({ events: [] as ActivityEvent[] })),
       ]);
-      setTasks(a.tasks); setSum(b); setMine(c); setErr('');
+      setTasks(a.tasks); setSum(b); setActivity(c.events); setErr('');
     } catch (e: any) { setErr(e.message); }
     setLoaded(true);
   }, []);
-
   useEffect(() => { load(); }, [load]);
-  // counts, chips and lists update from WebSocket events, reconnect and app foreground
+  // lists, counts and the activity feed follow WebSocket task events, reconnect and app foreground
   useLiveRefresh(load, ['task', 'task_deleted']);
   const { refreshing, onRefresh } = usePullRefresh(load);
   const refreshControl = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.accent]} />;
 
-  const my = sum?.users.find((u) => u.id === user?.id);
-  const withTasks = sum?.users.filter((u) => u.total > 0) ?? [];
-  const shown = useMemo(() => tasks.filter((x) =>
-    filter.kind === 'all' ? true : filter.kind === 'user' ? x.assigneeId === filter.id : x.status === filter.s), [tasks, filter]);
-  const count = (s: Status) => tasks.filter((x) => x.status === s).length;
-  const open = (task: Task | null) => setModal({ open: true, task });
-  const onRow = useCallback((x: Task) => {
-    if (isBoss || x.assigneeId === user?.id) setModal({ open: true, task: x });
-  }, [isBoss, user?.id]);
-  const card = { backgroundColor: t.card, borderRadius: 10, padding: 10, marginRight: 8, minWidth: 130 };
-  const hScroll = { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: { paddingHorizontal: 10 } } as const;
+  const projects = useMemo(() => Array.from(new Set(tasks.map((x) => x.project).filter(Boolean) as string[])).sort(), [tasks]);
+  const people = useMemo(() => {
+    const m = new Map<number, string>();
+    tasks.forEach((x) => { if (x.assigneeId && x.assigneeName) m.set(x.assigneeId, x.assigneeName); });
+    return Array.from(m, ([id, name]) => ({ id, name })).filter((p) => p.id !== me.id);
+  }, [tasks, me.id]);
+  const shown = useMemo(() => {
+    const q = filters.q.trim().toLowerCase();
+    return tasks.filter((x) => {
+      if (filters.status === 'open' ? x.status === 'done' : filters.status === 'overdue' ? !(x.overdue && x.status !== 'done')
+        : filters.status !== 'all' && x.status !== filters.status) return false;
+      if (filters.assignee === 'me' ? x.assigneeId !== me.id : filters.assignee !== 'all' && x.assigneeId !== filters.assignee) return false;
+      if (filters.project && x.project !== filters.project) return false;
+      if (q && !(x.title.toLowerCase().includes(q) || (x.assigneeName || '').toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }, [tasks, filters, me.id]);
 
-  const bullets = (s: Status) => (mine?.[s] ?? []).length > 0 && (
-    <View key={s} style={{ marginBottom: 12 }}>
-      <Text style={{ color: STATUS_COLOR[s], fontWeight: '700', marginBottom: 4 }}>{STATUS_LABEL[s]} ({mine![s].length})</Text>
-      {mine![s].map((i) => (
-        <Text key={i.id} style={{ color: t.text, fontSize: 15, marginBottom: 2 }}>
-          {'• ' + i.title + (i.dueDate ? ' (due ' + i.dueDate + ')' : '')}
-        </Text>
-      ))}
-    </View>
+  const openTask = useCallback((x: Task) => setDetail(x.id), []);
+  const goList = (f: Partial<Filters>) => { setFilters({ ...NO_FILTER, ...f }); setSeg('list'); };
+  const onTile = (k: TileKey) => {
+    if (k === 'doneToday') goList({ status: 'done' });
+    else goList({ status: k });
+  };
+
+  if (detail !== null) return <TaskDetailScreen taskId={detail} onBack={() => setDetail(null)} onChanged={load} />;
+
+  const segBtn = (k: Seg, label: string) => (
+    <Pressable
+      key={k} onPress={() => setSeg(k)}
+      style={{ flex: 1, minHeight: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: seg === k ? t.card : 'transparent', elevation: seg === k ? 1 : 0 }}
+    >
+      <Text style={{ color: seg === k ? t.text : t.subtext, fontWeight: '600', fontSize: 14 }}>{label}</Text>
+    </Pressable>
   );
+  const chipRow = (children: React.ReactNode) => (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }} style={{ flexGrow: 0 }}>{children}</ScrollView>
+  );
+  const setF = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
 
   return (
     <View style={{ flex: 1, backgroundColor: t.background }}>
-      <View style={{ flexDirection: 'row', padding: 10, paddingBottom: 0 }}>
-        <Chip label="All Tasks" active={tab === 'all'} onPress={() => setTab('all')} />
-        <Chip label="My Tasks" active={tab === 'mine'} onPress={() => setTab('mine')} />
+      <View style={{ flexDirection: 'row', margin: 12, padding: 3, borderRadius: 12, backgroundColor: t.soft }}>
+        {segBtn('overview', 'Overview')}{segBtn('board', 'Board')}{segBtn('list', 'List')}
       </View>
-      {!!err && <Text style={{ color: '#D32F2F', padding: 10 }}>{err}</Text>}
-      <Text style={{ color: t.subtext, paddingHorizontal: 12, paddingVertical: 6 }}>
-        Me: {my?.total ?? 0} total, {my?.done ?? 0} done, {my?.in_progress ?? 0} doing, {my?.todo ?? 0} todo
-      </Text>
+      {!!err && <Text style={{ color: t.danger, paddingHorizontal: 16, paddingBottom: 8 }}>{err}</Text>}
 
-      {tab === 'mine' ? (
-        <ScrollView contentContainerStyle={{ padding: 14 }} refreshControl={refreshControl}>
-          {!mine && <ActivityIndicator color={t.accent} style={{ marginTop: 20 }} />}
-          {mine && !mine.done.length && !mine.in_progress.length && !mine.todo.length && (
-            <Text style={{ color: t.subtext }}>No tasks yet.</Text>
-          )}
-          {bullets('done')}{bullets('in_progress')}{bullets('todo')}
+      {!loaded ? (
+        <ActivityIndicator color={t.accent} style={{ marginTop: 30 }} />
+      ) : seg === 'overview' ? (
+        <ScrollView refreshControl={refreshControl} contentContainerStyle={{ paddingBottom: 90 }}>
+          <TaskOverview
+            sum={sum} activity={activity} canPraise={isBoss && ps.praiseEnabled}
+            onTile={onTile} onTeam={(id) => goList({ assignee: id })} onOpenTask={(id) => setDetail(id)}
+          />
         </ScrollView>
+      ) : seg === 'board' ? (
+        <TaskBoard tasks={tasks} onOpen={(id) => setDetail(id)} />
       ) : (
         <>
-          <View>
-            <ScrollView {...hScroll}>
-              {withTasks.map((u) => (
-                <TouchableOpacity key={u.id} style={card} onPress={() => setFilter({ kind: 'user', id: u.id })}>
-                  <Text style={{ color: t.text, fontWeight: '600' }}>{u.name}</Text>
-                  <Text style={{ color: t.subtext, fontSize: 12 }}>{u.total} total, {u.done} done, {u.todo + u.in_progress} pending</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginBottom: 4, backgroundColor: t.card, borderRadius: 22, paddingHorizontal: 14, minHeight: 44 }}>
+            <Ionicons name="search" size={18} color={t.subtext} />
+            <TextInput
+              value={filters.q} onChangeText={(q) => setF({ q })} placeholder="Search tasks" placeholderTextColor={t.subtext}
+              style={{ flex: 1, color: t.text, fontSize: 15, marginLeft: 8, paddingVertical: 8 }}
+            />
           </View>
-          <View>
-            <ScrollView {...hScroll}>
-              <Chip label={'All ' + tasks.length} active={filter.kind === 'all'} onPress={() => setFilter({ kind: 'all' })} />
-              {withTasks.map((u) => (
-                <Chip key={u.id} label={u.name + ' ' + u.total} active={filter.kind === 'user' && filter.id === u.id}
-                  onPress={() => setFilter({ kind: 'user', id: u.id })} />
-              ))}
+          {chipRow(
+            <>
+              <Chip label="All" active={filters.status === 'all'} onPress={() => setF({ status: 'all' })} />
+              <Chip label="Open" active={filters.status === 'open'} onPress={() => setF({ status: 'open' })} />
               {STATUSES.map((s) => (
-                <Chip key={s} label={STATUS_LABEL[s] + ' ' + count(s)} color={STATUS_COLOR[s]}
-                  active={filter.kind === 'status' && filter.s === s} onPress={() => setFilter({ kind: 'status', s })} />
+                <Chip key={s} label={STATUS_LABEL[s]} color={STATUS_COLOR[s]} active={filters.status === s} onPress={() => setF({ status: s })} />
               ))}
-            </ScrollView>
-          </View>
+              <Chip label="Overdue" color="#E5484D" active={filters.status === 'overdue'} onPress={() => setF({ status: 'overdue' })} />
+            </>,
+          )}
+          {chipRow(
+            <>
+              <Chip label="Everyone" active={filters.assignee === 'all'} onPress={() => setF({ assignee: 'all' })} />
+              <Chip label="Me" active={filters.assignee === 'me'} onPress={() => setF({ assignee: 'me' })} />
+              {people.map((p) => <Chip key={p.id} label={p.name} active={filters.assignee === p.id} onPress={() => setF({ assignee: p.id })} />)}
+            </>,
+          )}
+          {projects.length > 0 && chipRow(
+            <>
+              <Chip label="All projects" active={!filters.project} onPress={() => setF({ project: '' })} />
+              {projects.map((p) => <Chip key={p} label={p} active={filters.project === p} onPress={() => setF({ project: p })} />)}
+            </>,
+          )}
           <FlatList
             data={shown}
             keyExtractor={(x) => String(x.id)}
             refreshControl={refreshControl}
             initialNumToRender={14}
             windowSize={9}
-            renderItem={({ item }) => <TaskRow task={item} onPress={onRow} />}
-            ListEmptyComponent={
-              loaded
-                ? <Text style={{ color: t.subtext, padding: 16 }}>No tasks.</Text>
-                : <ActivityIndicator color={t.accent} style={{ marginTop: 30 }} />
-            }
+            style={{ marginTop: 6 }}
+            contentContainerStyle={{ paddingBottom: 90 }}
+            renderItem={({ item }) => <TaskRow task={item} onPress={openTask} />}
+            ListEmptyComponent={<Text style={{ color: t.subtext, padding: 24, textAlign: 'center' }}>No tasks match.</Text>}
           />
         </>
       )}
 
-      {isBoss && (
-        <TouchableOpacity onPress={() => open(null)} style={{ position: 'absolute', right: 18, bottom: 18, width: 56, height: 56,
-          borderRadius: 28, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', elevation: 4 }}>
-          <Text style={{ color: '#fff', fontSize: 30, marginTop: -2 }}>+</Text>
-        </TouchableOpacity>
+      {canCreate && (
+        <Pressable
+          onPress={() => setCreating(true)}
+          style={{ position: 'absolute', right: 18, bottom: 18, width: 56, height: 56, borderRadius: 28, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', elevation: 5 }}
+        >
+          <Ionicons name="add" size={30} color="#fff" />
+        </Pressable>
       )}
-      <TaskModal visible={modal.open} task={modal.task} people={sum?.users ?? []} isBoss={!!isBoss}
-        onClose={() => setModal({ open: false, task: null })} onDone={load} />
+      <TaskModal
+        visible={creating} meId={me.id} onClose={() => setCreating(false)} onDone={load}
+        people={(isBoss || ps.membersCanAssign ? sum?.users : sum?.users.filter((u) => u.id === me.id)) ?? []}
+      />
     </View>
   );
 }

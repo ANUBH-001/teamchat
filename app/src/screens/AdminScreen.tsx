@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList, Alert, Share, Switch, useColorScheme, RefreshControl, ActivityIndicator,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { light, dark } from '../theme';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
 import ReportsScreen, { CheckinSettingsScreen } from './ReportsScreen';
+import SettingsScreen from './SettingsScreen';
 import BackgroundCard from '../components/BackgroundCard';
 
 type Row = { id: number; phone: string; name: string; role: string; active: boolean; activated: boolean };
@@ -20,8 +22,11 @@ export default function AdminScreen() {
   const [invite, setInvite] = useState<{ label: string; code: string } | null>(null);
   const [err, setErr] = useState('');
   const [loaded, setLoaded] = useState(false);
-  const [sub, setSub] = useState<'main' | 'reports' | 'settings'>('main');
+  const [sub, setSub] = useState<'main' | 'reports' | 'settings' | 'app'>('main');
   const toMain = useCallback(() => setSub('main'), []);
+  const nav = useNavigation();
+  // sub-views draw their own header, so hide the tab header while one is open
+  useEffect(() => { nav.setOptions({ headerShown: sub === 'main' }); }, [nav, sub]);
 
   const load = useCallback(async () => {
     try {
@@ -88,6 +93,7 @@ export default function AdminScreen() {
 
   if (sub === 'reports') return <ReportsScreen onBack={toMain} />;
   if (sub === 'settings') return <CheckinSettingsScreen onBack={toMain} />;
+  if (sub === 'app') return <SettingsScreen onBack={toMain} />;
 
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: t.background }}>
@@ -103,6 +109,9 @@ export default function AdminScreen() {
         }
         ListHeaderComponent={
           <View>
+            <TouchableOpacity onPress={() => setSub('app')} style={{ ...btn, marginBottom: 16, flexDirection: 'row', justifyContent: 'center', minHeight: 48 }}>
+              <Text style={{ color: '#fff', fontWeight: '700' }}>Settings (AI, notifications, app update)</Text>
+            </TouchableOpacity>
             <Text style={{ color: t.text, fontWeight: '700', fontSize: 16, marginBottom: 8 }}>Daily check-ins</Text>
             <View style={{ flexDirection: 'row', marginBottom: 16 }}>
               <TouchableOpacity onPress={() => setSub('reports')} style={{ ...btn, flex: 1, marginRight: 8 }}>

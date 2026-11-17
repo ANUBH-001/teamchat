@@ -8,9 +8,10 @@ import Avatar from '../components/Avatar';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
 
 // mode 'dm': tap a person to start a chat. mode 'group': pick members -> name -> create.
+// mode 'add': add people to an existing group (hides `exclude`, calls onAdd with the picked ids).
 export default function NewChatScreen({
-  mode, onBack, onOpen,
-}: { mode: 'dm' | 'group'; onBack: () => void; onOpen: (c: Chat) => void }) {
+  mode, onBack, onOpen, exclude, onAdd,
+}: { mode: 'dm' | 'group' | 'add'; onBack: () => void; onOpen: (c: Chat) => void; exclude?: number[]; onAdd?: (ids: number[]) => Promise<void> }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const [people, setPeople] = useState<Person[]>([]);
@@ -41,8 +42,14 @@ export default function NewChatScreen({
     catch (e: any) { Alert.alert('Error', e.message); setBusy(false); }
   };
 
-  const shown = people.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
-  const title = mode === 'dm' ? 'New chat' : step === 'pick' ? 'Add members' : 'Group name';
+  const add = async () => {
+    if (!onAdd || busy || !picked.length) return;
+    setBusy(true);
+    try { await onAdd(picked); } catch (e: any) { Alert.alert('Error', e.message); setBusy(false); }
+  };
+
+  const shown = people.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()) && !(exclude ?? []).includes(p.id));
+  const title = mode === 'dm' ? 'New chat' : mode === 'add' ? 'Add members' : step === 'pick' ? 'Add members' : 'Group name';
 
   return (
     <View style={{ flex: 1, backgroundColor: t.card }}>
@@ -52,7 +59,10 @@ export default function NewChatScreen({
         </Pressable>
         <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', flex: 1 }}>{title}</Text>
         {mode === 'group' && step === 'pick' && picked.length > 0 && (
-          <Pressable onPress={() => setStep('name')}><Text style={{ color: '#fff', fontWeight: '700' }}>NEXT</Text></Pressable>
+          <Pressable onPress={() => setStep('name')} hitSlop={10}><Text style={{ color: '#fff', fontWeight: '700' }}>NEXT</Text></Pressable>
+        )}
+        {mode === 'add' && picked.length > 0 && (
+          <Pressable onPress={add} hitSlop={10}><Text style={{ color: '#fff', fontWeight: '700' }}>{busy ? '...' : 'ADD (' + picked.length + ')'}</Text></Pressable>
         )}
       </View>
       {step === 'name' ? (
@@ -99,7 +109,7 @@ export default function NewChatScreen({
                     <Text style={{ color: t.text, fontSize: 16 }}>{item.name}</Text>
                     <Text style={{ color: t.subtext, fontSize: 13 }}>{item.phone}</Text>
                   </View>
-                  {mode === 'group' && <Text style={{ color: t.accent, fontSize: 22 }}>{on ? '☑' : '☐'}</Text>}
+                  {mode !== 'dm' && <Text style={{ color: t.accent, fontSize: 22 }}>{on ? '☑' : '☐'}</Text>}
                 </Pressable>
               );
             }}

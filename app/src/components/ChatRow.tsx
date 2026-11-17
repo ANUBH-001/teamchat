@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Theme } from '../theme';
 import Avatar from './Avatar';
 import { Chat } from '../chatTypes';
@@ -13,17 +14,19 @@ function when(iso: string) {
   return d.toLocaleDateString();
 }
 
-function ChatRowBase({ chat, t, meId, onPress }: { chat: Chat; t: Theme; meId: number; onPress: (c: Chat) => void }) {
+function ChatRowBase({ chat, t, meId, onPress, onLongPress }: { chat: Chat; t: Theme; meId: number; onPress: (c: Chat) => void; onLongPress: (c: Chat) => void }) {
   const lm = chat.lastMessage;
   let preview = 'No messages yet';
   if (lm) {
     const body = lm.deleted ? 'This message was deleted' : lm.text ?? '';
-    const who = lm.senderId === meId ? 'You: ' : chat.type === 'group' || chat.type === 'all' ? lm.senderName + ': ' : '';
-    preview = who + body;
+    const kind = lm.type;
+    const who = kind === 'bot' || kind === 'system' ? '' : lm.senderId === meId ? 'You: ' : chat.type === 'group' || chat.type === 'all' ? lm.senderName + ': ' : '';
+    preview = (kind === 'bot' && !lm.deleted ? '📋 ' : '') + who + body;
   }
   return (
     <Pressable
       onPress={() => onPress(chat)}
+      onLongPress={() => onLongPress(chat)}
       style={{
         flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10,
         backgroundColor: t.card, borderBottomWidth: 1, borderBottomColor: t.border,
@@ -46,10 +49,12 @@ function ChatRowBase({ chat, t, meId, onPress }: { chat: Chat; t: Theme; meId: n
           >
             {preview}
           </Text>
+          {!!chat.muted && <Ionicons name="volume-mute" size={15} color={t.subtext} style={{ marginLeft: 6 }} />}
+          {!!chat.pinned && <Ionicons name="pin" size={15} color={t.subtext} style={{ marginLeft: 6 }} />}
           {chat.unread > 0 && (
             <View
               style={{
-                backgroundColor: t.accent, minWidth: 20, height: 20, borderRadius: 10,
+                backgroundColor: chat.muted ? t.subtext : t.accent, minWidth: 20, height: 20, borderRadius: 10,
                 alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginLeft: 8,
               }}
             >

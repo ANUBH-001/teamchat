@@ -14,6 +14,11 @@ function sendToUser(userId, event) {
   for (const ws of set) if (ws.readyState === 1) ws.send(data);
 }
 
+function sendToAll(event) {
+  const data = JSON.stringify(event);
+  for (const set of clients.values()) for (const ws of set) if (ws.readyState === 1) ws.send(data);
+}
+
 // Tell every connected boss something changed (e.g. member list) so their screens refetch.
 async function sendToBosses(event) {
   const [rows] = await pool.query("SELECT id FROM users WHERE role = 'boss' AND active = 1");
@@ -82,7 +87,11 @@ function attach(server) {
   wss.on('connection', async (ws, req) => {
     let user;
     try {
-      const token = new url.URL(req.url, 'http://x').searchParams.get('token');
+      const params = new url.URL(req.url, 'http://x').searchParams;
+      // Force update: app version below minVersionCode (query v, missing = 0) -> closed with 4426.
+      const s = await require('./settings').all();
+      if (s.minVersionCode > (parseInt(params.get('v'), 10) || 0)) return ws.close(4426, 'UPDATE_REQUIRED');
+      const token = params.get('token');
       const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
       const [[u]] = await pool.query('SELECT id, name, active FROM users WHERE id = ?', [payload.id]);
       if (!u || !u.active) throw new Error('bad user');
@@ -122,5 +131,5 @@ function attach(server) {
 }
 
 module.exports = {
-  attach, closeUser, isOnline, sendToUser, sendToChat, sendToBosses, memberIds, isChatMember, pushStatus, MEMBER_OK, MEMBER_FROM,
+  attach, closeUser, isOnline, sendToUser, sendToAll, sendToChat, sendToBosses, memberIds, isChatMember, pushStatus, MEMBER_OK, MEMBER_FROM,
 };

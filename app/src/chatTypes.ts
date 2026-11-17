@@ -1,3 +1,5 @@
+import { Status, Task } from './taskTypes';
+
 export type Chat = {
   id: number;
   type: 'all' | 'group' | 'dm' | 'checkin';
@@ -5,11 +7,17 @@ export type Chat = {
   otherUserId: number | null;
   membersCount: number;
   unread: number;
+  createdBy?: number | null;
+  muted?: boolean;
+  pinned?: boolean;
+  pinnedMessage?: { id: number; body: string; senderName: string } | null;
+  myLastRead?: number | null;
   lastMessage: null | {
     id: number;
     senderId: number;
     senderName: string;
     text: string | null;
+    type?: 'text' | 'bot' | 'system' | 'checkin_prompt';
     deleted: boolean;
     createdAt: string;
   };
@@ -27,26 +35,32 @@ export type Msg = {
   deleted: boolean;
   createdAt: string;
   pending?: boolean;
-  type?: 'text' | 'bot' | 'checkin_prompt'; // 'bot' = Team Assistant (AI task engine); 'checkin_prompt' = daily check-in card
+  type?: 'text' | 'bot' | 'system' | 'checkin_prompt'; // 'bot' = task event card; 'system' = centered grey pill; 'checkin_prompt' = daily check-in card
   payload?: BotPayload | CheckinPromptPayload | null;
+  visibleTo?: number | null; // set = only that user sees it ("Only visible to you")
+  reactions?: Reaction[];
+  mentions?: number[];
   replyTo?: ReplyRef | null; // quoted message (swipe-to-reply)
 };
 
-// Payload of a 'bot' message (server/src/ai/engine.js)
-export type BotTask = {
-  id: number; title: string; assigneeId: number | null; assigneeName: string | null;
-  status: 'todo' | 'in_progress' | 'done'; dueDate: string | null;
-};
+export type Reaction = { emoji: string; userIds: number[] };
+
+// Payload of a 'bot' message (server/src/ai/*). Old messages used `action` instead of `event` and had no ids of actors.
 export type BotItem = { id: number; title: string; dueDate: string | null };
+export type TaskEventName = 'created' | 'updated' | 'completed' | 'review' | 'reassigned' | 'due' | 'deleted' | 'note' | 'praise';
 export type BotPayload =
-  | { kind: 'task'; replyTo: number; action: 'created' | 'completed' | 'updated'; task: BotTask; undo: 'delete' | 'status' | null }
+  | { kind: 'task'; event?: TaskEventName; action?: 'created' | 'completed' | 'updated'; task: Task; actorId?: number; actorName?: string; note?: string; byAi?: boolean }
+  | { kind: 'picker'; command: string; text: string; tasks: { id: number; title: string; status: Status }[]; arg?: string }
+  | { kind: 'list'; title: string; tasks: Task[] }
+  | { kind: 'help'; commands: { cmd: string; args: string; desc: string }[] }
+  | { kind: 'error'; code: string; message: string }
   | {
-      kind: 'summary'; replyTo: number; userId: number; userName: string;
+      kind: 'summary'; userName: string;
       counts: { done: number; in_progress: number; todo: number };
       done: BotItem[]; in_progress: BotItem[]; todo: BotItem[];
     }
-  | { kind: 'clarify'; replyTo: number; text: string; options: { id: number; title: string; assigneeName: string | null }[] }
-  | { kind: 'info'; replyTo: number; text: string };
+  | { kind: 'clarify'; text: string }
+  | { kind: 'info'; text: string };
 
 export type Person = { id: number; name: string; phone: string };
 

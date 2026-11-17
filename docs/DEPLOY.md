@@ -1,6 +1,6 @@
 # DEPLOY: Team Chat backend on the company server (done 2026-11-17)
 
-Sirf **backend** live hai. Frontend = Android app (release APK, Phase 7 baaki). Koi secret is file me nahi hai.
+Backend live hai (7a). Frontend = Android release APK (7b, v1; feedback-round rebuild pending, see bottom). Koi secret is file me nahi hai.
 
 | Cheez | Value |
 |---|---|
@@ -11,7 +11,7 @@ Sirf **backend** live hai. Frontend = Android app (release APK, Phase 7 baaki). 
 | DB | MySQL 8.0 on same server, DB `team_chat_db`, user `team_chat_user` (access sirf us DB par). Creds `server/.env` me (git-ignored, chmod 600) |
 | Apache | snippet `/etc/apache2/snippets/team-chat.conf` + 1 `Include` line in `/etc/apache2/sites-enabled/apps.landauditors.com-le-ssl.conf` (after jarvis include). Backup: `*.bak-teamchat-<time>` |
 | Admins (role `boss`) | Anubhav 9119071165, TestingMan 1111111169. Pehli login: phone + invite code, phir PIN khud chuno |
-| AI | `AI_PROVIDER=mock` (key server par nahi rakhi). Asli AI: `server/.env` me `AI_PROVIDER=anthropic`, `AI_API_KEY=...` daalo, phir `pm2 restart team-chat-backend --update-env` |
+| AI | `AI_PROVIDER=mock` abhi (key server par nahi). Asli AI (owner ke OK ke baad): `server/.env` me `AI_PROVIDER=anthropic`, `AI_MODEL=claude-haiku-5-5`, `AI_API_KEY=...`, phir `pm2 restart team-chat-backend --update-env` |
 
 ## Pehli baar kya kiya (commands, `ssh root@<server>` ke andar)
 1. Dekha (read-only): `pm2 list`, `ss -ltn` (free port), `ls /etc/apache2/snippets`, `apachectl -M | grep proxy` (proxy_wstunnel chahiye), `node -v` (18 chala).
@@ -54,3 +54,18 @@ cd T:\app\android; .\gradlew.bat assembleRelease     # ~18 min first time
 ```
 APK: `app/android/app/build/outputs/apk/release/app-release.apk`. If `expo prebuild` regenerates `android/`, re-apply the release signingConfig in `app/android/app/build.gradle`. Minify is off (default).
 Install: the old debug build has a different signature, so UNINSTALL it first. On OnePlus: App info -> Battery usage -> "Allow background activity".
+Feedback-round build: versionCode 2 (`app.json` + `src/version.ts`), new native dep `expo-clipboard`; same command, same keystore (so in-place update works for installed release builds).
+
+## Feedback round update (2026-11-17, server par abhi NAHI gaya)
+Order zaroor yahi. Server code, migration, AI key, APK aur force-update settings ek saath jaate hain.
+1. Migration (naya server start se PEHLE; file me `USE` nahi hai, DB naam dena zaroori). Prod par sirf 007 baaki (001-006 schema me hain):
+   `mysql -u team_chat_user -p team_chat_db < /opt/node/team-chat/server/sql/migrate_007.sql`
+2. AI (sirf owner ke OK ke baad): `server/.env` me `AI_PROVIDER=anthropic`, `AI_MODEL=claude-haiku-5-5`, `AI_API_KEY=...`. Key kabhi chat/log/git me nahi.
+3. Code: "Agli baar update" steps (git pull, npm install --omit=dev, pm2 restart --update-env, health check).
+4. APK upload (`*.apk` git-ignored, git pull se nahi aata): release APK rebuild karke PC se server par copy karein:
+   `scp <path>\app-release.apk root@<server>:/opt/node/team-chat/server/public/download/TeamChat.apk`
+   Check: `curl -sI https://apps.landauditors.com/team_chat/download/TeamChat.apk` -> 200.
+5. Force update (Admin app -> Settings -> App update), is order me:
+   a. Latest version code `2`, version name `0.2.0`, APK URL `https://apps.landauditors.com/team_chat/download/TeamChat.apk`, short message. Purane app users ko dismissible banner dikhega.
+   b. Jab sab ne update kar liya ya ready ho: min version code `2`. Tab v1 build par blocking Update screen aati hai (server 426 `UPDATE_REQUIRED`).
+   Rollback: min version code `0` (sab unblock).

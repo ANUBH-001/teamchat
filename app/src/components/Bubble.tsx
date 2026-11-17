@@ -1,11 +1,14 @@
 import React from 'react';
 import { View, Text, Pressable } from 'react-native';
-import { colorFor, Theme } from '../theme';
+import { Ionicons } from '@expo/vector-icons';
+import { colorFor, dark, tintFor, Theme } from '../theme';
 import Tick, { TickStatus } from './Tick';
 import { Msg } from '../chatTypes';
 import BotCard from './BotCard';
 import CheckinCard from './CheckinCard';
 import SwipeReply from './SwipeReply';
+import SystemPill from './SystemPill';
+import RichText from './RichText';
 
 export const timeOf = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -13,26 +16,38 @@ export const timeOf = (iso: string) =>
 type Props = {
   msg: Msg;
   mine: boolean;
-  showSender: boolean;
+  showSender: boolean; // group / All Team: per-user color tint + name
   status: TickStatus;
   t: Theme;
   onLongPress: (m: Msg) => void;
   onReply: (m: Msg) => void;
   onQuotePress: (id: number) => void;
+  onReact: (m: Msg, emoji: string) => void;
+  onOpenTask: (id: number) => void;
+  onSendText: (text: string) => void;
   meId: number;
+  meName: string;
   isBoss: boolean;
   highlight: boolean;
   onCardMic?: (cb: (said: string) => void) => void;
 };
 
-function BubbleBase({ msg, mine, showSender, status, t, onLongPress, onReply, onQuotePress, meId, isBoss, highlight, onCardMic }: Props) {
+function BubbleBase({
+  msg, mine, showSender, status, t, onLongPress, onReply, onQuotePress, onReact, onOpenTask, onSendText, meId, meName, isBoss, highlight, onCardMic,
+}: Props) {
+  if (msg.type === 'system') return <SystemPill text={msg.text || ''} t={t} />;
   if (msg.type === 'checkin_prompt' && !msg.deleted && msg.payload) {
     return <CheckinCard msg={msg} t={t} time={timeOf(msg.createdAt)} onMic={onCardMic} />;
   }
   if (msg.type === 'bot') {
-    return <BotCard msg={msg} t={t} meId={meId} isBoss={isBoss} time={timeOf(msg.createdAt)} onLongPress={onLongPress} />;
+    return (
+      <BotCard msg={msg} t={t} meId={meId} isBoss={isBoss} time={timeOf(msg.createdAt)} onLongPress={onLongPress}
+        onOpenTask={onOpenTask} onSendText={onSendText} />
+    );
   }
   const rt = msg.deleted ? null : msg.replyTo;
+  const tinted = showSender && !mine;
+  const reactions = msg.deleted ? [] : (msg.reactions ?? []).filter((r) => r.userIds.length > 0);
   return (
     <SwipeReply enabled={!!msg.id && !msg.deleted} onReply={() => onReply(msg)} color={t.subtext}>
       <View
@@ -44,12 +59,13 @@ function BubbleBase({ msg, mine, showSender, status, t, onLongPress, onReply, on
         <Pressable
           onLongPress={() => onLongPress(msg)}
           style={{
-            maxWidth: '80%', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8,
-            backgroundColor: mine ? t.bubbleOut : t.bubbleIn,
+            maxWidth: '80%', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 10,
+            backgroundColor: mine ? t.bubbleOut : tinted ? tintFor(msg.senderId, t === dark) : t.bubbleIn,
+            borderLeftWidth: tinted ? 3 : 0, borderLeftColor: tinted ? colorFor(msg.senderId) : 'transparent',
           }}
         >
           {showSender && !mine && (
-            <Text style={{ color: colorFor(msg.senderId), fontWeight: '600', fontSize: 13, marginBottom: 2 }}>
+            <Text style={{ color: colorFor(msg.senderId), fontWeight: '700', fontSize: 13, marginBottom: 2 }}>
               {msg.senderName}
             </Text>
           )}
@@ -72,19 +88,43 @@ function BubbleBase({ msg, mine, showSender, status, t, onLongPress, onReply, on
               </Text>
             </Pressable>
           )}
-          <Text
-            style={{
-              color: msg.deleted ? t.subtext : t.text, fontSize: 15,
-              fontStyle: msg.deleted ? 'italic' : 'normal',
-            }}
-          >
-            {msg.deleted ? 'This message was deleted' : msg.text}
-          </Text>
+          {msg.deleted ? (
+            <Text style={{ color: t.subtext, fontSize: 15, fontStyle: 'italic' }}>This message was deleted</Text>
+          ) : (
+            <RichText text={msg.text || ''} t={t} meName={meName} style={{ color: t.text, fontSize: 15 }} />
+          )}
           <View style={{ flexDirection: 'row', alignSelf: 'flex-end', alignItems: 'center', marginTop: 2 }}>
+            {msg.visibleTo != null && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+                <Ionicons name="eye-off-outline" size={11} color={t.subtext} />
+                <Text style={{ color: t.subtext, fontSize: 11, marginLeft: 3 }}>Only visible to you</Text>
+              </View>
+            )}
             <Text style={{ color: t.subtext, fontSize: 11 }}>{timeOf(msg.createdAt)}</Text>
             {mine && !msg.deleted && <Tick status={status} color={t.subtext} />}
           </View>
         </Pressable>
+        {reactions.length > 0 && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 2, maxWidth: '80%', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+            {reactions.map((r) => {
+              const on = r.userIds.includes(meId);
+              return (
+                <Pressable
+                  key={r.emoji}
+                  onPress={() => onReact(msg, r.emoji)}
+                  hitSlop={6}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, height: 24, borderRadius: 12, marginRight: 4, marginTop: 2,
+                    backgroundColor: on ? 'rgba(37,211,102,0.2)' : t.card, borderWidth: 1, borderColor: on ? t.accent : t.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 13 }}>{r.emoji}</Text>
+                  {r.userIds.length > 1 && <Text style={{ color: t.subtext, fontSize: 12, marginLeft: 3 }}>{r.userIds.length}</Text>}
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
       </View>
     </SwipeReply>
   );

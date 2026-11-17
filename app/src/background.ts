@@ -18,21 +18,23 @@ type NativeService = {
 };
 const Native = requireOptionalNativeModule<NativeService>('TeamChatService');
 const USER_KEY = 'bgUserId'; // lets the headless task (boot / OS restart) know who is logged in
+const ROLE_KEY = 'bgRole';
 
 let session: { userId: number; offAlerts: () => void } | null = null;
 let releaseTask: (() => void) | null = null;
 
-function startCore(userId: number) {
+function startCore(userId: number, role: string) {
   if (session && session.userId === userId) return;
   if (session) session.offAlerts();
-  session = { userId, offAlerts: listenMessageAlerts(userId) };
+  session = { userId, offAlerts: listenMessageAlerts(userId, role) };
   startRealtime();
 }
 
 // After login and on every app open (idempotent).
-export function startSession(userId: number) {
-  startCore(userId);
+export function startSession(userId: number, role: string = 'member') {
+  startCore(userId, role);
   AsyncStorage.setItem(USER_KEY, String(userId)).catch(() => {});
+  AsyncStorage.setItem(ROLE_KEY, role).catch(() => {});
   try { Native?.start(); } catch (e) {}
 }
 
@@ -65,7 +67,8 @@ AppRegistry.registerHeadlessTask('TeamChatService', () => async () => {
   const done = new Promise<void>((r) => { releaseTask = r; });
   try {
     const id = Number(await AsyncStorage.getItem(USER_KEY));
-    if (id && (await getToken())) startCore(id); // cold start after boot: no UI, start the socket here
+    const role = (await AsyncStorage.getItem(ROLE_KEY)) || 'member';
+    if (id && (await getToken())) startCore(id, role); // cold start after boot: no UI, start the socket here
   } catch (e) {}
   await done;
 });

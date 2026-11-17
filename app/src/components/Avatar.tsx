@@ -3,8 +3,9 @@ import { View, Text } from 'react-native';
 import { colorFor } from '../theme';
 
 export function initials(name: string) {
-  const p = name.trim().split(/\s+/);
-  return ((p[0]?.[0] ?? '?') + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase();
+  const first = (w?: string) => Array.from(w ?? '').find((c) => /[\p{L}\p{N}]/u.test(c)) ?? '';
+  const p = name.trim().split(/\s+/).filter((w) => first(w));
+  return ((first(p[0]) || '?') + (p.length > 1 ? first(p[p.length - 1]) : '')).toUpperCase();
 }
 
 function AvatarBase({ name, id, size = 48 }: { name: string; id: number; size?: number }) {

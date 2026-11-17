@@ -1,5 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { SERVER_URL } from './config';
+import { VERSION_CODE } from './version';
+import { markUpdateRequired } from './updateStore';
 
 const KEY = 'token';
 export type User = { id: number; phone: string; name: string; role: 'boss' | 'member' };
@@ -10,9 +12,11 @@ export const clearToken = () => SecureStore.deleteItemAsync(KEY);
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -24,6 +28,7 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
       method,
       headers: {
         'Content-Type': 'application/json',
+        'X-App-Version': String(VERSION_CODE),
         ...(token ? { Authorization: 'Bearer ' + token } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -35,6 +40,7 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   try {
     data = await res.json();
   } catch (e) {}
-  if (!res.ok) throw new ApiError((data && data.error) || 'Request failed', res.status);
+  if (res.status === 426) markUpdateRequired(data && data.apkUrl, data && data.error);
+  if (!res.ok) throw new ApiError((data && data.error) || 'Request failed', res.status, data && data.code);
   return data as T;
 }

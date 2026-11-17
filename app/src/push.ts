@@ -1,6 +1,8 @@
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform, Vibration } from 'react-native';
 import { emitEvent, onEvent } from './realtime';
+import { api } from './api';
+import { getPublicSettings } from './publicSettings';
 import { CheckinSettings } from './chatTypes';
 
 // No Firebase/FCM: alerts are LOCAL notifications raised from WebSocket 'message' events.
@@ -11,6 +13,13 @@ Notifications.setNotificationHandler({
 
 let pendingChatId: number | null = null;
 let activeChatId: number | null = null; // chat currently open on screen (set by ChatsScreen)
+const mutedChats = new Set<number>(); // muted chats do not notify (except @mentions)
+
+// Called with every GET /chats result (ChatsScreen) and by the alert listener itself.
+export function setChatPrefs(chats: { id: number; muted?: boolean }[]) {
+  mutedChats.clear();
+  for (const c of chats) if (c.muted) mutedChats.add(c.id);
+}
 
 export function takePendingChat() {
   const id = pendingChatId;
@@ -37,6 +46,13 @@ export async function setupNotifications() {
         name: 'Messages',
         importance: Notifications.AndroidImportance.HIGH,
       });
+      // quiet channel: task updates for admins (no sound, no vibration, no heads-up)
+      await Notifications.setNotificationChannelAsync('tasks', {
+        name: 'Task updates',
+        importance: Notifications.AndroidImportance.LOW,
+        sound: null,
+        enableVibrate: false,
+      });
     }
     const { status } = await Notifications.getPermissionsAsync();
     if (status !== 'granted') await Notifications.requestPermissionsAsync();
@@ -48,34 +64,57 @@ const preview = (s: string) => {
   return t.length > 100 ? t.slice(0, 97) + '...' : t;
 };
 
-// Watches WebSocket 'message' events. Background/inactive -> local notification; foreground in another chat -> vibrate.
-export function listenMessageAlerts(myId: number) {
-  return onEvent((e) => {
+const notify = (title: string, body: string, chatId: number | null | undefined, channelId: 'messages' | 'tasks') => {
+  Notifications.scheduleNotificationAsync({
+    content: { title, body, data: chatId ? { chatId } : {} },
+    trigger: Platform.OS === 'android' ? { channelId } : null,
+  }).catch(() => {});
+};
+
+async function loadChatPrefs() {
+  try { setChatPrefs((await api<{ chats: { id: number; muted?: boolean }[] }>('GET', '/chats')).chats); } catch (e) {}
+}
+
+// Watches WebSocket events and raises LOCAL notifications while the app is in the background:
+// - 'message': not mine, not deleted; muted chats stay silent unless I am @mentioned; bot/system cards never notify
+//   (task changes come as 'task' events instead). Foreground in another chat -> short vibration.
+// - 'task' (ws {type:'task', task, event, actorId, actorName, notifyAdmin}): the assignee hears about new / reassigned
+//   tasks and praise; an admin gets a QUIET notification (channel 'tasks', no sound) when a task is completed or moved
+//   to Testing and the server says notifyAdmin. With the "quiet task notifications" setting off they use the loud channel.
+export function listenMessageAlerts(myId: number, role: string = 'member') {
+  loadChatPrefs();
+  const off = onEvent((e) => {
     try {
+      if (e.type === 'chat') { loadChatPrefs(); return; }
+      if (e.type === 'task') {
+        if (AppState.currentState === 'active' || !e.task || e.actorId === myId) return;
+        const task = e.task;
+        const ev = String(e.event || '');
+        const actor = String(e.actorName || 'Someone');
+        const title = preview(String(task.title || ''));
+        if (task.assigneeId === myId && (ev === 'created' || ev === 'reassigned')) {
+          notify(ev === 'created' ? 'New task' : 'Task reassigned to you', title, task.chatId, 'messages');
+        } else if (task.assigneeId === myId && ev === 'praise') {
+          notify('👏 ' + actor + ' praised your work', title, task.chatId, 'messages');
+        } else if (role === 'boss' && e.notifyAdmin && (ev === 'completed' || ev === 'review')) {
+          notify(actor + (ev === 'completed' ? ' completed a task' : ' moved a task to Testing'), title, task.chatId,
+            getPublicSettings().quietTaskNotifs ? 'tasks' : 'messages');
+        }
+        return;
+      }
       if (e.type !== 'message' || !e.message) return;
       const m = e.message;
-      if (m.deleted || m.senderId === myId) return;
+      if (m.deleted || m.senderId === myId || m.type === 'bot' || m.type === 'system') return;
+      const mentioned = Array.isArray(m.mentions) && m.mentions.includes(myId);
+      if (mutedChats.has(m.chatId) && !mentioned) return;
       if (AppState.currentState === 'active') {
         if (m.chatId !== activeChatId) Vibration.vibrate(150);
         return;
       }
-      let title: string;
-      let body: string;
-      if (m.type === 'bot') {
-        const p = m.payload;
-        if (!p || p.kind !== 'task' || p.action !== 'created' || !p.task || p.task.assigneeId !== myId) return;
-        title = 'New task';
-        body = preview(String(p.task.title || ''));
-      } else {
-        title = m.senderName;
-        body = preview(String(m.text || ''));
-      }
-      Notifications.scheduleNotificationAsync({
-        content: { title, body, data: { chatId: m.chatId } },
-        trigger: Platform.OS === 'android' ? { channelId: 'messages' } : null,
-      }).catch(() => {});
+      notify(mentioned ? m.senderName + ' mentioned you' : m.senderName, preview(String(m.text || '')), m.chatId, 'messages');
     } catch (err) {}
   });
+  return off;
 }
 
 // Logout: remove this user's message alerts still in the shade (the next user must not see them).

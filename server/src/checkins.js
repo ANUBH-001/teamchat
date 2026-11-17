@@ -19,8 +19,8 @@ class CheckinError extends Error {
 }
 
 const KINDS = ['morning', 'evening'];
-const STATUSES = ['todo', 'in_progress', 'done'];
-const LABEL = { todo: 'Pending', in_progress: 'In progress', done: 'Done' };
+const STATUSES = ['todo', 'in_progress', 'review', 'done'];
+const LABEL = { todo: 'Pending', in_progress: 'In progress', review: 'Testing', done: 'Done' };
 const CHAT_NAME = 'Daily Check-in';
 const MAX_TASKS = 50;
 const MAX_RANGE_DAYS = 31;
@@ -252,7 +252,7 @@ function submissionText(kind, edit, selected, statuses, own, text) {
     lines.push(kind === 'morning' ? 'Aaj ye karunga:' : 'Aaj ke tasks:');
     for (const id of selected) lines.push('• ' + own[id].title);
   }
-  for (const st of ['done', 'in_progress', 'todo']) {
+  for (const st of ['done', 'review', 'in_progress', 'todo']) {
     const ids = Object.keys(statuses || {}).filter((id) => statuses[id] === st);
     if (!ids.length) continue;
     lines.push(LABEL[st] + ':');

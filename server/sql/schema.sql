@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS chats (
   name VARCHAR(100) NULL,
   created_by INT NULL,
   owner_id INT NULL, -- 'checkin' chats only: the member who owns this private chat (one per member)
+  pinned_message_id BIGINT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at TIMESTAMP NULL,
   UNIQUE KEY uq_checkin_owner (owner_id),
@@ -43,6 +44,8 @@ CREATE TABLE IF NOT EXISTS chat_members (
   left_at TIMESTAMP NULL,
   last_read_message_id BIGINT NULL,
   last_delivered_message_id BIGINT NULL,
+  muted TINYINT(1) NOT NULL DEFAULT 0,
+  pinned TINYINT(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (chat_id, user_id),
   FOREIGN KEY (chat_id) REFERENCES chats(id),
   FOREIGN KEY (user_id) REFERENCES users(id)
@@ -57,10 +60,14 @@ CREATE TABLE IF NOT EXISTS messages (
   edited_at TIMESTAMP NULL,
   deleted_at TIMESTAMP NULL,
   client_id VARCHAR(64) NULL,
-  type VARCHAR(20) NOT NULL DEFAULT 'text', -- text | bot | checkin_prompt
+  type VARCHAR(20) NOT NULL DEFAULT 'text', -- text | bot | system | checkin_prompt
   payload TEXT NULL, -- JSON for bot messages (task card / summary / clarify)
   reply_to_id BIGINT NULL, -- swipe-to-reply: quoted message in the same chat
+  visible_to INT NULL, -- ephemeral bot reply: only this user ever receives it
+  mentions TEXT NULL, -- JSON array of mentioned user ids
   INDEX idx_chat_created (chat_id, created_at),
+  INDEX idx_visible_to (visible_to),
+  FOREIGN KEY (visible_to) REFERENCES users(id),
   UNIQUE KEY uq_sender_client (sender_id, client_id),
   FOREIGN KEY (chat_id) REFERENCES chats(id),
   FOREIGN KEY (sender_id) REFERENCES users(id)
@@ -81,13 +88,16 @@ CREATE TABLE IF NOT EXISTS tasks (
   assignee_id INT NULL,
   created_by INT NULL,
   source_message_id BIGINT NULL,
-  status ENUM('todo','in_progress','done') NOT NULL DEFAULT 'todo',
+  status ENUM('todo','in_progress','review','done') NOT NULL DEFAULT 'todo', -- review = 'Testing' in the app
   due_at TIMESTAMP NULL,
   completed_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at TIMESTAMP NULL,
+  project VARCHAR(60) NULL,
+  chat_id INT NULL, -- chat where the task was made (/task); bot cards go there
   FOREIGN KEY (assignee_id) REFERENCES users(id),
+  FOREIGN KEY (chat_id) REFERENCES chats(id),
   FOREIGN KEY (created_by) REFERENCES users(id),
   FOREIGN KEY (source_message_id) REFERENCES messages(id)
 );
@@ -103,6 +113,28 @@ CREATE TABLE IF NOT EXISTS task_events (
   message_id BIGINT NULL, -- chat message that triggered an 'ai' change
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (task_id) REFERENCES tasks(id)
+);
+
+-- One reaction per user per message; removing sets deleted_at, reacting again revives the row.
+CREATE TABLE IF NOT EXISTS message_reactions (
+  message_id BIGINT NOT NULL,
+  user_id INT NOT NULL,
+  emoji VARCHAR(16) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL,
+  PRIMARY KEY (message_id, user_id),
+  FOREIGN KEY (message_id) REFERENCES messages(id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Per-chat switches (botEnabled, aiDetect, notifyAdmin), JSON values. Global switches live in app_settings.
+CREATE TABLE IF NOT EXISTS chat_settings (
+  chat_id INT NOT NULL,
+  name VARCHAR(64) NOT NULL,
+  value TEXT NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (chat_id, name),
+  FOREIGN KEY (chat_id) REFERENCES chats(id)
 );
 
 CREATE TABLE IF NOT EXISTS push_tokens (

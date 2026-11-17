@@ -7,12 +7,17 @@ import { useTheme } from '../useTheme';
 import { Chat } from '../chatTypes';
 import { onEvent } from '../realtime';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
-import { takePendingChat, setActiveChat } from '../push';
+import { takePendingChat, setActiveChat, setChatPrefs } from '../push';
 import ChatRow from '../components/ChatRow';
 import ChatScreen from './ChatScreen';
 import NewChatScreen from './NewChatScreen';
+import GroupInfoScreen from './GroupInfoScreen';
+import TaskDetailScreen from './TaskDetailScreen';
+import Sheet, { SheetRow } from '../components/Sheet';
 
-type View_ = { k: 'list' } | { k: 'chat'; chat: Chat } | { k: 'new'; mode: 'dm' | 'group' };
+type View_ =
+  | { k: 'list' } | { k: 'chat'; chat: Chat } | { k: 'new'; mode: 'dm' | 'group' }
+  | { k: 'info'; chat: Chat } | { k: 'task'; id: number; chat: Chat };
 
 export default function ChatsScreen() {
   const t = useTheme();
@@ -22,15 +27,27 @@ export default function ChatsScreen() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [q, setQ] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [rowMenu, setRowMenu] = useState<Chat | null>(null);
   const viewRef = useRef(view);
   viewRef.current = view;
   useEffect(() => {
-    setActiveChat(view.k === 'chat' ? view.chat.id : null);
+    setActiveChat(view.k === 'chat' || view.k === 'info' ? view.chat.id : null);
     return () => setActiveChat(null);
   }, [view]);
 
   const load = useCallback(async () => {
-    try { setChats((await api<{ chats: Chat[] }>('GET', '/chats')).chats); } catch (e) {}
+    try {
+      const list = (await api<{ chats: Chat[] }>('GET', '/chats')).chats;
+      setChats(list);
+      setChatPrefs(list);
+      // keep the open chat's header data (name, pin, member count) fresh
+      setView((v) => {
+        if (v.k !== 'chat' && v.k !== 'info' && v.k !== 'task') return v;
+        const c = list.find((x) => x.id === v.chat.id);
+        if (!c || (c.name === v.chat.name && c.membersCount === v.chat.membersCount && !!c.muted === !!v.chat.muted)) return v;
+        return { ...v, chat: c };
+      });
+    } catch (e) {}
     setLoaded(true);
   }, []);
 
@@ -39,6 +56,7 @@ export default function ChatsScreen() {
     try {
       const list = (await api<{ chats: Chat[] }>('GET', '/chats')).chats;
       setChats(list);
+      setChatPrefs(list);
       const c = list.find((x) => x.id === id);
       if (c) setView({ k: 'chat', chat: c });
     } catch (e) {}
@@ -60,7 +78,9 @@ export default function ChatsScreen() {
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (viewRef.current.k === 'list') return false;
+      const v = viewRef.current;
+      if (v.k === 'list') return false;
+      if (v.k === 'info' || v.k === 'task') { setView({ k: 'chat', chat: v.chat }); return true; }
       setView({ k: 'list' });
       load();
       return true;
@@ -70,11 +90,30 @@ export default function ChatsScreen() {
 
   const back = () => { setView({ k: 'list' }); load(); };
 
-  if (view.k === 'chat') return <ChatScreen chat={view.chat} onBack={back} />;
+  const openChat2 = (c: Chat) => setView({ k: 'chat', chat: c });
+  if (view.k === 'chat') {
+    return (
+      <ChatScreen
+        key={view.chat.id} chat={view.chat} onBack={back} onOpenInfo={(c) => setView({ k: 'info', chat: c })}
+        onOpenTask={(id) => setView({ k: 'task', id, chat: view.chat })} onOpenChat={openChat2}
+      />
+    );
+  }
+  if (view.k === 'info') {
+    return <GroupInfoScreen chat={view.chat} onBack={() => setView({ k: 'chat', chat: view.chat })} onChanged={load} onLeft={back} onOpenChat={openChat2} />;
+  }
+  if (view.k === 'task') return <TaskDetailScreen taskId={view.id} onBack={() => setView({ k: 'chat', chat: view.chat })} />;
   if (view.k === 'new') {
     return <NewChatScreen mode={view.mode} onBack={back} onOpen={(c) => { setView({ k: 'chat', chat: c }); }} />;
   }
 
+  const prefs = async (body: { pinned?: boolean; muted?: boolean }) => {
+    const c = rowMenu;
+    setRowMenu(null);
+    if (!c) return;
+    try { await api('PATCH', '/chats/' + c.id + '/me', body); } catch (e: any) { Alert.alert('Error', e.message); }
+    load();
+  };
   const shown = chats.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()));
   const fab = () =>
     Alert.alert('New', undefined, [
@@ -99,13 +138,23 @@ export default function ChatsScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.accent]} />}
         initialNumToRender={14}
         windowSize={9}
-        renderItem={({ item }) => <ChatRow chat={item} t={t} meId={user!.id} onPress={openRow} />}
+        renderItem={({ item }) => <ChatRow chat={item} t={t} meId={user!.id} onPress={openRow} onLongPress={setRowMenu} />}
         ListEmptyComponent={
           loaded
             ? <Text style={{ color: t.subtext, textAlign: 'center', marginTop: 40 }}>{q ? 'No chats match' : 'No chats yet'}</Text>
             : <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} />
         }
       />
+      <Sheet visible={!!rowMenu} onClose={() => setRowMenu(null)} title={rowMenu?.name}>
+        <SheetRow
+          icon="pin-outline" label={rowMenu?.pinned ? 'Unpin chat' : 'Pin chat'}
+          onPress={() => prefs({ pinned: !rowMenu?.pinned })}
+        />
+        <SheetRow
+          icon={rowMenu?.muted ? 'volume-high-outline' : 'volume-mute-outline'} label={rowMenu?.muted ? 'Unmute' : 'Mute'}
+          onPress={() => prefs({ muted: !rowMenu?.muted })}
+        />
+      </Sheet>
       <Pressable
         onPress={fab}
         style={{

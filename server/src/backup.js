@@ -26,6 +26,8 @@ async function runBackup() {
     checkin_revisions: await q('SELECT * FROM checkin_revisions'),
     checkin_prompts: await q("SELECT user_id, DATE_FORMAT(date, '%Y-%m-%d') date, kind, message_id, created_at FROM checkin_prompts"),
     app_settings: await q('SELECT * FROM app_settings'),
+    chat_settings: await q('SELECT * FROM chat_settings'),
+    message_reactions: await q('SELECT * FROM message_reactions'),
   };
   fs.mkdirSync(DIR, { recursive: true });
   const file = path.join(DIR, today() + '.json');

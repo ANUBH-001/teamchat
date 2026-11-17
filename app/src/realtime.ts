@@ -1,5 +1,6 @@
 import { getToken } from './api';
 import { SERVER_URL } from './config';
+import { VERSION_CODE } from './version';
 
 type Listener = (e: any) => void;
 const listeners = new Set<Listener>();
@@ -21,7 +22,7 @@ async function connect() {
   if (!running) return;
   const token = await getToken();
   if (!token || !running) return;
-  const sock = new WebSocket(SERVER_URL.replace(/^http/, 'ws') + '/?token=' + encodeURIComponent(token));
+  const sock = new WebSocket(SERVER_URL.replace(/^http/, 'ws') + '/?token=' + encodeURIComponent(token) + '&v=' + VERSION_CODE);
   ws = sock;
   sock.onopen = () => {
     retry = 0;
