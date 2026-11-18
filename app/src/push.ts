@@ -86,6 +86,21 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
   const off = onEvent((e) => {
     try {
       if (e.type === 'chat') { loadChatPrefs(); return; }
+      // admin: a member signed off (quiet), a task is pending 6+ days (quiet)
+      if (e.type === 'signoff' && role === 'boss') {
+        if (AppState.currentState === 'active') return;
+        const c = e.counts || {};
+        notify(String(e.userName || 'Member') + (e.updated ? ' ne sign-off update kiya' : ' ne sign-off kiya'),
+          'Done ' + (c.done ?? 0) + ' · Baaki ' + (c.left ?? 0), null, 'tasks');
+        return;
+      }
+      if (e.type === 'task_stale' && e.task) {
+        if (AppState.currentState === 'active') return;
+        if (role === 'boss' && e.task.assigneeId !== myId) {
+          notify(e.days + '+ din pending: ' + (e.task.assigneeName || ''), preview(String(e.task.title || '')), e.task.chatId, 'tasks');
+        }
+        return; // the assignee hears it from the reminder card in their check-in chat
+      }
       if (e.type === 'task') {
         if (AppState.currentState === 'active' || !e.task || e.actorId === myId) return;
         const task = e.task;
@@ -104,9 +119,19 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
       }
       if (e.type !== 'message' || !e.message) return;
       const m = e.message;
-      if (m.deleted || m.senderId === myId || m.type === 'bot' || m.type === 'system') return;
       const mentioned = Array.isArray(m.mentions) && m.mentions.includes(myId);
+      // bot cards that ask ME something: "/ask" status question, 6-day pending reminder
+      const kind = m.type === 'bot' && m.payload ? m.payload.kind : null;
+      if (mentioned && (kind === 'ask' || kind === 'reminder') && !m.deleted) {
+        if (AppState.currentState === 'active') { if (m.chatId !== activeChatId) Vibration.vibrate(150); return; }
+        notify(kind === 'ask' ? String(m.payload.actorName || 'Someone') + ' ne status poocha' : 'Task pending hai',
+          preview(String(m.payload.task?.title || m.text || '')), m.chatId, 'messages');
+        return;
+      }
+      if (m.deleted || m.senderId === myId || m.type === 'bot' || m.type === 'system') return;
       if (mutedChats.has(m.chatId) && !mentioned) return;
+      // a slash command's own text ("/task anubhav ...", "/ask #12") is not news: the bot card / task event notifies
+      if (/^\/[a-z]/i.test(String(m.text || '')) && !mentioned) return;
       if (AppState.currentState === 'active') {
         if (m.chatId !== activeChatId) Vibration.vibrate(150);
         return;
@@ -161,7 +186,7 @@ export function applyCheckinSchedule(s: CheckinSettings, chatId: number | null) 
             identifier: 'checkin-' + k + '-' + d,
             content: {
               title: 'Daily Check-in',
-              body: k === 'morning' ? 'Good morning! Aaj ka plan bhejo.' : 'Din ka report bhejo: kya kiya, kya pending.',
+              body: k === 'morning' ? 'Good morning! Aaj ke tasks dekho.' : 'Aaj ka sign-off karo: kya done, kya baaki.',
               data: chatId ? { chatId } : {},
             },
             trigger: {

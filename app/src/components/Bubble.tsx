@@ -10,6 +10,12 @@ import SwipeReply from './SwipeReply';
 import SystemPill from './SystemPill';
 import RichText from './RichText';
 
+// Bot cards about one task (kind 'task' | 'ask'): replying to them updates that task (server: commands.handleReply).
+export const isTaskCard = (m: Msg) => {
+  const p = m.type === 'bot' && m.payload ? (m.payload as { kind?: string; task?: { id?: number } }) : null;
+  return !!p && (p.kind === 'task' || p.kind === 'ask') && !!p.task?.id && m.visibleTo == null;
+};
+
 export const timeOf = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -24,7 +30,8 @@ type Props = {
   onQuotePress: (id: number) => void;
   onReact: (m: Msg, emoji: string) => void;
   onOpenTask: (id: number) => void;
-  onSendText: (text: string) => void;
+  onSendText: (text: string, mentionIds?: number[]) => void;
+  onPrefill?: (text: string) => void; // put text into the composer (ask card "Update")
   meId: number;
   meName: string;
   isBoss: boolean;
@@ -33,17 +40,20 @@ type Props = {
 };
 
 function BubbleBase({
-  msg, mine, showSender, status, t, onLongPress, onReply, onQuotePress, onReact, onOpenTask, onSendText, meId, meName, isBoss, highlight, onCardMic,
+  msg, mine, showSender, status, t, onLongPress, onReply, onQuotePress, onReact, onOpenTask, onSendText, onPrefill, meId, meName, isBoss, highlight, onCardMic,
 }: Props) {
   if (msg.type === 'system') return <SystemPill text={msg.text || ''} t={t} />;
   if (msg.type === 'checkin_prompt' && !msg.deleted && msg.payload) {
-    return <CheckinCard msg={msg} t={t} time={timeOf(msg.createdAt)} onMic={onCardMic} />;
+    return <CheckinCard msg={msg} t={t} time={timeOf(msg.createdAt)} onMic={onCardMic} onLongPress={onLongPress} onOpenTask={onOpenTask} />;
   }
   if (msg.type === 'bot') {
-    return (
+    const card = (
       <BotCard msg={msg} t={t} meId={meId} isBoss={isBoss} time={timeOf(msg.createdAt)} onLongPress={onLongPress}
-        onOpenTask={onOpenTask} onSendText={onSendText} />
+        onOpenTask={onOpenTask} onSendText={onSendText} onPrefill={onPrefill} />
     );
+    // task / ask cards: swipe right to reply (the server adds the reply as a note, "desc: ..." = description)
+    if (!isTaskCard(msg)) return card;
+    return <SwipeReply enabled={!!msg.id && !msg.deleted} onReply={() => onReply(msg)} color={t.subtext}>{card}</SwipeReply>;
   }
   const rt = msg.deleted ? null : msg.replyTo;
   const tinted = showSender && !mine;
@@ -91,7 +101,7 @@ function BubbleBase({
           {msg.deleted ? (
             <Text style={{ color: t.subtext, fontSize: 15, fontStyle: 'italic' }}>This message was deleted</Text>
           ) : (
-            <RichText text={msg.text || ''} t={t} meName={meName} style={{ color: t.text, fontSize: 15 }} />
+            <RichText text={msg.text || ''} t={t} meName={meName} mine={mine} style={{ color: t.text, fontSize: 15 }} />
           )}
           <View style={{ flexDirection: 'row', alignSelf: 'flex-end', alignItems: 'center', marginTop: 2 }}>
             {msg.visibleTo != null && (
@@ -100,6 +110,7 @@ function BubbleBase({
                 <Text style={{ color: t.subtext, fontSize: 11, marginLeft: 3 }}>Only visible to you</Text>
               </View>
             )}
+            {!!msg.editedAt && !msg.deleted && <Text style={{ color: t.subtext, fontSize: 11, fontStyle: 'italic', marginRight: 4 }}>edited</Text>}
             <Text style={{ color: t.subtext, fontSize: 11 }}>{timeOf(msg.createdAt)}</Text>
             {mine && !msg.deleted && <Tick status={status} color={t.subtext} />}
           </View>

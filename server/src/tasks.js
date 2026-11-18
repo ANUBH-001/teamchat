@@ -27,9 +27,11 @@ const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); retur
 
 const SELECT = `SELECT t.id, t.title, t.description, t.project, t.assignee_id, u.name assignee_name, t.created_by,
   cu.name created_by_name, t.status, DATE_FORMAT(t.due_at, '%Y-%m-%d') due_date, t.chat_id, t.source_message_id,
-  t.completed_at, t.created_at, t.updated_at
+  t.completed_at, t.created_at, t.updated_at, t.reminded_at
   FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users cu ON cu.id = t.created_by WHERE t.deleted_at IS NULL`;
 
+// ageDays = whole days since created; stale = open and older than the reminder setting (taskReminderDays, 0 = off).
+const ageOf = (r) => Math.max(0, Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86400000));
 const shape = (r) => ({
   id: r.id, title: r.title, description: r.description, project: r.project || null,
   assigneeId: r.assignee_id, assigneeName: r.assignee_name, createdBy: r.created_by, createdByName: r.created_by_name || null,
@@ -37,6 +39,9 @@ const shape = (r) => ({
   sourceMessageId: r.source_message_id ? Number(r.source_message_id) : null,
   createdAt: r.created_at, updatedAt: r.updated_at, completedAt: r.completed_at,
   overdue: !!(r.due_date && r.status !== 'done' && r.due_date < today()),
+  ageDays: ageOf(r),
+  stale: r.status !== 'done' && settings.get().taskReminderDays > 0 && ageOf(r) >= settings.get().taskReminderDays,
+  remindedAt: r.reminded_at || null,
 });
 
 async function getTask(id) {
@@ -54,7 +59,9 @@ async function event(taskId, actor, type, oldV, newV, source, messageId = null) 
 const canAssign = (actor) => isBoss(actor) || settings.get().membersCanAssign;
 // status / note
 const canWork = (task, actor) => isBoss(actor) || task.assigneeId === actor.id || (task.createdBy === actor.id && canAssign(actor));
-// title / description / project / assignee / due
+// description / note on a task card reply: boss, assignee or creator (always, no setting needed)
+const canDescribe = (task, actor) => isBoss(actor) || task.assigneeId === actor.id || task.createdBy === actor.id;
+// title / project / assignee / due
 const canManage = (task, actor) => isBoss(actor) || (canAssign(actor) && (task.createdBy === actor.id || task.assigneeId === actor.id));
 
 // Admin alert flag for the app: a member (not the boss) changed a task, switch on, and the task's chat allows it.
@@ -76,6 +83,9 @@ async function notify(task, ev, actor, source, prevAssigneeId) {
     notifyAdmin: await notifyAdminFor(task, actor, source) };
   const msg = ev === 'deleted' ? { type: 'task_deleted', taskId: task.id, task, ...meta } : { type: 'task', task, ...meta };
   ids.forEach((i) => rt.sendToUser(i, msg));
+  // keep the members' pinned "today" check-in cards live (debounced; no-op for bosses / no card yet)
+  const cards = require('./checkins');
+  [task.assigneeId, prevAssigneeId].forEach((i) => i && cards.refreshDaySoon(i));
 }
 
 function cleanDate(v) {
@@ -144,8 +154,9 @@ async function applyUpdate(id, f, actor, source = 'manual', messageId = null) {
   const keys = FIELDS.filter((k) => f[k] !== undefined);
   if (!keys.length) throw new TaskError(400, 'Nothing to update');
   const task = await getTask(id);
-  const managing = keys.some((k) => k !== 'status' && k !== 'note');
-  if (managing ? !canManage(task, actor) : !canWork(task, actor)) throw new TaskError(403, 'Not allowed');
+  const allowed = (k) => (k === 'status' ? canWork(task, actor)
+    : k === 'note' || k === 'description' ? canDescribe(task, actor) || canWork(task, actor) : canManage(task, actor));
+  if (!keys.every(allowed)) throw new TaskError(403, 'Not allowed');
   if (f.status !== undefined && !STATUSES.includes(f.status)) throw new TaskError(400, 'Invalid status');
   let note = null;
   if (f.note !== undefined) {
@@ -338,5 +349,5 @@ async function mySummary(userId) {
 
 module.exports = {
   TaskError, STATUSES, createTask, updateTask, applyUpdate, updateTaskStatus, deleteTask, undoTask, praiseTask, listTasks,
-  summary, mySummary, getTask, taskDetail, activity, canAssign, canWork, canManage, today,
+  summary, mySummary, getTask, taskDetail, activity, canAssign, canWork, canManage, canDescribe, today, startOfToday, SELECT, shape,
 };

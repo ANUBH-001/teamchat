@@ -10,7 +10,8 @@ const KEEP = 30;
 const pad = (n) => String(n).padStart(2, '0');
 const today = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
 
-async function runBackup() {
+// name: file name without .json (default today's date; e.g. 'reset-2026-11-18-1530' before an admin reset).
+async function runBackup(name) {
   const q = async (sql) => (await pool.query(sql))[0];
   const data = {
     exportedAt: new Date().toISOString(),
@@ -28,9 +29,10 @@ async function runBackup() {
     app_settings: await q('SELECT * FROM app_settings'),
     chat_settings: await q('SELECT * FROM chat_settings'),
     message_reactions: await q('SELECT * FROM message_reactions'),
+    signoffs: await q("SELECT id, user_id, DATE_FORMAT(date, '%Y-%m-%d') date, note, summary, message_id, created_at, updated_at FROM signoffs"),
   };
   fs.mkdirSync(DIR, { recursive: true });
-  const file = path.join(DIR, today() + '.json');
+  const file = path.join(DIR, (name || today()) + '.json');
   fs.writeFileSync(file + '.tmp', JSON.stringify(data));
   fs.renameSync(file + '.tmp', file);
   const old = fs.readdirSync(DIR).filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().slice(0, -KEEP);
@@ -53,7 +55,7 @@ function start() {
   tick();
 }
 
-module.exports = { start, runBackup };
+module.exports = { start, runBackup, DIR };
 
 if (require.main === module) {
   runBackup()

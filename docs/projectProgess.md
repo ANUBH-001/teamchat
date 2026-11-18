@@ -17,6 +17,18 @@
 | 8b | Daily check-ins (private chat per member, boss Reports) | DONE (tested 2026-11-17) |
 | 9 | Background alerts: Android foreground service keeps socket alive | DONE (tested on tab 2026-11-17) |
 | 10 | Feedback round (2026-11-17): slash commands, groups, Tasks overview/board, Settings, QoL, force update | DONE: approved, pushed, deployed, APK 0.2.0 |
+| 11 | Round 2 (2026-11-18): person picker, composer / @ helpers, /ask /desc, edit/delete, retention, check-in rework, reset | BUILT + TESTED 2026-11-18 (not pushed / deployed) |
+
+## Round 2 (2026-11-18) - BUILT + TESTED
+- Prod bug fixed: two users named "Rishit" made every `/task rishit ...` unresolvable. New shared person resolution (names.js: exact > prefix > fuzzy incl. "anubav"/"rishith"; fillers; chat members first), structured `mentionIds` from the app, AI pick from context, and a tappable **userpicker** card (never "Poora naam likhiye" without choices).
+- Composer: `/` and `@` buttons, quick chips on focus, command sheet, people sheet (phone tail for same names), person sheet (open tasks + Status poochho / Update / Done / Reassign / Due / Description / Naya task / Mention).
+- New commands `/ask #id` (status question card + notification) and `/desc #id`; swipe-reply to a task card adds a note (`desc:` replaces the description).
+- Edit + delete own messages within 10 minutes for everyone (admin too; old "admin deletes anything" removed); "edited" label; message_revisions.
+- Retention jobs (jobs.js): Sunday 23:00 hard purge of messages > 7 days (pinned kept, JSON dump first), 6-day pending reminder (once) + admin alert + "6+ din pending" section, 14-day hard task cleanup (dump first); settings in Admin > Settings > Data retention. Debug: POST /admin/jobs/run.
+- Daily check-in rework: 10:00 pinned live "today's tasks" card, 18:00 sign-off (Done / In progress / Not started + note), `signoffs` table, admin quiet notification + Reports + Tasks tab panels; member "My day" in Tasks.
+- Admin "Reset app data" (type RESET; full backup first). AI /task also writes a clean description. Version 0.3.0 / versionCode 3. migrate_008 (applied locally).
+- **Tested 2026-11-18 (owner allowed this round):** task-engine corpus 209 cases multi-user HTTP+ws (/task names/typos/Hinglish/Devanagari/dates, two Rishits, pickers, status words, /update /done /testing /reassign /due /desc /ask /delete /tasks, card replies, permissions, switches, casual chat): AI off 94.7% -> 100% -> 100% (final), AI on 100%, bad key 16/16; messages 40/40; jobs + check-ins 44/44 (+ scheduled taskcleanup with retention off/on); reset 16/16; round-1 E2E 59/59; old-client 426 10/10; emulator UI as member + boss, light + dark; native Copy + notifications channels checked.
+- Fixes from the test: name later in `/task` ("... anubhav ko", "... @Tushar"); "anubhav" picks Anubhav over Anubhav Kumar; "rishith" no longer offers Rishabh; `@Name` first-name mention regex (`/s+/`); unrelated member got "already Done" info instead of NOT_ALLOWED; Hindi fillers in mock titles; app: swipe/menu reply on task cards, no notification for slash-command text, tab bar hides on keyboard, Reports header under status bar, Android back in Settings, mention contrast on own bubble.
 
 ## Feedback round (2026-11-17, "real-phone feedback")
 - Bugs: mirrored "No messages yet" text; AI engine silent when unsure (no public "no open task" reply); bot replies can be private (`messages.visible_to`).
@@ -32,6 +44,7 @@
 - Tests (owner allowed for this round only): multi-user API + WebSocket E2E 59/59 pass; emulator UI as boss and member, light + dark. Screenshots sent to owner.
 
 ## Remaining (in this order)
+0. Round 2: tested; owner approval, then push + APK 0.3.0 + deploy (DEPLOY.md "Round 2"; migrate_008 first; retention is ON by default).
 1. Owner approves the UI (screenshots).
 2. Git push to `ANUBH-001/teamchat` main (only after approval).
 3. Rebuild release APK: versionCode 2, new native dep `expo-clipboard` (dev build needs it too).

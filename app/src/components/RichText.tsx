@@ -1,6 +1,6 @@
 import React from 'react';
 import { Linking, Text, TextStyle } from 'react-native';
-import { Theme } from '../theme';
+import { dark, Theme } from '../theme';
 
 // Message text with links, phone numbers and @mentions. Mentions of me are highlighted stronger.
 // split() with one capture group: odd indexes are the matches.
@@ -11,7 +11,9 @@ function open(kind: 'url' | 'tel', v: string) {
   Linking.openURL(url).catch(() => {});
 }
 
-function RichTextBase({ text, t, style, meName }: { text: string; t: Theme; style?: TextStyle; meName: string }) {
+function RichTextBase({ text, t, style, meName, mine }: { text: string; t: Theme; style?: TextStyle; meName: string; mine?: boolean }) {
+  // on my own (green) bubble the green accent has too little contrast: use a link blue there
+  const mentionColor = mine ? (t.background === dark.background ? '#53BDEB' : '#027EB5') : t.accent;
   const parts = text.split(RE);
   const me = meName.trim().split(/\s+/)[0].toLowerCase();
   return (
@@ -22,7 +24,7 @@ function RichTextBase({ text, t, style, meName }: { text: string; t: Theme; styl
         if (p[0] === '@') {
           const forMe = p.slice(1).toLowerCase() === me;
           return (
-            <Text key={i} style={{ fontWeight: '700', color: t.accent, backgroundColor: forMe ? 'rgba(37,211,102,0.22)' : undefined }}>{p}</Text>
+            <Text key={i} style={{ fontWeight: '700', color: mentionColor, backgroundColor: forMe ? 'rgba(37,211,102,0.22)' : undefined }}>{p}</Text>
           );
         }
         const kind = /^\+?\d/.test(p) ? 'tel' : 'url';

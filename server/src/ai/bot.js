@@ -14,12 +14,12 @@ async function botUserId() {
   return cached;
 }
 
-async function insertAndSend(chatId, senderId, type, body, payload, visibleTo, prefix) {
+async function insertAndSend(chatId, senderId, type, body, payload, visibleTo, prefix, mentions) {
   const { MSG_SELECT, formatMessage } = require('../routes/chats'); // lazy: chats.js requires this file
   const [r] = await pool.query(
-    'INSERT INTO messages (chat_id, sender_id, body, client_id, type, payload, visible_to) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO messages (chat_id, sender_id, body, client_id, type, payload, visible_to, mentions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     [chatId, senderId, String(body).slice(0, 4000), prefix + crypto.randomUUID(), type, payload ? JSON.stringify(payload) : null,
-      visibleTo || null]);
+      visibleTo || null, mentions && mentions.length ? JSON.stringify(mentions) : null]);
   const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [r.insertId]);
   const message = formatMessage(row, { role: 'member' });
   // Ephemeral (visibleTo set): only that user ever gets it, here and in every REST read.
@@ -28,9 +28,9 @@ async function insertAndSend(chatId, senderId, type, body, payload, visibleTo, p
   return message;
 }
 
-// Bot card in a chat. visibleTo = user id for an ephemeral "only visible to you" reply.
-const postBot = async (chatId, body, payload, visibleTo = null) =>
-  insertAndSend(chatId, await botUserId(), 'bot', body, payload, visibleTo, 'bot-');
+// Bot card in a chat. visibleTo = user id for an ephemeral "only visible to you" reply. mentions = user ids (notify).
+const postBot = async (chatId, body, payload, visibleTo = null, mentions = null) =>
+  insertAndSend(chatId, await botUserId(), 'bot', body, payload, visibleTo, 'bot-', mentions);
 
 // Centered grey pill ("Rishit added Anubhav"); sender = the acting user.
 const postSystem = (chatId, actor, body) => insertAndSend(chatId, actor.id, 'system', body, null, null, 'sys-');

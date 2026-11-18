@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, AppState, ActivityIndicator, Share,
+  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, AppState, ActivityIndicator, ScrollView,
   NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,10 +12,11 @@ import { Chat, Msg, ReplyRef, Reaction } from '../chatTypes';
 import { Task } from '../taskTypes';
 import { onEvent, sendTyping } from '../realtime';
 import { enqueue, flushOutbox, newClientId, onSent, pendingFor, removeFromOutbox } from '../outbox';
-import { COMMANDS } from '../commands';
+import { COMMANDS, Command, DUE_CHIPS, QUICK } from '../commands';
+import { CommandSheet, firstName, PeopleSheet, PersonAction, PersonSheet, phoneTail, PickPerson } from '../components/ComposerSheets';
 import { usePublicSettings } from '../publicSettings';
 import Avatar from '../components/Avatar';
-import Bubble from '../components/Bubble';
+import Bubble, { isTaskCard } from '../components/Bubble';
 import Sheet, { SheetRow } from '../components/Sheet';
 import Suggestions, { Suggestion } from '../components/Suggestions';
 import { TickStatus } from '../components/Tick';
@@ -27,7 +28,25 @@ type Item =
   | { kind: 'date'; key: string; label: string }
   | { kind: 'unread'; key: string; count: number }
   | { kind: 'msg'; key: string; msg: Msg };
-type Member = { id: number; name: string; role: 'boss' | 'member'; isCreator: boolean };
+type Member = { id: number; name: string; role: 'boss' | 'member'; isCreator: boolean; phone?: string };
+type MentionRef = { id: number; label: string }; // "@Rishit" inserted from a picker, sent as structured mentionIds
+const EDIT_MS = 10 * 60 * 1000; // server allows edit/delete of own messages for 10 minutes
+
+// Structured mention ids for the text, in text order (each inserted label is matched to its next occurrence).
+function mentionIdsFor(text: string, refs: MentionRef[]) {
+  const found: { pos: number; id: number }[] = [];
+  const cursor: Record<string, number> = {};
+  for (const r of refs) {
+    const pos = text.indexOf(r.label, cursor[r.label] ?? 0);
+    if (pos < 0) continue;
+    cursor[r.label] = pos + r.label.length;
+    found.push({ pos, id: r.id });
+  }
+  return found.sort((a, b) => a.pos - b.pos).map((f) => f.id);
+}
+const canEditMsg = (m: Msg, meId: number) =>
+  !!m.id && !m.deleted && m.senderId === meId && (!m.type || m.type === 'text') && m.visibleTo == null &&
+  Date.now() - new Date(m.createdAt).getTime() < EDIT_MS;
 
 const EMOJIS = ['👍', '✅', '🙏', '😂', '❤️', '👀'];
 
@@ -82,6 +101,17 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const [myTasks, setMyTasks] = useState<Task[] | null>(null);
   const [showJump, setShowJump] = useState(false);
   const [belowCount, setBelowCount] = useState(0);
+  // composer helpers: "/" sheet, "@" people sheet -> person actions, structured mentions, edit mode
+  const [sheet, setSheet] = useState<null | 'cmd' | 'people' | 'person'>(null);
+  const [peopleTitle, setPeopleTitle] = useState('');
+  const peoplePick = useRef<((p: PickPerson) => void) | null>(null);
+  const [allUsers, setAllUsers] = useState<PickPerson[] | null>(null);
+  const [person, setPerson] = useState<PickPerson | null>(null);
+  const [personTasks, setPersonTasks] = useState<Task[] | null>(null);
+  const [focused, setFocused] = useState(false);
+  const [editing, setEditing] = useState<Msg | null>(null);
+  const refs = useRef<MentionRef[]>([]);
+  const [askTasks, setAskTasks] = useState<Task[] | null>(null);
   const listRef = useRef<FlatList<Item>>(null);
   const inputRef = useRef<TextInput>(null);
   const loadingOlder = useRef(false);
@@ -174,6 +204,16 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
           markRead();
           if (!atBottom.current) setBelowCount((n) => n + 1);
         }
+      } else if (e.type === 'edited' && e.chatId === chat.id && e.message) {
+        setMsgs((cur) => cur.map((m) => (m.id === e.message.id
+          ? { ...m, ...e.message, reactions: e.message.reactions?.length ? e.message.reactions : m.reactions } : m)));
+      } else if (e.type === 'reset' || e.type === 'purged') {
+        // admin reset / weekly purge: start this chat fresh (a reset removes groups and DMs entirely)
+        syncedId.current = 0;
+        setMsgs([]);
+        setPinned(null);
+        if (e.type === 'reset' && (chat.type === 'group' || chat.type === 'dm')) { onBack(); return; }
+        loadLatest();
       } else if (e.type === 'deleted' && e.chatId === chat.id) {
         markDeleted(e.messageId);
       } else if (e.type === 'read' && e.chatId === chat.id) {
@@ -198,9 +238,11 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
 
   const voice = useVoiceInput();
 
-  const send = (raw = text, keepReply = false) => {
+  const send = (raw = text, keepReply = false, ids?: number[]) => {
     const body = raw.trim();
     if (!body) return;
+    if (editing && !keepReply) { saveEdit(body); return; }
+    const mentionIds = ids ?? (keepReply ? [] : mentionIdsFor(body, refs.current));
     const clientId = newClientId();
     const createdAt = new Date().toISOString();
     const rt = keepReply ? null : replyTo;
@@ -211,9 +253,96 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       clientId, chatId: chat.id, senderId: me.id, senderName: me.name, text: body, deleted: false, createdAt, pending: true,
       replyTo: ref,
     }]));
-    if (!keepReply) { setText(''); setReplyTo(null); }
-    enqueue(chat.id, body, clientId, createdAt, ref);
+    if (!keepReply) { setText(''); setReplyTo(null); refs.current = []; }
+    enqueue(chat.id, body, clientId, createdAt, ref, mentionIds);
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  };
+
+  const saveEdit = async (body: string) => {
+    const m = editing;
+    if (!m || !m.id) return;
+    if (body === m.text) { cancelEdit(); return; }
+    try {
+      const r = await api<{ message: Msg }>('PATCH', '/messages/' + m.id, { text: body, mentionIds: mentionIdsFor(body, refs.current) });
+      setMsgs((cur) => cur.map((x) => (x.id === m.id ? { ...x, ...r.message } : x)));
+      cancelEdit();
+    } catch (e: any) { Alert.alert('Edit nahi hua', e.message); }
+  };
+  const cancelEdit = () => { setEditing(null); setText(''); refs.current = []; };
+  const startEdit = (m: Msg) => {
+    setReplyTo(null);
+    setEditing(m);
+    setText(m.text || '');
+    refs.current = [];
+    setTimeout(() => inputRef.current?.focus(), 80);
+  };
+
+  // ---- composer: insert text / mentions, people + command sheets ----
+  const put = (v: string) => { setText(v); setTimeout(() => inputRef.current?.focus(), 80); };
+  const withMention = (base: string, p: PickPerson) => {
+    const label = '@' + firstName(p.name);
+    refs.current = [...refs.current, { id: p.id, label }];
+    return base + (base && !/\s$/.test(base) ? ' ' : '') + label + ' ';
+  };
+  const loadUsers = async () => {
+    try {
+      const r = await api<{ users: { id: number; name: string; phone: string; role?: string }[] }>('GET', '/users');
+      setAllUsers(r.users);
+    } catch (e) { setAllUsers((cur) => cur ?? []); }
+  };
+  const pickList: PickPerson[] = useMemo(() => {
+    const inChat = new Set(members.map((m) => m.id));
+    const byId = new Map<number, PickPerson>();
+    for (const m of members) if (m.id !== me.id) byId.set(m.id, { id: m.id, name: m.name, phone: m.phone, role: m.role, inChat: true });
+    for (const u of allUsers ?? []) if (u.id !== me.id && !byId.has(u.id)) byId.set(u.id, { ...u, inChat: inChat.has(u.id) });
+    return [...byId.values()];
+  }, [members, allUsers, me.id]);
+  const openPeople = (title: string, onPick: (p: PickPerson) => void) => {
+    peoplePick.current = onPick;
+    setPeopleTitle(title);
+    if (!allUsers) loadUsers();
+    setSheet('people');
+  };
+  const pickedPerson = (p: PickPerson) => {
+    const fn = peoplePick.current;
+    peoplePick.current = null;
+    setSheet(null);
+    if (fn) setTimeout(() => fn(p), 150);
+  };
+  // "@" button: person -> their open tasks + actions
+  const openPersonActions = () => openPeople('Kisko? (task, status, mention)', (p) => {
+    setPerson(p);
+    setPersonTasks(null);
+    setSheet('person');
+    api<{ tasks: Task[] }>('GET', '/tasks?assignee=' + p.id)
+      .then((r) => setPersonTasks(r.tasks.filter((x) => x.status !== 'done'))).catch(() => setPersonTasks([]));
+  });
+  const personAction = (a: PersonAction, task: Task | null) => {
+    const p = person;
+    setSheet(null);
+    if (!p) return;
+    const id = task ? '#' + task.id : '';
+    setTimeout(() => {
+      if (a === 'mention') put(withMention(text, p));
+      else if (a === 'task') { refs.current = []; put(withMention('/task ', p)); }
+      else if (a === 'ask') put('/ask ' + id);
+      else if (a === 'done') put('/done ' + id + ' ');
+      else if (a === 'update') put('/update ' + id + ' ');
+      else if (a === 'desc') put('/desc ' + id + ' ');
+      else if (a === 'due') put('/due ' + id + ' ');
+      else if (a === 'reassign') openPeople('Kisko dena hai?', (to) => { refs.current = []; put(withMention('/reassign ' + id + ' ', to)); });
+    }, 150);
+  };
+  // "/" sheet or a chip: insert the command, chain into the task list or the people picker
+  const pickCommand = (c: Command) => {
+    setSheet(null);
+    refs.current = [];
+    setTimeout(() => {
+      if (c.cmd === '/task') openPeople('Task kisko dena hai?', (p) => put(withMention('/task ', p)));
+      else if (c.needsTask) put(c.cmd + ' #');
+      else if (c.cmd === '/tasks') openPeople('Kiske tasks?', (p) => put(withMention('/tasks ', p)));
+      else put(c.cmd + (c.args ? ' ' : ''));
+    }, 150);
   };
 
   // voice: stop -> transcript goes into the text box to edit; send -> sent at once; X -> discarded
@@ -250,9 +379,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   // ---- long-press menu ----
   const longPress = useCallback((m: Msg) => {
     if (m.deleted || m.type === 'system') return;
-    if (m.type === 'bot' && me.role !== 'boss') return;
     setMenu(m);
-  }, [me.role]);
+  }, []);
 
   const doDelete = async (m: Msg) => {
     if (!m.id) {
@@ -294,8 +422,10 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const renderMenu = () => {
     const m = menu;
     if (!m) return null;
-    const isBot = m.type === 'bot';
-    const canDelete = m.senderId === me.id || me.role === 'boss';
+    const isBot = m.type === 'bot' || m.type === 'checkin_prompt';
+    const canEdit = canEditMsg(m, me.id);
+    // own text within 10 min (everyone, admin too), an unsent message, or my own "only visible to you" card
+    const canDelete = canEdit || !m.id || (m.type === 'bot' && m.visibleTo === me.id);
     const mineReact = (e: string) => !!m.reactions?.find((r) => r.emoji === e)?.userIds.includes(me.id);
     return (
       <>
@@ -311,9 +441,10 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
             ))}
           </View>
         )}
-        {!!m.id && !isBot && <SheetRow icon="arrow-undo-outline" label="Reply" onPress={() => menuAction(() => startReply(m))} />}
+        {!!m.id && (!isBot || isTaskCard(m)) && <SheetRow icon="arrow-undo-outline" label="Reply" onPress={() => menuAction(() => startReply(m))} />}
         {!isBot && !!m.text && <SheetRow icon="copy-outline" label="Copy" onPress={() => menuAction(() => copyText(m.text || ''))} />}
-        {!!m.id && !isBot && chat.type !== 'checkin' && (
+        {canEdit && <SheetRow icon="pencil-outline" label="Edit" onPress={() => menuAction(() => startEdit(m))} />}
+        {!!m.id && m.visibleTo == null && (
           <SheetRow icon="pin-outline" label={pinned && pinned.id === m.id ? 'Unpin' : 'Pin'} onPress={() => menuAction(() => togglePin(m))} />
         )}
         {!!m.id && m.senderId !== me.id && !isBot && (chat.type === 'group' || chat.type === 'all') && (
@@ -323,8 +454,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
           <SheetRow
             icon="checkbox-outline" label="Make task"
             onPress={() => menuAction(() => {
-              setText('/task ' + (m.senderId !== me.id ? '@' + m.senderName.split(' ')[0] + ' ' : ''));
-              inputRef.current?.focus();
+              refs.current = [];
+              put(m.senderId !== me.id ? withMention('/task ', { id: m.senderId, name: m.senderName }) : '/task ');
             })}
           />
         )}
@@ -383,24 +514,43 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   // ---- composer suggestions: @mentions, slash palette, my tasks after "/done #" ----
   const taskCmd = /^\/(\w+)\s+#(\S*)$/.exec(text);
   const needsTasks = !!taskCmd && ps.commandsEnabled && COMMANDS.some((c) => c.cmd === '/' + taskCmd[1] && c.needsTask);
+  const isAsk = !!taskCmd && taskCmd[1] === 'ask';
   useEffect(() => {
     if (!needsTasks) return;
+    if (isAsk) {
+      // /ask is about someone else's task: every open task that is not mine
+      api<{ tasks: Task[] }>('GET', '/tasks?assignee=all')
+        .then((r) => setAskTasks(r.tasks.filter((x) => x.status !== 'done' && x.assigneeId !== me.id))).catch(() => {});
+      return;
+    }
     api<{ tasks: Task[] }>('GET', '/tasks?assignee=' + me.id)
       .then((r) => setMyTasks(r.tasks.filter((x) => x.status !== 'done'))).catch(() => {});
-  }, [needsTasks, me.id]);
+  }, [needsTasks, isAsk, me.id]);
 
   const suggestions: Suggestion[] = (() => {
     if (voice.recording) return [];
     if (needsTasks && taskCmd) {
       const q = taskCmd[2].toLowerCase();
-      return (myTasks ?? [])
-        .filter((x) => !q || String(x.id).startsWith(q) || x.title.toLowerCase().includes(q))
+      return ((isAsk ? askTasks : myTasks) ?? [])
+        .filter((x) => !q || String(x.id).startsWith(q) || x.title.toLowerCase().includes(q) || (x.assigneeName || '').toLowerCase().includes(q))
         .slice(0, 8)
         .map((x) => ({
-          key: 't' + x.id, title: x.title, sub: '#' + x.id + (x.project ? '  ·  ' + x.project : ''),
+          key: 't' + x.id, title: x.title,
+          sub: '#' + x.id + (isAsk && x.assigneeName ? '  ·  ' + x.assigneeName : '') + (x.project ? '  ·  ' + x.project : ''),
           left: <Ionicons name="checkbox-outline" size={20} color={t.accent} />,
-          onPress: () => setText('/' + taskCmd[1] + ' #' + x.id + ' '),
+          onPress: () => {
+            const base = '/' + taskCmd[1] + ' #' + x.id + ' ';
+            if (taskCmd[1] === 'reassign') openPeople('Kisko dena hai?', (to) => { refs.current = []; put(withMention(base, to)); });
+            else put(base);
+          },
         }));
+    }
+    if (ps.commandsEnabled && /^\/due\s+#\d+\s+$/.test(text)) {
+      return DUE_CHIPS.map((d) => ({
+        key: 'due' + d, title: d, sub: d === 'none' ? 'Due date hatao' : undefined,
+        left: <Ionicons name="calendar-outline" size={20} color={t.accent} />,
+        onPress: () => put(text + d),
+      }));
     }
     if (ps.commandsEnabled && /^\/\S*$/.test(text)) {
       const q = text.toLowerCase();
@@ -417,9 +567,12 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
         .filter((m) => m.id !== me.id && (!q || m.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q))))
         .slice(0, 6)
         .map((m) => ({
-          key: 'm' + m.id, title: m.name, sub: m.role === 'boss' ? 'Admin' : undefined,
+          key: 'm' + m.id, title: m.name, sub: [m.role === 'boss' ? 'Admin' : '', phoneTail(m.phone)].filter(Boolean).join('  ·  ') || undefined,
           left: <Avatar name={m.name} id={m.id} size={32} />,
-          onPress: () => setText(text.slice(0, text.length - mm[2].length) + m.name.split(' ')[0] + ' '),
+          onPress: () => {
+            refs.current = [...refs.current, { id: m.id, label: '@' + firstName(m.name) }];
+            setText(text.slice(0, text.length - mm[2].length) + firstName(m.name) + ' ');
+          },
         }));
     }
     return [];
@@ -430,6 +583,19 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     : chat.type === 'checkin' ? 'Aapke reports admin dekh sakte hain'
     : chat.type === 'dm' ? '' : (members.length || chat.membersCount) + ' members';
   const hasInfo = chat.type === 'group' || chat.type === 'all';
+  const helpers = ps.commandsEnabled && chat.type !== 'checkin';
+  const showChips = helpers && focused && !text && !voice.recording && !editing && !suggestions.length;
+  const quick = QUICK.map((q) => COMMANDS.find((c) => c.cmd === q)!).filter(Boolean);
+  const smallBtn = (label: string, onPress: () => void, a11y: string) => (
+    <Pressable
+      onPress={onPress} accessibilityLabel={a11y} hitSlop={4}
+      style={{ width: 36, height: 44, alignItems: 'center', justifyContent: 'center' }}
+    >
+      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: t.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: t.border }}>
+        <Text style={{ color: t.accent, fontSize: 17, fontWeight: '800', includeFontPadding: false }}>{label}</Text>
+      </View>
+    </Pressable>
+  );
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.background }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -507,7 +673,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
                 onQuotePress={jumpTo}
                 onReact={react}
                 onOpenTask={onOpenTask}
-                onSendText={(x) => send(x, true)}
+                onSendText={(x, ids) => send(x, true, ids)}
+                onPrefill={put}
                 onCardMic={cardMic}
                 meId={me.id}
                 meName={me.name}
@@ -544,7 +711,42 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
           </Pressable>
         </View>
       )}
+      {!!editing && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, paddingHorizontal: 10, paddingTop: 8 }}>
+          <Ionicons name="pencil" size={18} color={t.accent} style={{ marginHorizontal: 6 }} />
+          <View style={{ flex: 1, borderLeftWidth: 4, borderLeftColor: t.accent, backgroundColor: t.background, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+            <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>Message edit karein</Text>
+            <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 13 }}>{editing.text || ''}</Text>
+          </View>
+          <Pressable onPress={cancelEdit} hitSlop={10} style={{ padding: 8 }}>
+            <Ionicons name="close" size={22} color={t.subtext} />
+          </Pressable>
+        </View>
+      )}
       <Suggestions items={suggestions} t={t} />
+      {showChips && (
+        <ScrollView
+          horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 2, alignItems: 'center' }}
+        >
+          {quick.map((c) => (
+            <Pressable
+              key={c.cmd} onPress={() => pickCommand(c)}
+              style={{ flexDirection: 'row', alignItems: 'center', height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: t.card, marginRight: 6, borderWidth: 1, borderColor: t.border }}
+            >
+              <Ionicons name={c.icon} size={15} color={t.accent} />
+              <Text style={{ color: t.text, fontSize: 13, fontWeight: '600', marginLeft: 5 }}>{c.cmd}</Text>
+            </Pressable>
+          ))}
+          <Pressable
+            onPress={openPersonActions}
+            style={{ flexDirection: 'row', alignItems: 'center', height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: t.card, borderWidth: 1, borderColor: t.border }}
+          >
+            <Ionicons name="at" size={15} color={t.accent} />
+            <Text style={{ color: t.text, fontSize: 13, fontWeight: '600', marginLeft: 5 }}>person</Text>
+          </Pressable>
+        </ScrollView>
+      )}
       {voice.recording ? (
         <VoiceBar
           t={t} levels={voice.levels} transcript={voice.transcript} lang={voice.lang} bottom={insets.bottom}
@@ -552,18 +754,14 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
         />
       ) : (
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', padding: 8, paddingBottom: 8 + insets.bottom }}>
-        {ps.commandsEnabled && chat.type !== 'checkin' && (
-          <Pressable
-            onPress={() => { setText((cur) => (cur.startsWith('/') ? cur : '/' + cur)); inputRef.current?.focus(); }}
-            style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 2 }}
-          >
-            <Ionicons name="checkbox-outline" size={24} color={t.accent} />
-          </Pressable>
-        )}
+        {helpers && !editing && smallBtn('/', () => setSheet('cmd'), 'Commands')}
+        {helpers && !editing && smallBtn('@', openPersonActions, 'Person')}
         <TextInput
           ref={inputRef}
           value={text}
           onChangeText={onChange}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           placeholder="Message"
           placeholderTextColor={t.subtext}
           multiline
@@ -572,19 +770,25 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
             paddingHorizontal: 14, paddingVertical: 8, fontSize: 16,
           }}
         />
-        {voice.available && !text.trim() ? (
+        {voice.available && !text.trim() && !editing ? (
           <MicButton t={t} onPress={() => { cardTarget.current = null; voice.start(toBox); }} />
         ) : (
           <Pressable
             onPress={() => send()}
             style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', marginLeft: 6 }}
           >
-            <Text style={{ color: '#fff', fontSize: 20 }}>{'➤'}</Text>
+            {editing ? <Ionicons name="checkmark" size={24} color="#fff" /> : <Text style={{ color: '#fff', fontSize: 20 }}>{'➤'}</Text>}
           </Pressable>
         )}
       </View>
       )}
       <Sheet visible={!!menu} onClose={() => setMenu(null)} title={menu?.senderName}>{renderMenu()}</Sheet>
+      <CommandSheet visible={sheet === 'cmd'} onClose={() => setSheet(null)} onPick={pickCommand} />
+      <PeopleSheet
+        visible={sheet === 'people'} onClose={() => { peoplePick.current = null; setSheet(null); }} title={peopleTitle}
+        people={pickList} loading={!allUsers} onPick={pickedPerson}
+      />
+      <PersonSheet visible={sheet === 'person'} onClose={() => setSheet(null)} person={person} tasks={personTasks} onAction={personAction} />
     </KeyboardAvoidingView>
   );
 }

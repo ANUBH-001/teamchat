@@ -22,6 +22,11 @@ function TaskRowBase({ task, onPress }: { task: Task; onPress: (t: Task) => void
           {task.project ? task.project + '  ·  ' : ''}{task.assigneeName ?? 'Unassigned'}{task.dueDate ? '  ·  ' + formatDue(task.dueDate) : ''}
         </Text>
       </View>
+      {!!task.stale && (
+        <View style={{ backgroundColor: OVERDUE_COLOR, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, marginRight: 6 }}>
+          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{task.ageDays}d</Text>
+        </View>
+      )}
       <StatusPill status={task.status} />
     </Pressable>
   );

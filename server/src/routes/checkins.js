@@ -21,8 +21,8 @@ member.get('/mine', h((req) => {
   if (req.user.role !== 'member') throw new C.CheckinError(403, 'Not allowed'); // boss uses /admin/checkins
   return C.history(req.user.id, req.query.from, req.query.to);
 }));
-member.post('/', h(async (req, res) => {
-  const out = await C.submit(req.user, req.body);
+member.post('/signoff', h(async (req, res) => {
+  const out = await C.signoff(req.user, req.body);
   res.status(out.created ? 201 : 200);
   return out;
 }));

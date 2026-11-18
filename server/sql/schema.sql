@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS messages (
   mentions TEXT NULL, -- JSON array of mentioned user ids
   INDEX idx_chat_created (chat_id, created_at),
   INDEX idx_visible_to (visible_to),
+  INDEX idx_messages_created (created_at),
   FOREIGN KEY (visible_to) REFERENCES users(id),
   UNIQUE KEY uq_sender_client (sender_id, client_id),
   FOREIGN KEY (chat_id) REFERENCES chats(id),
@@ -96,6 +97,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   deleted_at TIMESTAMP NULL,
   project VARCHAR(60) NULL,
   chat_id INT NULL, -- chat where the task was made (/task); bot cards go there
+  reminded_at TIMESTAMP NULL, -- 6-day pending reminder sent (once)
+  INDEX idx_tasks_created (created_at),
   FOREIGN KEY (assignee_id) REFERENCES users(id),
   FOREIGN KEY (chat_id) REFERENCES chats(id),
   FOREIGN KEY (created_by) REFERENCES users(id),
@@ -171,7 +174,7 @@ CREATE TABLE IF NOT EXISTS checkin_revisions (
   FOREIGN KEY (checkin_id) REFERENCES checkins(id)
 );
 
--- Scheduler marker: one row per user/date/kind (morning|evening|morning_nudge|evening_nudge), so restarts never double-post.
+-- Scheduler marker: one row per user/date/kind (day|signoff|signoff_nudge; old: morning|evening|*_nudge), so restarts never double-post.
 CREATE TABLE IF NOT EXISTS checkin_prompts (
   user_id INT NOT NULL,
   date DATE NOT NULL,
@@ -182,6 +185,21 @@ CREATE TABLE IF NOT EXISTS checkin_prompts (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+-- Evening sign-off (round 2): one row per member per day
+CREATE TABLE IF NOT EXISTS signoffs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  date DATE NOT NULL,
+  note TEXT NULL,
+  summary TEXT NULL, -- JSON {counts:{given,done,left}, tasks:[{id,title,status}]}
+  message_id BIGINT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_signoff (user_id, date),
+  INDEX idx_signoff_date (date),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS app_settings (
   name VARCHAR(64) PRIMARY KEY,
   value TEXT NOT NULL, -- JSON
@@ -189,5 +207,5 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 
 INSERT IGNORE INTO app_settings (name, value) VALUES
-  ('checkin.enabled', 'true'), ('checkin.morningTime', '"10:00"'), ('checkin.eveningTime', '"18:30"'),
+  ('checkin.enabled', 'true'), ('checkin.morningTime', '"10:00"'), ('checkin.eveningTime', '"18:00"'),
   ('checkin.days', '[1,2,3,4,5,6]'), ('checkin.nudgeMinutes', '120');

@@ -10,27 +10,72 @@ router.use(requireAuth);
 // People list for picking group members / starting a DM
 router.get('/users', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT id, name, phone FROM users WHERE active = 1 AND id <> ? ORDER BY name', [req.user.id]);
+    const [rows] = await pool.query('SELECT id, name, phone, role FROM users WHERE active = 1 AND is_bot = 0 AND id <> ? ORDER BY name', [req.user.id]);
     res.json({ users: rows });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Soft delete: sender or boss
+// Edit / delete: only your own text message, within EDIT_WINDOW (10 min) of sending, for everyone (boss too).
+// Exception: an ephemeral bot card shown only to you can always be deleted by you. Bot/system/check-in cards: never.
+const EDIT_WINDOW_S = 600;
+const windowError = (res) => res.status(403).json({ error: 'Sirf 10 minute ke andar apna message edit/delete ho sakta hai', code: 'EDIT_WINDOW' });
+
+async function ownMessage(req, res) {
+  const id = parseInt(req.params.id, 10);
+  const [[m]] = await pool.query(
+    'SELECT id, chat_id, sender_id, body, type, deleted_at, visible_to, mentions, TIMESTAMPDIFF(SECOND, created_at, NOW()) age FROM messages WHERE id = ?',
+    [id || 0]);
+  if (!m || (m.visible_to && m.visible_to !== req.user.id)) { res.status(404).json({ error: 'Message not found', code: 'NOT_FOUND' }); return null; }
+  if (!(await rt.isChatMember(m.chat_id, req.user.id))) { res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' }); return null; }
+  return m;
+}
+
+// Soft delete (deleted_at). ws {type:'deleted', chatId, messageId}.
 router.delete('/messages/:id', async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const [[m]] = await pool.query('SELECT id, chat_id, sender_id, deleted_at, visible_to FROM messages WHERE id = ?', [id]);
-    if (!m || (m.visible_to && m.visible_to !== req.user.id)) return res.status(404).json({ error: 'Message not found' });
-    if (!(await rt.isChatMember(m.chat_id, req.user.id))) return res.status(403).json({ error: 'Not allowed' });
-    if (m.sender_id !== req.user.id && req.user.role !== 'boss') return res.status(403).json({ error: 'Not allowed' });
+    const m = await ownMessage(req, res);
+    if (!m) return;
+    const myEphemeral = m.visible_to === req.user.id;
+    if (!myEphemeral) {
+      if (m.sender_id !== req.user.id || m.type !== 'text') return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
+      if (Number(m.age) > EDIT_WINDOW_S) return windowError(res);
+    }
     if (!m.deleted_at) {
-      await pool.query('UPDATE messages SET deleted_at = NOW() WHERE id = ?', [id]);
-      const ev = { type: 'deleted', chatId: m.chat_id, messageId: id };
+      await pool.query('UPDATE messages SET deleted_at = NOW() WHERE id = ?', [m.id]);
+      const ev = { type: 'deleted', chatId: m.chat_id, messageId: Number(m.id) };
       if (m.visible_to) rt.sendToUser(m.visible_to, ev); else await rt.sendToChat(m.chat_id, ev);
     }
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PATCH /messages/:id {text}: old body kept in message_revisions, edited_at set, mentions re-read.
+// ws {type:'edited', chatId, message}. Commands in an edited message are NOT run again.
+router.patch('/messages/:id', async (req, res) => {
+  try {
+    const text = String((req.body || {}).text || '').trim();
+    if (!text || text.length > 4000) return res.status(400).json({ error: 'Message is empty or too long' });
+    const m = await ownMessage(req, res);
+    if (!m) return;
+    if (m.sender_id !== req.user.id || m.type !== 'text' || m.visible_to) return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
+    if (m.deleted_at) return res.status(400).json({ error: 'Message was deleted' });
+    if (Number(m.age) > EDIT_WINDOW_S) return windowError(res);
+    const { MSG_SELECT, formatMessage, resolveMentions, reactionsFor } = require('./chats');
+    if (text !== m.body) {
+      const { ids } = await resolveMentions(text, m.chat_id, req.body.mentionIds);
+      await pool.query('INSERT INTO message_revisions (message_id, old_body) VALUES (?, ?)', [m.id, m.body]);
+      await pool.query('UPDATE messages SET body = ?, edited_at = NOW(), mentions = ? WHERE id = ?',
+        [text, ids.length ? JSON.stringify(ids) : null, m.id]);
+    }
+    const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [m.id]);
+    const message = formatMessage(row, req.user);
+    message.reactions = (await reactionsFor([message.id])).get(message.id) || [];
+    if (text !== m.body) await rt.sendToChat(m.chat_id, { type: 'edited', chatId: m.chat_id, message });
+    res.json({ message });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }

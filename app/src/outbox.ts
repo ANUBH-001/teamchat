@@ -4,7 +4,7 @@ import { Msg, ReplyRef } from './chatTypes';
 
 // Unsent messages survive app restarts; each carries a clientId so retries never duplicate on the server.
 const KEY = 'outbox';
-type Item = { clientId: string; chatId: number; text: string; createdAt: string; replyTo?: ReplyRef | null };
+type Item = { clientId: string; chatId: number; text: string; createdAt: string; replyTo?: ReplyRef | null; mentionIds?: number[] };
 type SentListener = (clientId: string, message: Msg) => void;
 const sentListeners = new Set<SentListener>();
 let flushing = false;
@@ -27,9 +27,9 @@ export async function pendingFor(chatId: number, senderId: number, senderName: s
   }));
 }
 
-export async function enqueue(chatId: number, text: string, clientId: string, createdAt: string, replyTo?: ReplyRef | null) {
+export async function enqueue(chatId: number, text: string, clientId: string, createdAt: string, replyTo?: ReplyRef | null, mentionIds?: number[]) {
   const items = await load();
-  items.push({ clientId, chatId, text, createdAt, replyTo: replyTo ?? null });
+  items.push({ clientId, chatId, text, createdAt, replyTo: replyTo ?? null, mentionIds: mentionIds && mentionIds.length ? mentionIds : undefined });
   await save(items);
   flushOutbox();
 }
@@ -45,7 +45,7 @@ export async function flushOutbox() {
     for (const item of await load()) {
       try {
         const r = await api<{ message: Msg }>('POST', '/chats/' + item.chatId + '/messages', {
-          text: item.text, clientId: item.clientId, replyToId: item.replyTo ? item.replyTo.id : undefined,
+          text: item.text, clientId: item.clientId, replyToId: item.replyTo ? item.replyTo.id : undefined, mentionIds: item.mentionIds,
         });
         await removeFromOutbox(item.clientId);
         sentListeners.forEach((l) => l(item.clientId, r.message));

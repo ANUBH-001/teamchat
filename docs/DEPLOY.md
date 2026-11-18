@@ -70,3 +70,12 @@ Order zaroor yahi. Server code, migration, AI key, APK aur force-update settings
    a. Latest version code `2`, version name `0.2.0`, APK URL `https://apps.landauditors.com/team_chat/download/TeamChat.apk`, short message. Purane app users ko dismissible banner dikhega.
    b. Jab sab ne update kar liya ya ready ho: min version code `2`. Tab v1 build par blocking Update screen aati hai (server 426 `UPDATE_REQUIRED`).
    Rollback: min version code `0` (sab unblock).
+
+## Round 2 update (BUILT 2026-11-18, not deployed; deploy only when owner says)
+1. DB backup first (`mysqldump ... team_chat_db > /root/team-chat-dbbackup/pre-008-<date>.sql`), then BEFORE the new server starts:
+   `mysql -u team_chat_user -p team_chat_db < /opt/node/team-chat/server/sql/migrate_008.sql`
+   (adds `tasks.reminded_at`, `signoffs`, two indexes; sets check-in times 10:00 / 18:00).
+2. Code: git pull, `npm install --omit=dev`, `pm2 restart team-chat-backend --update-env`, health check. No new env keys. TZ must stay `Asia/Kolkata`.
+3. WARNING retention is ON by default (`retentionEnabled:true`): the first Sunday 23:00 after deploy HARD-deletes messages older than 7 days, and the
+   daily job deletes tasks older than 14 days (both dump JSON to `server/backup/` first). Turn it off in Admin > Settings > Data retention if not wanted yet.
+4. APK 0.3.0 / versionCode 3 (no new native dep): rebuild release, upload as `TeamChat.apk`, then Settings: latest code `3`, name `0.3.0`; min `3` only when everyone updated.

@@ -5,10 +5,10 @@ import { onEvent } from './realtime';
 // Server switches every user may read (GET /settings/public). Kept fresh on the `settings` ws event.
 export type PublicSettings = {
   commandsEnabled: boolean; membersCanAssign: boolean; praiseEnabled: boolean;
-  quietTaskNotifs: boolean; notifyAdminOnMemberChanges: boolean;
+  quietTaskNotifs: boolean; notifyAdminOnMemberChanges: boolean; taskReminderDays: number;
 };
 let cur: PublicSettings = {
-  commandsEnabled: true, membersCanAssign: true, praiseEnabled: true, quietTaskNotifs: true, notifyAdminOnMemberChanges: true,
+  commandsEnabled: true, membersCanAssign: true, praiseEnabled: true, quietTaskNotifs: true, notifyAdminOnMemberChanges: true, taskReminderDays: 6,
 };
 const subs = new Set<() => void>();
 let started = false;

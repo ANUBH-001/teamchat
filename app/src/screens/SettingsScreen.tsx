@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, Switch, TextInput, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, Switch, TextInput, Alert, ActivityIndicator, RefreshControl, Modal, BackHandler } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useTheme } from '../useTheme';
@@ -11,9 +12,17 @@ type S = {
   aiEnabled: boolean; aiDetect: boolean; commandsEnabled: boolean; membersCanAssign: boolean;
   notifyAdminOnMemberChanges: boolean; quietTaskNotifs: boolean; praiseEnabled: boolean;
   minVersionCode: number; latestVersionCode: number; latestVersionName: string; apkUrl: string; updateMessage: string;
+  retentionEnabled: boolean; taskReminderDays: number; taskDeleteDays: number; messageRetentionDays: number;
 };
 type Ai = { provider: string; model: string; hasKey: boolean; lastError: { code: string; message: string; at: string } | null };
-type BoolKey = 'aiEnabled' | 'aiDetect' | 'commandsEnabled' | 'membersCanAssign' | 'notifyAdminOnMemberChanges' | 'quietTaskNotifs' | 'praiseEnabled';
+type BoolKey = 'aiEnabled' | 'aiDetect' | 'commandsEnabled' | 'membersCanAssign' | 'notifyAdminOnMemberChanges' | 'quietTaskNotifs' | 'praiseEnabled'
+  | 'retentionEnabled';
+type DayKey = 'taskReminderDays' | 'taskDeleteDays' | 'messageRetentionDays';
+const DAY_ROWS: { key: DayKey; label: string; sub: string; min: number }[] = [
+  { key: 'taskReminderDays', label: 'Pending reminder after (days)', sub: 'Ek baar yaad dilana + admin alert (0 = off)', min: 0 },
+  { key: 'taskDeleteDays', label: 'Delete tasks after (days)', sub: 'Done ho ya nahi, purane tasks hata do', min: 1 },
+  { key: 'messageRetentionDays', label: 'Delete messages after (days)', sub: 'Har Sunday 11 PM (pinned message bachta hai)', min: 1 },
+];
 
 const GROUPS: { title: string; rows: { key: BoolKey; label: string; sub: string }[] }[] = [
   { title: 'AI & Commands', rows: [
@@ -49,13 +58,27 @@ export default function SettingsScreen({ onBack }: { onBack: () => void }) {
   const [ai, setAi] = useState<Ai | null>(null);
   const [err, setErr] = useState('');
   const [upd, setUpd] = useState({ minVersionCode: '', latestVersionCode: '', latestVersionName: '', apkUrl: '', updateMessage: '' });
+  // Android back = back to the Admin list (not out of the tab)
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { onBack(); return true; });
+    return () => sub.remove();
+  }, [onBack]);
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
+  const [days, setDays] = useState<Record<DayKey, string>>({ taskReminderDays: '', taskDeleteDays: '', messageRetentionDays: '' });
+  const [daysMsg, setDaysMsg] = useState('');
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetText, setResetText] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   const apply = (r: { settings: S; ai?: Ai }) => {
     setS(r.settings);
     if (r.ai) setAi(r.ai);
+    setDays({
+      taskReminderDays: String(r.settings.taskReminderDays ?? 6), taskDeleteDays: String(r.settings.taskDeleteDays ?? 14),
+      messageRetentionDays: String(r.settings.messageRetentionDays ?? 7),
+    });
     setUpd({
       minVersionCode: String(r.settings.minVersionCode ?? 0), latestVersionCode: String(r.settings.latestVersionCode ?? 0),
       latestVersionName: r.settings.latestVersionName ?? '', apkUrl: r.settings.apkUrl ?? '', updateMessage: r.settings.updateMessage ?? '',
@@ -93,6 +116,29 @@ export default function SettingsScreen({ onBack }: { onBack: () => void }) {
         { text: 'Cancel', style: 'cancel' }, { text: 'Save anyway', style: 'destructive', onPress: go },
       ]);
     } else go();
+  };
+  const saveDays = async () => {
+    const body: Partial<Record<DayKey, number>> = {};
+    for (const r of DAY_ROWS) {
+      const n = Number(days[r.key]);
+      if (!Number.isInteger(n) || n < r.min) { Alert.alert('Days', r.label + ': ' + r.min + ' ya zyada likhiye.'); return; }
+      body[r.key] = n;
+    }
+    try {
+      setS((await api<{ settings: S }>('PUT', '/admin/settings', body)).settings);
+      setDaysMsg('Saved');
+      setTimeout(() => setDaysMsg(''), 2000);
+    } catch (e: any) { Alert.alert('Could not save', e.message); }
+  };
+  const doReset = async () => {
+    if (resetText.trim() !== 'RESET' || resetting) return;
+    setResetting(true);
+    try {
+      const r = await api<{ ok: boolean; backup: string }>('POST', '/admin/reset', { confirm: 'RESET' });
+      setResetOpen(false); setResetText('');
+      Alert.alert('Reset ho gaya', 'Saara chat/task data hata diya. Backup: ' + r.backup);
+    } catch (e: any) { Alert.alert('Reset nahi hua', e.message); }
+    setResetting(false);
   };
   const testAi = async () => {
     setTesting(true); setTestMsg(null);
@@ -159,6 +205,31 @@ export default function SettingsScreen({ onBack }: { onBack: () => void }) {
             </View>
           ))}
 
+          <Text style={head}>Data retention</Text>
+          <View style={card}>
+            <Row label="Auto delete old data" sub="Messages + purane tasks hard delete (backup JSON pehle)" value={!!s.retentionEnabled} onChange={(v) => toggle('retentionEnabled', v)} t={t} />
+            {DAY_ROWS.map((r) => (
+              <View key={r.key}>
+                <View style={{ height: 1, backgroundColor: t.border, marginLeft: 16 }} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 64, paddingHorizontal: 16 }}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text style={{ color: t.text, fontSize: 15 }}>{r.label}</Text>
+                    <Text style={{ color: t.subtext, fontSize: 12, marginTop: 1 }}>{r.sub}</Text>
+                  </View>
+                  <TextInput
+                    keyboardType="number-pad" value={days[r.key]} onChangeText={(v) => setDays({ ...days, [r.key]: v.replace(/[^0-9]/g, '') })}
+                    style={{ width: 64, minHeight: 44, borderRadius: 12, backgroundColor: t.soft, color: t.text, textAlign: 'center', fontSize: 16, fontWeight: '600' }}
+                  />
+                </View>
+              </View>
+            ))}
+            <View style={{ padding: 16, paddingTop: 4 }}>
+              <Pressable onPress={saveDays} style={{ minHeight: 44, borderRadius: 22, borderWidth: 1, borderColor: t.accent, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: t.accent, fontWeight: '700' }}>{daysMsg || 'Save days'}</Text>
+              </Pressable>
+            </View>
+          </View>
+
           <Text style={head}>App update</Text>
           <View style={{ ...card, padding: 16 }}>
             <Text style={{ color: t.subtext, fontSize: 12, marginBottom: 12 }}>This app: {VERSION_NAME} (code {VERSION_CODE}). Below the minimum = blocked until updated.</Text>
@@ -182,8 +253,45 @@ export default function SettingsScreen({ onBack }: { onBack: () => void }) {
               <Text style={{ color: '#fff', fontWeight: '700' }}>{savedMsg || 'Save update settings'}</Text>
             </Pressable>
           </View>
+
+          <Text style={{ ...head, color: t.danger }}>Danger zone</Text>
+          <View style={{ ...card, padding: 16, borderWidth: 1, borderColor: t.danger }}>
+            <Text style={{ color: t.text, fontSize: 15, fontWeight: '600' }}>Reset app data</Text>
+            <Text style={{ color: t.subtext, fontSize: 12, marginTop: 4 }}>
+              Saare messages, tasks, check-ins, groups aur DMs hamesha ke liye delete. Users, PINs, settings, All Team aur check-in chats bachte hain. Pehle full backup banta hai.
+            </Text>
+            <Pressable onPress={() => { setResetText(''); setResetOpen(true); }} style={{ marginTop: 12, minHeight: 48, borderRadius: 24, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontWeight: '700' }}>Reset app data...</Text>
+            </Pressable>
+          </View>
         </ScrollView>
       )}
+      <Modal visible={resetOpen} transparent animationType="fade" onRequestClose={() => setResetOpen(false)} statusBarTranslucent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: t.card, borderRadius: 20, padding: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="warning" size={22} color={t.danger} />
+              <Text style={{ color: t.text, fontSize: 18, fontWeight: '700', marginLeft: 8 }}>Sab data delete?</Text>
+            </View>
+            <Text style={{ color: t.subtext, fontSize: 14, marginTop: 10 }}>Ye wapas nahi hoga. Confirm karne ke liye RESET likhiye.</Text>
+            <TextInput
+              value={resetText} onChangeText={setResetText} autoCapitalize="characters" autoCorrect={false} placeholder="RESET" placeholderTextColor={t.subtext}
+              style={{ backgroundColor: t.soft, color: t.text, borderRadius: 12, paddingHorizontal: 14, minHeight: 48, fontSize: 16, marginTop: 14, letterSpacing: 2 }}
+            />
+            <View style={{ flexDirection: 'row', marginTop: 16 }}>
+              <Pressable onPress={() => setResetOpen(false)} style={{ flex: 1, minHeight: 48, borderRadius: 24, borderWidth: 1, borderColor: t.border, alignItems: 'center', justifyContent: 'center', marginRight: 8 }}>
+                <Text style={{ color: t.text, fontWeight: '600' }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={doReset} disabled={resetText.trim() !== 'RESET' || resetting}
+                style={{ flex: 1, minHeight: 48, borderRadius: 24, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center', opacity: resetText.trim() === 'RESET' && !resetting ? 1 : 0.4 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>{resetting ? 'Resetting...' : 'Reset'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

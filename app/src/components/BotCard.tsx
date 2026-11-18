@@ -8,6 +8,7 @@ import { STATUS_COLOR, OVERDUE_COLOR, Task } from '../taskTypes';
 import { usePublicSettings } from '../publicSettings';
 import { formatDue } from '../dates';
 import StatusPill from './StatusPill';
+import Avatar from './Avatar';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 const EVENT: Record<TaskEventName, { icon: IconName; color: string }> = {
@@ -40,8 +41,31 @@ const eventOf = (p: Extract<BotPayload, { kind: 'task' }>): TaskEventName => p.e
 
 type Props = {
   msg: Msg; t: Theme; meId: number; isBoss: boolean; time: string;
-  onLongPress: (m: Msg) => void; onOpenTask: (id: number) => void; onSendText: (text: string) => void;
+  onLongPress: (m: Msg) => void; onOpenTask: (id: number) => void; onSendText: (text: string, mentionIds?: number[]) => void;
+  onPrefill?: (text: string) => void;
 };
+
+const firstName = (n: string) => n.trim().split(/\s+/)[0];
+
+// Compact task line used by the ask / reminder cards.
+function TaskLine({ task, t }: { task: Task; t: Theme }) {
+  return (
+    <View>
+      <Text numberOfLines={3} style={{ color: t.text, fontSize: 15, fontWeight: '600', marginTop: 4 }}>{task.title}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
+        {!!task.project && (
+          <View style={{ backgroundColor: t.soft, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginRight: 8 }}>
+            <Text style={{ color: t.subtext, fontSize: 11, fontWeight: '600' }}>{task.project}</Text>
+          </View>
+        )}
+        <StatusPill status={task.status} />
+        <Text style={{ color: task.overdue && task.status !== 'done' ? t.danger : t.subtext, fontSize: 12, marginLeft: 8 }}>
+          {task.assigneeName || 'Unassigned'}{task.dueDate ? '  ·  ' + formatDue(task.dueDate) : ''}  ·  #{task.id}
+        </Text>
+      </View>
+    </View>
+  );
+}
 
 function Frame({ t, color, msg, time, onLongPress, children }: {
   t: Theme; color: string; msg: Msg; time: string; onLongPress: (m: Msg) => void; children: React.ReactNode;
@@ -82,7 +106,7 @@ function Action({ label, onPress, t, color, disabled }: { label: string; onPress
   );
 }
 
-function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSendText }: Props) {
+function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSendText, onPrefill }: Props) {
   const ps = usePublicSettings();
   const [undone, setUndone] = useState(false);
   const [praised, setPraised] = useState(false);
@@ -184,6 +208,72 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
             <Text style={{ color: t.subtext, fontSize: 11, marginLeft: 8 }}>#{x.id}</Text>
           </Pressable>
         ))}
+      </View>
+    ));
+  }
+
+  if (p && p.kind === 'userpicker') {
+    // tap = re-send the command for exactly this person (structured mention id; works for same-name people)
+    const resend = (u: { id: number; name: string }) =>
+      '/' + p.command.replace(/^\//, '') + (p.pre ? ' ' + p.pre : '') + ' @' + firstName(u.name) + (p.arg ? ' ' + p.arg : '');
+    return frame(t.accent, (
+      <View>
+        <Text style={{ color: t.text, fontSize: 14 }}>{p.text}</Text>
+        {p.users.map((u) => (
+          <Pressable
+            key={u.id}
+            disabled={picked !== null}
+            onPress={() => { setPicked(u.id); onSendText(resend(u), [u.id]); }}
+            style={{
+              flexDirection: 'row', alignItems: 'center', minHeight: 48, marginTop: 8, paddingHorizontal: 10, borderRadius: 12,
+              backgroundColor: t.soft, opacity: picked !== null && picked !== u.id ? 0.4 : 1,
+            }}
+          >
+            <Avatar name={u.name} id={u.id} size={30} />
+            <Text numberOfLines={1} style={{ flex: 1, color: t.text, fontSize: 15, marginLeft: 10 }}>{u.name}</Text>
+            {!!u.phoneTail && <Text style={{ color: t.subtext, fontSize: 12 }}>...{u.phoneTail}</Text>}
+          </Pressable>
+        ))}
+      </View>
+    ));
+  }
+
+  if (p && p.kind === 'ask') {
+    const mineTask = p.task.assigneeId === meId;
+    return frame('#34B7F1', (
+      <View>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="help-circle" size={16} color="#34B7F1" />
+          <Text numberOfLines={2} style={{ flex: 1, color: t.subtext, fontSize: 12, fontWeight: '600', marginLeft: 6 }}>
+            {(p.actorName || 'Someone') + ' ne status poocha' + (p.task.assigneeName ? ' · ' + p.task.assigneeName : '')}
+          </Text>
+        </View>
+        <TaskLine task={p.task} t={t} />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+          <Action t={t} label="Open" onPress={() => onOpenTask(p.task.id)} />
+          {mineTask && !!onPrefill && <Action t={t} label="Update" onPress={() => onPrefill('/update #' + p.task.id + ' ')} />}
+          {mineTask && <Action t={t} label="Done" onPress={() => onSendText('/done #' + p.task.id)} />}
+        </View>
+        {mineTask && <Text style={{ color: t.subtext, fontSize: 11, marginTop: 6 }}>Is card ko reply karke bhi update likh sakte hain</Text>}
+      </View>
+    ));
+  }
+
+  if (p && p.kind === 'reminder') {
+    const mineTask = p.task.assigneeId === meId;
+    return frame(OVERDUE_COLOR, (
+      <View>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="alarm" size={16} color={OVERDUE_COLOR} />
+          <Text style={{ flex: 1, color: OVERDUE_COLOR, fontSize: 12, fontWeight: '700', marginLeft: 6 }}>
+            Ye task {p.days} din se pending hai, complete karo
+          </Text>
+        </View>
+        <TaskLine task={p.task} t={t} />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+          <Action t={t} label="Open" onPress={() => onOpenTask(p.task.id)} />
+          {mineTask && <Action t={t} label="Done" onPress={() => onSendText('/done #' + p.task.id)} />}
+        </View>
       </View>
     ));
   }

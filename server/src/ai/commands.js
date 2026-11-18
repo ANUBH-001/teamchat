@@ -7,13 +7,15 @@ const pool = require('../db');
 const T = require('../tasks');
 const settings = require('../settings');
 const provider = require('./provider');
-const { matchPeople } = require('./names');
+const { bestMatches, cleanToken } = require('./names');
+const rt = require('../realtime');
 const bot = require('./bot');
 
 const CMD_RE = /^\/([a-z][a-z-]*)(?:\s+([\s\S]*))?$/i;
 const ALIASES = {
   'completed-task': 'done', complete: 'done', completed: 'done', 'update-task': 'update', 'reassigned-task': 'reassign',
   'reassign-task': 'reassign', review: 'testing', mytask: 'mytasks', 'my-tasks': 'mytasks', list: 'tasks', 'new-task': 'task',
+  status: 'ask', description: 'desc',
 };
 const HELP = [
   { cmd: '/task', args: '<naam> <kaam> [due kal|fri|25 nov]', desc: 'Naya task (naam nahi likha = khud ke liye)' },
@@ -23,12 +25,15 @@ const HELP = [
   { cmd: '/reassign', args: '#id <naam>', desc: 'Task kisi aur ko do' },
   { cmd: '/due', args: '#id <date>', desc: 'Due date badlo (aaj, kal, parso, fri, 25 nov, 2026-11-30, none)' },
   { cmd: '/delete', args: '#id', desc: 'Task delete (banane wala ya admin)' },
+  { cmd: '/ask', args: '#id', desc: 'Jiska task hai usse status poochho (usko notification jayega)' },
+  { cmd: '/desc', args: '#id <text>', desc: 'Task ka description badlo (ya task card ko reply karke "desc: ...")' },
   { cmd: '/tasks', args: '[naam]', desc: 'Open tasks (sabke ya ek insaan ke)' },
   { cmd: '/mytasks', args: '', desc: 'Mere open tasks' },
   { cmd: '/help', args: '', desc: 'Saare commands' },
 ];
 const LABEL = { todo: 'Todo', in_progress: 'Doing', review: 'Testing', done: 'Done' };
-const PERSON_FILLER = new Set(['tumko', 'tumhe', 'tumhein', 'tum', 'aapko', 'apko', 'aap', 'ko', 'ji', 'bhai', 'sir', 'ne', ':', '-', ',']);
+const PERSON_FILLER = new Set(['tumko', 'tumhe', 'tumhein', 'tujhe', 'tum', 'aapko', 'apko', 'aap', 'ko', 'ji', 'bhai', 'sir', 'ne',
+  'ka', 'ki', ':', '-', ',']);
 
 // ---------- dates (local TZ, default Asia/Kolkata) ----------
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
@@ -98,35 +103,145 @@ function extractDue(text) {
   return { text: [...w.slice(0, found.start), ...w.slice(found.end)].join(' '), date: found.date, bad: false };
 }
 
-// ---------- people / tasks ----------
+// ---------- people ----------
+// Person resolution shared by /task, /reassign, /tasks: a structured @mention (id sent by the app) wins; else the first
+// 1-2 words matched case-insensitively (exact > prefix > fuzzy, names.js), chat members preferred over all active users,
+// bot excluded. Several equal matches -> AI pick from context (if on and sure), else a tappable 'userpicker' card.
 async function people() {
-  const [rows] = await pool.query('SELECT id, name, role FROM users WHERE active = 1 AND is_bot = 0 ORDER BY name');
+  const [rows] = await pool.query('SELECT id, name, role, phone FROM users WHERE active = 1 AND is_bot = 0 ORDER BY name');
   return rows;
 }
 
-// A person named by the first one or two words ("anubhav", "@Anubhav", "Member 5") -> {person, rest, ambiguous}
-function leadingPerson(words, list) {
-  if (!words.length) return { person: null, rest: words, ambiguous: null };
-  const w0 = words[0].replace(/^@/, '').replace(/[,:]+$/, '');
-  if (!w0) return { person: null, rest: words, ambiguous: null };
-  let person = null; let used = 1;
-  if (words.length > 1) {
-    const w1 = words[1].replace(/[,:]+$/, '');
-    const h2 = matchPeople(w0 + ' ' + w1, list);
-    if (h2.length === 1 && matchPeople(w1, list).some((p) => p.id === h2[0].id) &&
-      matchPeople(w0, list).some((p) => p.id === h2[0].id)) { person = h2[0]; used = 2; }
-  }
-  if (!person) {
-    const h1 = matchPeople(w0, list);
-    if (h1.length > 1) return { person: null, rest: words, ambiguous: h1 };
-    if (h1.length === 1) person = h1[0];
-  }
-  if (!person) return { person: null, rest: words, ambiguous: null };
-  const rest = words.slice(used);
-  while (rest.length && PERSON_FILLER.has(rest[0].toLowerCase())) rest.shift();
-  return { person, rest, ambiguous: null };
+async function chatPeople(chatId) {
+  const [rows] = await pool.query(
+    `SELECT u.id, u.name, u.role, u.phone FROM chat_members cm JOIN users u ON u.id = cm.user_id
+     WHERE cm.chat_id = ? AND cm.left_at IS NULL AND u.active = 1 AND u.is_bot = 0 ORDER BY u.name`, [chatId]);
+  return rows;
 }
 
+const isFiller = (w) => PERSON_FILLER.has(String(w).toLowerCase()) || PERSON_FILLER.has(cleanToken(w)) || !cleanToken(w);
+
+// Best people named by the first one or two words -> {people, score, used}
+function leading(words, list) {
+  const w0 = cleanToken(words[0]);
+  if (!w0) return { people: [], score: 0, used: 0 };
+  const one = bestMatches(w0, list);
+  if (words.length > 1 && !isFiller(words[1]) && !words[1].startsWith('@') && !/^#\d/.test(words[1])) {
+    const two = bestMatches(w0 + ' ' + cleanToken(words[1]), list); // both words must be part of the name ("member 5")
+    if (two.people.length && two.score > one.score) return { ...two, used: 2 };
+  }
+  return { ...one, used: 1 };
+}
+
+// The app-sent id for an "@Name" word (each tagged mention is used once).
+function takeTag(ctx, word) {
+  const token = cleanToken(word);
+  const t = ctx.tagged.find((x) => !x.used && x.token === token);
+  if (!t) return null;
+  t.used = true;
+  return t.id;
+}
+
+async function aiPick(ctx, query, list, members) {
+  const inChat = new Set(members.map((m) => m.id));
+  const [recent] = await pool.query(
+    `SELECT u.name, m.body FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.chat_id = ? AND m.visible_to IS NULL
+       AND m.deleted_at IS NULL AND m.type = 'text' AND m.id < ? ORDER BY m.id DESC LIMIT 8`, [ctx.chatId, ctx.message.id]);
+  const r = await provider.pickPerson({
+    text: ctx.message.text, query,
+    candidates: list.map((p) => ({ id: p.id, name: p.name, role: p.role, inChat: inChat.has(p.id) })),
+    recent: recent.reverse().map((x) => x.name + ': ' + String(x.body).slice(0, 200)),
+  }).catch(() => null);
+  return r && r.confidence >= 0.8 ? list.find((p) => p.id === r.id) || null : null;
+}
+
+// Person at the start of `words` -> {person, rest, ambiguous: [people] | null, query, unknown}
+// unknown = an "@word" that matched nobody (caller shows a picker instead of guessing).
+async function personAt(ctx, words, anywhere = false) {
+  let i = 0;
+  while (i < words.length && isFiller(words[i])) i++;
+  const w = words.slice(i);
+  const done = (person, used, ambiguous = null) => {
+    const rest = w.slice(used);
+    while (rest.length && isFiller(rest[0])) rest.shift();
+    return { person, rest, ambiguous, query: w.slice(0, used).join(' ').replace(/^@/, ''), unknown: false };
+  };
+  const nobody = { person: null, rest: words, ambiguous: null, query: '', unknown: !!w[0] && w[0].startsWith('@') };
+  if (!w.length) return nobody;
+  const all = await people();
+  if (w[0].startsWith('@')) {
+    const id = takeTag(ctx, w[0]);
+    const p = id && all.find((x) => x.id === id);
+    if (p) return done(p, 1);
+  }
+  const members = await chatPeople(ctx.chatId);
+  const best = (ws) => {
+    const m = leading(ws, members);
+    const a = leading(ws, all);
+    return m.people.length && m.score >= a.score ? m : a;
+  };
+  const resolve = async (r, used, finish) => {
+    if (r.people.length === 1) return finish(r.people[0], used);
+    const picked = await aiPick(ctx, r.query, r.people, members);
+    return picked ? finish(picked, used) : finish(null, used, r.people);
+  };
+  const r = best(w);
+  if (r.people.length) return resolve({ ...r, query: w.slice(0, r.used).join(' ') }, r.used, done);
+  if (anywhere && !nobody.unknown) {
+    // /task only: the name later in the text ("crm filter banana hai anubhav ko", "report banao @Tushar"):
+    // an "@word" anywhere, or a name followed by ko / ke liye or ending the text (fillers like ji / bhai may follow).
+    for (let i = 1; i < w.length; i++) {
+      const word = w[i];
+      if (word.startsWith('@')) {
+        const id = takeTag(ctx, word);
+        const p = id && all.find((x) => x.id === id);
+        const rr = p ? { people: [p], used: 1 } : best([word]);
+        if (!rr.people.length) return { ...nobody, rest: [...w.slice(0, i), ...w.slice(i + 1)], unknown: true, query: cleanToken(word) };
+        return resolve({ ...rr, query: cleanToken(word) }, 1, (person, used, amb = null) => cut(i, used, person, amb, cleanToken(word)));
+      }
+      if (!/^\p{L}{3,}$/u.test(cleanToken(word)) || isFiller(word)) continue;
+      const rr = best(w.slice(i));
+      if (!rr.people.length) continue;
+      const tail = w.slice(i + rr.used);
+      const lc = tail.map((x) => cleanToken(x));
+      if (tail.every(isFiller) || (lc[0] === 'ke' && lc[1] === 'liye')) {
+        const query = w.slice(i, i + rr.used).join(' ');
+        return resolve({ ...rr, query }, rr.used, (person, used, amb = null) => cut(i, used, person, amb, query));
+      }
+    }
+  }
+  return { ...nobody, rest: nobody.unknown ? w.slice(1) : words, query: cleanToken(w[0]) };
+
+  // name found at w[i .. i+used): rest = the other words, minus "ko" / "ke liye" right after the name
+  function cut(i, used, person, ambiguous, query) {
+    const after = w.slice(i + used);
+    if (after.length && ['ko', 'ke'].includes(cleanToken(after[0]))) after.splice(0, cleanToken(after[0]) === 'ke' && cleanToken(after[1]) === 'liye' ? 2 : 1);
+    const rest = [...w.slice(0, i), ...after];
+    while (rest.length && isFiller(rest[rest.length - 1])) rest.pop();
+    return { person, rest, ambiguous, query, unknown: false };
+  }
+}
+
+const firstName = (name) => String(name || '').trim().split(/\s+/)[0];
+
+// Ephemeral "who?" card. Tapping a user re-sends: '/' + command + (pre ? ' ' + pre : '') + ' @' + firstName + (arg ? ' ' + arg : '')
+// together with mentionIds [user.id], so the server takes that exact person (works for same-name people).
+async function userPicker(ctx, command, query, list, arg, pre, notFound) {
+  const users = list.slice(0, 12).map((p) => ({ id: p.id, name: p.name, phoneTail: String(p.phone || '').slice(-4) }));
+  const text = notFound
+    ? (query ? '"' + query + '" naam ka koi nahi mila. ' : '') + 'Kisko? Tap karein:'
+    : '"' + query + '" naam ke ' + list.length + ' log hain. Kaun? Tap karein:';
+  const body = text + '\n' + users.map((u) => u.name + (u.phoneTail ? ' (...' + u.phoneTail + ')' : '')).join('\n');
+  return bot.ephemeral(ctx.chatId, ctx.user.id, body, { kind: 'userpicker', command, text, users, arg: arg || '', pre: pre || '' });
+}
+
+// Choices when a name matched nobody: the chat's members (minus me), else everyone.
+async function everyoneFor(ctx) {
+  const list = (await chatPeople(ctx.chatId)).filter((p) => p.id !== ctx.user.id);
+  return list.length > 1 ? list : (await people()).filter((p) => p.id !== ctx.user.id);
+}
+
+// ---------- tasks ----------
 function hashId(args) {
   const m = args.match(/(^|\s)#(\d{1,9})(?=\s|$)/);
   if (!m) return { id: null, rest: args.trim() };
@@ -152,7 +267,8 @@ function picker(ctx, command, list, arg) {
 }
 
 // #id given -> that task; else the single candidate (not for delete); else an ephemeral picker. null = already answered.
-async function resolveTask(ctx, command, id, arg, alwaysPick) {
+// noGuess: never pick a task by matching words of `arg` (arg is free text like a description).
+async function resolveTask(ctx, command, id, arg, alwaysPick, noGuess) {
   if (id) return T.getTask(id); // TaskError 404 -> error card
   const list = await candidates(ctx.user);
   if (!list.length) {
@@ -162,7 +278,7 @@ async function resolveTask(ctx, command, id, arg, alwaysPick) {
   // guesses without a #id are only safe on the sender's own tasks (not on tasks they merely created)
   const own = list.every((t) => t.assigneeId === ctx.user.id);
   if (list.length === 1 && !alwaysPick && own) return list[0];
-  if (!alwaysPick && arg) {
+  if (!alwaysPick && arg && !noGuess) {
     // "/update filter laga diya" -> the only open task whose title/description shares a word with the note
     const ws = (s) => String(s || '').toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u).filter((w) => w.length >= 3);
     const noteWords = new Set(ws(arg));
@@ -193,14 +309,16 @@ async function cmdTask(ctx, args) {
   if (!T.canAssign(ctx.user)) return err(ctx, 'NOT_ALLOWED', 'Members ko task banane ki permission abhi band hai (Admin Settings).');
   const due = extractDue(args);
   if (due.bad) return err(ctx, 'BAD_COMMAND', 'Due date samajh nahi aayi. Likhiye: due aaj / kal / parso / fri / 25 nov / 2026-11-30');
-  const lp = leadingPerson(due.text.split(' ').filter(Boolean), await people());
-  if (lp.ambiguous) return err(ctx, 'BAD_COMMAND', 'Kaun? ' + lp.ambiguous.map((p) => p.name).join(', ') + '. Poora naam likhiye.');
+  const lp = await personAt(ctx, due.text.split(' ').filter(Boolean), true);
+  const again = () => lp.rest.join(' ') + (due.date ? ' due ' + due.date : '');
+  if (lp.ambiguous) return userPicker(ctx, 'task', lp.query, lp.ambiguous, again());
+  if (lp.unknown) return userPicker(ctx, 'task', lp.query, await everyoneFor(ctx), again(), '', true);
   const assignee = lp.person || ctx.user;
-  const body = lp.rest.join(' ').trim();
-  if (!body) return err(ctx, 'BAD_COMMAND', 'Kaam bhi likhiye. Jaise: /task ' + (lp.person ? lp.person.name.split(' ')[0].toLowerCase() : 'anubhav') + ' login page fix karna hai');
+  const body = (lp.person ? lp.rest : due.text.split(' ')).join(' ').trim();
+  if (!body) return err(ctx, 'BAD_COMMAND', 'Kaam bhi likhiye. Jaise: /task ' + (lp.person ? firstName(lp.person.name).toLowerCase() : 'anubhav') + ' login page fix karna hai');
   const tt = await provider.taskTitle(body);
   const task = await T.createTask({
-    title: tt.title, description: body, assigneeId: assignee.id, dueDate: due.date, project: tt.project, chatId: ctx.chatId,
+    title: tt.title, description: tt.description || body, assigneeId: assignee.id, dueDate: due.date, project: tt.project, chatId: ctx.chatId,
   }, ctx.user, 'command', ctx.message.id);
   await card(ctx, { event: 'created', task }, { byAi: tt.byAi });
   if (tt.error) await aiErrorCard(ctx, tt.error, 'Task simple rules se bana diya gaya.');
@@ -217,6 +335,7 @@ async function cmdWork(ctx, args, command) {
   if (rest) f.note = rest.slice(0, 1000);
   const status = forced || provider.statusFromNote(rest);
   if (status && status !== task.status) f.status = status;
+  if (!T.canWork(task, ctx.user) && !T.canDescribe(task, ctx.user)) throw new T.TaskError(403, 'Not allowed');
   if (!Object.keys(f).length) return info(ctx, 'Task #' + task.id + ' pehle se ' + LABEL[task.status] + ' hai.');
   const r = await T.applyUpdate(task.id, f, ctx.user, 'command', ctx.message.id);
   await card(ctx, r, rest ? { note: rest.slice(0, 1000) } : {});
@@ -225,11 +344,11 @@ async function cmdWork(ctx, args, command) {
 async function cmdReassign(ctx, args) {
   const { id, rest } = hashId(args);
   if (!rest) return err(ctx, 'BAD_COMMAND', 'Likhiye: /reassign #12 <naam>');
-  const lp = leadingPerson(rest.split(' '), await people());
-  if (lp.ambiguous) return err(ctx, 'BAD_COMMAND', 'Kaun? ' + lp.ambiguous.map((p) => p.name).join(', ') + '. Poora naam likhiye.');
-  if (!lp.person) return err(ctx, 'NOT_FOUND', '"' + rest.slice(0, 40) + '" naam ka koi member nahi mila.');
-  const task = await resolveTask(ctx, 'reassign', id, rest);
+  const task = await resolveTask(ctx, 'reassign', id, rest, false, true);
   if (!task) return;
+  const lp = await personAt(ctx, rest.split(' '));
+  if (lp.ambiguous) return userPicker(ctx, 'reassign', lp.query, lp.ambiguous, '', '#' + task.id);
+  if (!lp.person) return userPicker(ctx, 'reassign', lp.query || rest.slice(0, 40), await everyoneFor(ctx), '', '#' + task.id, true);
   if (task.assigneeId === lp.person.id) return info(ctx, 'Task #' + task.id + ' pehle se ' + lp.person.name + ' ke paas hai.');
   await card(ctx, await T.applyUpdate(task.id, { assigneeId: lp.person.id }, ctx.user, 'command', ctx.message.id));
 }
@@ -255,6 +374,40 @@ async function cmdDelete(ctx, args) {
   await card(ctx, { event: 'deleted', task: t });
 }
 
+// /desc #id <text>: replace the description (boss, assignee or creator).
+async function cmdDesc(ctx, args) {
+  const { id, rest } = hashId(args);
+  if (!rest) return err(ctx, 'BAD_COMMAND', 'Likhiye: /desc #12 <naya description>');
+  const task = await resolveTask(ctx, 'desc', id, rest, false, true);
+  if (!task) return;
+  const r = await T.applyUpdate(task.id, { description: rest.slice(0, 4000) }, ctx.user, 'command', ctx.message.id);
+  if (!r.changed) return info(ctx, 'Task #' + task.id + ' ka description pehle se yahi hai.');
+  await card(ctx, r, { note: 'Description: ' + rest.slice(0, 300) });
+}
+
+// /ask #id: public card mentioning the assignee ("status kya hai?"); their app notifies them.
+// Assignee not in this chat -> the card goes to the asker-assignee DM instead.
+async function cmdAsk(ctx, args) {
+  const { id } = hashId(args);
+  if (!id) return err(ctx, 'BAD_COMMAND', 'Task number likhiye: /ask #12 (ya @ button se person chuniye)');
+  const task = await T.getTask(id);
+  if (!task.assigneeId) return err(ctx, 'BAD_COMMAND', 'Task #' + id + ' kisi ko assigned nahi hai.');
+  if (task.assigneeId === ctx.user.id) return info(ctx, 'Task #' + id + ' aapka hi hai.');
+  if (task.status === 'done') return info(ctx, 'Task #' + id + ' pehle se Done hai.');
+  let chatId = ctx.chatId;
+  const inChat = await rt.isChatMember(chatId, task.assigneeId);
+  if (!inChat) {
+    const dm = await bot.ensureDm(ctx.user.id, task.assigneeId);
+    if (dm.created) { rt.sendToUser(task.assigneeId, { type: 'chat', chatId: dm.chatId }); rt.sendToUser(ctx.user.id, { type: 'chat', chatId: dm.chatId }); }
+    chatId = dm.chatId;
+  }
+  const body = '@' + firstName(task.assigneeName) + ', ' + ctx.user.name + ' pooch rahe hain: "' + task.title + '" (#' + id + ') ka status kya hai?';
+  await bot.postBot(chatId, body, {
+    kind: 'ask', task, actorId: ctx.user.id, actorName: ctx.user.name, assigneeId: task.assigneeId, ...(inChat ? { replyTo: ctx.message.id } : {}),
+  }, null, [task.assigneeId]);
+  if (!inChat) await info(ctx, task.assigneeName + ' is chat mein nahi hain, unse DM mein pooch liya.');
+}
+
 function listCard(ctx, title, tasks) {
   const lines = [title + ' (' + tasks.length + ')'];
   for (const t of tasks) {
@@ -268,9 +421,9 @@ function listCard(ctx, title, tasks) {
 async function cmdTasks(ctx, args) {
   let who = null;
   if (args) {
-    const lp = leadingPerson(args.split(/\s+/), await people());
-    if (lp.ambiguous) return err(ctx, 'BAD_COMMAND', 'Kaun? ' + lp.ambiguous.map((p) => p.name).join(', ') + '. Poora naam likhiye.');
-    if (!lp.person) return err(ctx, 'NOT_FOUND', '"' + args.slice(0, 40) + '" naam ka koi member nahi mila.');
+    const lp = await personAt(ctx, args.split(/\s+/));
+    if (lp.ambiguous) return userPicker(ctx, 'tasks', lp.query, lp.ambiguous, '');
+    if (!lp.person) return userPicker(ctx, 'tasks', lp.query || args.slice(0, 40), await everyoneFor(ctx), '', '', true);
     who = lp.person;
   }
   const list = (await T.listTasks({ assignee: who ? String(who.id) : 'all' }, ctx.user)).filter((t) => t.status !== 'done').slice(0, 50);
@@ -289,7 +442,7 @@ function cmdHelp(ctx) {
 
 const HANDLERS = {
   task: cmdTask, update: cmdWork, done: cmdWork, testing: cmdWork, reassign: cmdReassign, due: cmdDue, delete: cmdDelete,
-  tasks: cmdTasks, mytasks: cmdMyTasks, help: cmdHelp,
+  desc: cmdDesc, ask: cmdAsk, tasks: cmdTasks, mytasks: cmdMyTasks, help: cmdHelp,
 };
 
 function friendly(e) {
@@ -298,24 +451,16 @@ function friendly(e) {
   return 'Nahi ho paya: ' + e.message;
 }
 
-// -> true if the message was a slash command (answered here), false otherwise.
-async function handle(message, user) {
-  if (!message || (message.type && message.type !== 'text') || !message.text) return false;
-  const m = message.text.trim().match(CMD_RE);
-  if (!m) return false;
-  const raw = m[1].toLowerCase();
-  const name = ALIASES[raw] || raw;
-  const ctx = { message, user, chatId: message.chatId };
+async function guards(ctx) {
+  const s = await settings.all();
+  if (!s.commandsEnabled) return 'Slash commands abhi band hain (Admin Settings).';
+  if (!(await settings.forChat(ctx.chatId)).botEnabled) return 'Is chat mein task bot band hai (Admin Settings).';
+  return null;
+}
+
+async function safely(ctx, name, fn) {
   try {
-    const s = await settings.all();
-    if (!s.commandsEnabled) { await err(ctx, 'COMMANDS_DISABLED', 'Slash commands abhi band hain (Admin Settings).'); return true; }
-    if (!(await settings.forChat(ctx.chatId)).botEnabled) {
-      await err(ctx, 'COMMANDS_DISABLED', 'Is chat mein task bot band hai (Admin Settings).');
-      return true;
-    }
-    const fn = HANDLERS[name];
-    if (!fn) { await err(ctx, 'BAD_COMMAND', 'Ye command nahi pata: /' + raw + '. /help likhiye.'); return true; }
-    await fn(ctx, (m[2] || '').replace(/\s+/g, ' ').trim(), name);
+    await fn();
   } catch (e) {
     if (e instanceof T.TaskError) await err(ctx, e.code === 'BAD_REQUEST' ? 'BAD_COMMAND' : e.code, friendly(e));
     else {
@@ -323,7 +468,57 @@ async function handle(message, user) {
       await err(ctx, 'BAD_COMMAND', 'Kuch galat ho gaya, dobara try karein.').catch(() => {});
     }
   }
+}
+
+// -> true if the message was a slash command (answered here), false otherwise.
+// opts.tagged = [{token, id}] from structured mentionIds (routes/chats.js resolveMentions).
+async function handle(message, user, opts = {}) {
+  if (!message || (message.type && message.type !== 'text') || !message.text) return false;
+  const m = message.text.trim().match(CMD_RE);
+  if (!m) return false;
+  const raw = m[1].toLowerCase();
+  const name = ALIASES[raw] || raw;
+  const ctx = { message, user, chatId: message.chatId, tagged: (opts.tagged || []).map((t) => ({ ...t, used: false })) };
+  await safely(ctx, name, async () => {
+    const off = await guards(ctx);
+    if (off) return err(ctx, 'COMMANDS_DISABLED', off);
+    const fn = HANDLERS[name];
+    if (!fn) return err(ctx, 'BAD_COMMAND', 'Ye command nahi pata: /' + raw + '. /help likhiye.');
+    await fn(ctx, (m[2] || '').replace(/\s+/g, ' ').trim(), name);
+  });
   return true;
 }
 
-module.exports = { handle, parseDate, extractDue, HELP };
+// Swipe-reply with plain text to a task card (kind 'task' or 'ask'): adds a note to that task ("desc: ..." replaces the
+// description; status words like "ho gaya" also move the status for the assignee/boss). Only the boss, assignee or
+// creator; anyone else's reply is a normal chat message (returns false, the AI engine may still look at it).
+async function handleReply(message, user) {
+  if (!message || (message.type && message.type !== 'text') || !message.text || !message.replyTo) return false;
+  const text = message.text.trim();
+  if (!text || text.startsWith('/')) return false;
+  const [[orig]] = await pool.query('SELECT type, payload FROM messages WHERE id = ? AND chat_id = ? AND deleted_at IS NULL',
+    [message.replyTo.id, message.chatId]);
+  if (!orig || orig.type !== 'bot') return false;
+  let p = null;
+  try { p = JSON.parse(orig.payload); } catch (e) { return false; }
+  if (!p || (p.kind !== 'task' && p.kind !== 'ask') || !p.task || !p.task.id) return false;
+  const ctx = { message, user, chatId: message.chatId, tagged: [] };
+  if (await guards(ctx)) return false;
+  let task;
+  try { task = await T.getTask(p.task.id); } catch (e) { return false; }
+  if (!T.canDescribe(task, user)) return false;
+  await safely(ctx, 'reply', async () => {
+    const d = text.match(/^desc(?:ription)?\s*[:-]\s*([\s\S]+)$/i);
+    if (d) {
+      const r = await T.applyUpdate(task.id, { description: d[1].trim().slice(0, 4000) }, user, 'command', message.id);
+      return card(ctx, r, { note: 'Description: ' + d[1].trim().slice(0, 300) });
+    }
+    const f = { note: text.slice(0, 1000) };
+    const st = provider.statusFromNote(text);
+    if (st && st !== task.status && T.canWork(task, user)) f.status = st;
+    await card(ctx, await T.applyUpdate(task.id, f, user, 'command', message.id), { note: f.note });
+  });
+  return true;
+}
+
+module.exports = { handle, handleReply, parseDate, extractDue, HELP };

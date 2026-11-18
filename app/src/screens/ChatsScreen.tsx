@@ -72,7 +72,7 @@ export default function ChatsScreen() {
   }, [load, openChat]);
 
   // chat list stays live: new/deleted messages, new chats, reconnect, app foreground, manual refresh
-  useLiveRefresh(load, ['message', 'deleted', 'chat']);
+  useLiveRefresh(load, ['message', 'deleted', 'chat', 'edited', 'reset', 'purged']);
   const { refreshing, onRefresh } = usePullRefresh(load);
   const openRow = useCallback((c: Chat) => setView({ k: 'chat', chat: c }), []);
 

@@ -11,7 +11,8 @@ Docs: `ProjectContent.md` (idea + decisions), `projectProgess.md` (status), `bac
 - Token rules: Grep/Glob before Read, read line ranges, Edit not rewrite, short replies, few agents.
 - Commit trailer he asked for: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` (earlier agents used an Opus line; not rewritten, would need force push, needs his OK).
 
-## State (2026-11-17)
+## State (2026-11-18)
+- **Round 2 BUILT + TESTED 2026-11-18** (test round allowed by owner, now over; not pushed / deployed; results in projectProgess.md): person picker + mentionIds (fixes the two-"Rishit" prod bug), composer `/` `@` helpers, /ask /desc, card replies, edit/delete 10 min, retention jobs (hard delete, ON by default), check-in rework (10:00 pinned tasks card, 18:00 sign-off), admin reset, app 0.3.0 / versionCode 3. migrate_008 applied locally only. Details: projectProgess.md, backend.md.
 - Phases 0-9 DONE and tested (list + details: projectProgess.md). Phase 8a/8b = swipe-reply, live lists, daily check-ins; Phase 9 = foreground service keeps the socket alive (OnePlus needs "Allow background activity").
 - **Phase 7a** backend live at https://apps.landauditors.com/team_chat (PM2 `team-chat-backend`, port 3150). Server creds are in local `server/src/.env` (git-ignored, never print). Update steps: `docs/DEPLOY.md`. Do not touch other apps on that server.
 - **Phase 7b** release APK v1 at `d:\r&D\TeamChat-release.apk` (owner installs it himself; uninstall the debug build first, different signature).
@@ -19,7 +20,7 @@ Docs: `ProjectContent.md` (idea + decisions), `projectProgess.md` (status), `bac
 - Round checks: multi-user E2E 59/59 pass; emulator UI as boss and member (light + dark). Owner approved the UI.
 - **Next, in order:** owner approves UI -> git push (main only) -> rebuild release APK (new native dep `expo-clipboard`, so the dev build also needs a rebuild; until then "Copy" falls back to the share sheet) -> deploy per DEPLOY.md.
 - **Owner TODO:** real AI key on the server (only when he agrees); replace the 11 placeholder users with real names/phones via Admin.
-- **Migrations:** local DB (3307) has 005, 006, 007. Existing DBs run missing files in order (005 -> 006 -> 007) before the server starts; fresh DB = `schema.sql`. `migrate_007.sql` has no `USE` line, so pass the DB name: `mysql -h 127.0.0.1 -P 3307 -u root teamchat < server/sql/migrate_007.sql`. Prod (`team_chat_db`): 007 still to run.
+- **Migrations:** local DB (3307) has 005-008. Existing DBs run missing files in order (005 -> 006 -> 007) before the server starts; fresh DB = `schema.sql`. `migrate_007.sql` has no `USE` line, so pass the DB name: `mysql -h 127.0.0.1 -P 3307 -u root teamchat < server/sql/migrate_007.sql`. Prod (`team_chat_db`): 007 still to run.
 - **env.js fix:** a key already set in `server/.env` (even empty) is no longer overwritten by the old `server/src/.env` copy.
 
 ## Environment on this PC (Windows 11)
@@ -44,4 +45,4 @@ Rishit (boss) 9000000004; Anubhav 9000000001; Arushit 9000000002; Tushar 9000000
 - Release APK blocks plain `http://`: deploy needs HTTPS.
 - Check-in reminder times use the phone's clock: phones should be on IST.
 - The tab has a screen-lock PIN: pressing power (`input keyevent 26`) locks it and adb cannot unlock; do UI steps before screen-off tests. adb server can hang: kill adb.exe and `adb start-server`.
-- Clipboard: `expo-clipboard` is in `app/package.json` but needs a native rebuild; the emulator/tab dev builds fall back to the share sheet until then.
+- Clipboard: `expo-clipboard` needs a native rebuild: the emulator dev build was rebuilt 2026-11-18 (Copy works); the tab's dev build still falls back to the share sheet.

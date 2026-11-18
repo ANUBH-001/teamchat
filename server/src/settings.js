@@ -6,11 +6,15 @@ const pool = require('./db');
 const DEFAULTS = {
   aiEnabled: true, aiDetect: true, commandsEnabled: true, membersCanAssign: true, notifyAdminOnMemberChanges: true,
   quietTaskNotifs: true, praiseEnabled: true,
-  minVersionCode: 0, latestVersionCode: 2, latestVersionName: '0.2.0', apkUrl: '', updateMessage: '',
+  minVersionCode: 0, latestVersionCode: 3, latestVersionName: '0.3.0', apkUrl: '', updateMessage: '',
+  // retention (jobs.js): weekly message purge + 14-day task cleanup only when retentionEnabled; reminder 0 = off
+  retentionEnabled: true, taskReminderDays: 6, taskDeleteDays: 14, messageRetentionDays: 7,
 };
 const CHAT_DEFAULTS = { botEnabled: true, aiDetect: true, notifyAdmin: true };
-const PUBLIC_KEYS = ['commandsEnabled', 'membersCanAssign', 'praiseEnabled', 'quietTaskNotifs', 'notifyAdminOnMemberChanges'];
+const PUBLIC_KEYS = ['commandsEnabled', 'membersCanAssign', 'praiseEnabled', 'quietTaskNotifs', 'notifyAdminOnMemberChanges',
+  'taskReminderDays'];
 const STRING_MAX = { latestVersionName: 20, apkUrl: 500, updateMessage: 300 };
+const RANGE = { taskReminderDays: [0, 90], taskDeleteDays: [1, 3650], messageRetentionDays: [1, 3650] };
 
 class SettingsError extends Error {
   constructor(message) { super(message); this.status = 400; }
@@ -28,7 +32,7 @@ function clean(raw, defaults, strict) {
     if (!(k in defaults)) { if (strict) throw new SettingsError('Unknown setting: ' + k); continue; }
     const d = defaults[k];
     let ok = typeof v === typeof d;
-    if (ok && typeof d === 'number') ok = Number.isInteger(v) && v >= 0 && v < 1e9;
+    if (ok && typeof d === 'number') ok = Number.isInteger(v) && v >= (RANGE[k] ? RANGE[k][0] : 0) && v <= (RANGE[k] ? RANGE[k][1] : 1e9);
     if (ok && typeof d === 'string') ok = v.length <= (STRING_MAX[k] || 200);
     if (!ok) { if (strict) throw new SettingsError('Invalid value for ' + k); continue; }
     out[k] = typeof v === 'string' ? v.trim() : v;

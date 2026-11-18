@@ -1,16 +1,20 @@
-// Daily check-ins (Phase 8b): morning plan + evening work report.
+// Daily check-ins (round 2): morning "today's tasks" card + evening sign-off.
 // - Every active member (not the boss, not the bot) has ONE private chat type 'checkin' ("Daily Check-in")
 //   whose only members are that member and the Team Assistant bot (chats.owner_id = member).
-// - Scheduler (1-minute tick, local time in TZ, default Asia/Kolkata) posts the prompts and one nudge; a
-//   checkin_prompts row per user/date/kind is claimed first, so restarts/catch-up never double-post.
-// - Submissions (POST /checkins or a typed/voice reply in the check-in chat) are stored in `checkins`
-//   (old text kept in checkin_revisions); task status changes go through tasks.js with source 'checkin'.
-// - Privacy: events go only to the chat members (member + bot). The boss reads check-ins ONLY through
-//   /admin/checkins (pull-only: no event, badge or notification). See realtime.MEMBER_OK.
+// - Scheduler (1-minute tick, local time in TZ, default Asia/Kolkata), on check-in days:
+//   morningTime (10:00): 'day' card = all open tasks of the member (overdue / 6+ day marked), PINNED in that chat and kept
+//   live: every task change of that member rewrites the card's payload (ws 'edited'). eveningTime (18:00): 'signoff'
+//   card (tasks of today = open + done today, 3-state toggles, Submit). One nudge card nudgeMinutes later if not signed off.
+//   A checkin_prompts row per user/date/kind (day | signoff | signoff_nudge) is claimed first: never double-posted.
+// - Sign-off (POST /checkins/signoff) updates task statuses (tasks.js, source 'checkin'), stores a `signoffs` row and
+//   sends bosses a quiet ws {type:'signoff'}; Reports read it via /admin/checkins.
+// - Typed/voice text in the check-in chat is still stored as today's check-in text (`checkins`, Reports history).
+// - Privacy: chat events go only to the chat members (member + bot). See realtime.MEMBER_OK.
 const crypto = require('crypto');
 const pool = require('./db');
 const rt = require('./realtime');
 const T = require('./tasks');
+const settings = require('./settings');
 const provider = require('./ai/provider');
 const { botUserId } = require('./ai/bot');
 
@@ -18,9 +22,7 @@ class CheckinError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-const KINDS = ['morning', 'evening'];
 const STATUSES = ['todo', 'in_progress', 'review', 'done'];
-const LABEL = { todo: 'Pending', in_progress: 'In progress', review: 'Testing', done: 'Done' };
 const CHAT_NAME = 'Daily Check-in';
 const MAX_TASKS = 50;
 const MAX_RANGE_DAYS = 31;
@@ -57,7 +59,7 @@ const toId = (v) => {
 };
 
 // ---------- settings (app_settings, keys 'checkin.*', JSON values) ----------
-const DEFAULTS = { enabled: true, morningTime: '10:00', eveningTime: '18:30', days: [1, 2, 3, 4, 5, 6], nudgeMinutes: 120 };
+const DEFAULTS = { enabled: true, morningTime: '10:00', eveningTime: '18:00', days: [1, 2, 3, 4, 5, 6], nudgeMinutes: 120 };
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const CHECK = {
   enabled: (v) => typeof v === 'boolean',
@@ -143,13 +145,18 @@ async function insertMessage(chatId, senderId, body, type, payload, clientPrefix
   const [r] = await pool.query(
     'INSERT INTO messages (chat_id, sender_id, body, client_id, type, payload) VALUES (?, ?, ?, ?, ?, ?)',
     [chatId, senderId, String(body).slice(0, 4000), clientPrefix + crypto.randomUUID(), type, payload ? JSON.stringify(payload) : null]);
-  const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [r.insertId]);
-  return formatMessage(row, { role: 'member' });
+  return readMessage(r.insertId);
+}
+
+async function readMessage(id) {
+  const { MSG_SELECT, formatMessage } = require('./routes/chats');
+  const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [id]);
+  return row ? formatMessage(row, { role: 'member' }) : null;
 }
 
 // Only the chat members (owner + bot) get the event; memberIds applies the privacy guard.
-async function deliver(message) {
-  for (const u of await rt.memberIds(message.chatId)) rt.sendToUser(u, { type: 'message', message });
+async function deliver(message, type = 'message') {
+  for (const u of await rt.memberIds(message.chatId)) rt.sendToUser(u, { type, chatId: message.chatId, message });
 }
 
 async function markSeen(chatId, userIds, messageId) {
@@ -172,18 +179,167 @@ async function postMemberMessage(chatId, user, body) {
   return message;
 }
 
-// ---------- tasks ----------
-const brief = (t) => ({ id: t.id, title: t.title, status: t.status, dueDate: t.dueDate });
+// ---------- today's tasks ----------
+const item = (t) => ({
+  id: t.id, title: t.title, status: t.status, dueDate: t.dueDate, project: t.project, overdue: t.overdue, stale: t.stale, ageDays: t.ageDays,
+});
 const userTasks = (userId) => T.listTasks({ assignee: String(userId) }, { id: userId, role: 'member' });
 
-// Evening list: the tasks picked in the morning plus all open ones.
-async function eveningTasks(userId, date) {
-  const morning = await getRow(userId, date, 'morning');
-  const sel = new Set(morning ? ((parse(morning.payload) || {}).selectedTaskIds || []) : []);
-  return (await userTasks(userId)).filter((t) => t.status !== 'done' || sel.has(t.id)).map(brief);
+// -> {open, doneToday, counts:{given (created today), done (completed today), left (open)}}
+async function dayTasks(userId) {
+  await settings.all();
+  const all = await userTasks(userId);
+  const start = T.startOfToday().getTime();
+  const open = all.filter((t) => t.status !== 'done').slice(0, MAX_TASKS).map(item);
+  const doneToday = all.filter((t) => t.status === 'done' && t.completedAt && new Date(t.completedAt).getTime() >= start).map(item);
+  const given = all.filter((t) => new Date(t.createdAt).getTime() >= start).length;
+  return { open, doneToday, counts: { given, done: doneToday.length, left: open.length } };
 }
 
-// ---------- rows ----------
+const flag = (t) => (t.overdue ? ' (overdue)' : '') + (t.stale ? ' (' + t.ageDays + ' din se pending)' : '');
+
+function cardBody(kind, name, d, nudge) {
+  if (kind === 'day') {
+    return ['Good morning ' + name + '! Aaj ke tasks (' + d.open.length + '):',
+      ...(d.open.length ? d.open.map((t) => '• ' + t.title + flag(t)) : ['Koi open task nahi.'])].join('\n');
+  }
+  return [(nudge ? 'Reminder: ' : '') + name + ', aaj ka sign-off karo.',
+    'Aaj diye: ' + d.counts.given + ' · Done: ' + d.counts.done + ' · Baaki: ' + d.counts.left,
+    'Har task ka status chuniye (Done / In progress / Not started), phir "Submit sign-off".'].join('\n');
+}
+
+const cardPayload = (kind, date, d, nudge) => ({
+  kind, date, tasks: kind === 'day' ? d.open : [...d.open, ...d.doneToday], counts: d.counts, ...(nudge ? { nudge: true } : {}),
+});
+
+async function marker(userId, date, kind) {
+  const [[r]] = await pool.query('SELECT message_id FROM checkin_prompts WHERE user_id = ? AND date = ? AND kind = ?', [userId, date, kind]);
+  return r || null;
+}
+
+// Post a card once per user/date/kind (claim first). 'day' cards are pinned in the chat.
+async function sendCard(m, date, kind, nudge = false) {
+  const markKind = nudge ? kind + '_nudge' : kind;
+  const [claim] = await pool.query('INSERT IGNORE INTO checkin_prompts (user_id, date, kind) VALUES (?, ?, ?)', [m.id, date, markKind]);
+  if (!claim.affectedRows) return null;
+  let message = null;
+  try {
+    const chatId = await ensureChat(m.id);
+    if (!chatId) throw new Error('no check-in chat');
+    const d = await dayTasks(m.id);
+    message = await insertMessage(chatId, await botUserId(), cardBody(kind, m.name, d, nudge), 'checkin_prompt',
+      cardPayload(kind, date, d, nudge), 'bot-');
+    await pool.query('UPDATE checkin_prompts SET message_id = ? WHERE user_id = ? AND date = ? AND kind = ?', [message.id, m.id, date, markKind]);
+    await deliver(message);
+    if (kind === 'day') {
+      await pool.query('UPDATE chats SET pinned_message_id = ? WHERE id = ?', [message.id, chatId]);
+      await rt.sendToChat(chatId, { type: 'pin', chatId, pinnedMessage: { id: message.id, body: String(message.text).slice(0, 200), senderName: message.senderName } });
+    }
+    return message;
+  } catch (e) {
+    // nothing posted yet -> release the claim so the next tick retries; once posted, never post again
+    if (!message) await pool.query('DELETE FROM checkin_prompts WHERE user_id = ? AND date = ? AND kind = ?', [m.id, date, markKind]).catch(() => {});
+    throw e;
+  }
+}
+
+// Rewrite today's 'day' (and 'signoff') cards of a member with the current task list; ws {type:'edited', chatId, message}.
+async function refreshDay(userId) {
+  const date = localNow().date;
+  const [marks] = await pool.query(
+    "SELECT kind, message_id FROM checkin_prompts WHERE user_id = ? AND date = ? AND kind IN ('day', 'signoff', 'signoff_nudge') AND message_id IS NOT NULL",
+    [userId, date]);
+  if (!marks.length) return;
+  const [[u]] = await pool.query('SELECT name FROM users WHERE id = ?', [userId]);
+  const d = await dayTasks(userId);
+  for (const mk of marks) {
+    const kind = mk.kind === 'day' ? 'day' : 'signoff';
+    const nudge = mk.kind === 'signoff_nudge';
+    await pool.query('UPDATE messages SET body = ?, payload = ? WHERE id = ? AND deleted_at IS NULL',
+      [cardBody(kind, u ? u.name : '', d, nudge), JSON.stringify(cardPayload(kind, date, d, nudge)), mk.message_id]);
+    const message = await readMessage(mk.message_id);
+    if (message && !message.deleted) await deliver(message, 'edited');
+  }
+}
+
+// Debounced refresh (tasks.js calls this on every task change of a member).
+const pendingRefresh = new Map();
+function refreshDaySoon(userId) {
+  if (pendingRefresh.has(userId)) clearTimeout(pendingRefresh.get(userId));
+  pendingRefresh.set(userId, setTimeout(() => {
+    pendingRefresh.delete(userId);
+    refreshDay(userId).catch((e) => console.error('checkin card refresh:', e.message));
+  }, 800));
+}
+
+// ---------- sign-off ----------
+const SIGNOFF_SELECT = "SELECT s.id, s.user_id, DATE_FORMAT(s.date, '%Y-%m-%d') date, s.note, s.summary, s.message_id, s.created_at, s.updated_at FROM signoffs s ";
+const shapeSignoff = (r) => r && ({
+  id: r.id, userId: r.user_id, date: r.date, note: r.note, ...(parse(r.summary) || { counts: { given: 0, done: 0, left: 0 }, tasks: [] }),
+  messageId: r.message_id ? Number(r.message_id) : null, createdAt: r.created_at, updatedAt: r.updated_at,
+});
+async function getSignoff(userId, date) {
+  const [[r]] = await pool.query(SIGNOFF_SELECT + 'WHERE s.user_id = ? AND s.date = ?', [userId, date]);
+  return r || null;
+}
+
+// POST /checkins/signoff {taskStatuses?: {id: status}, note?} -> {signoff, created, tasks (changed)}
+async function signoff(user, body) {
+  body = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  if (user.role !== 'member') throw new CheckinError(403, 'Not allowed');
+  let note = null;
+  if (body.note !== undefined && body.note !== null) {
+    if (typeof body.note !== 'string') throw new CheckinError(400, 'Invalid note');
+    note = body.note.trim().slice(0, 2000) || null;
+  }
+  const statuses = {};
+  if (body.taskStatuses !== undefined && body.taskStatuses !== null) {
+    const o = body.taskStatuses;
+    if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > MAX_TASKS) throw new CheckinError(400, 'Invalid taskStatuses');
+    for (const [k, v] of Object.entries(o)) {
+      const id = toId(k);
+      if (!id || !STATUSES.includes(v)) throw new CheckinError(400, 'Invalid taskStatuses');
+      statuses[id] = v;
+    }
+  }
+  const ids = Object.keys(statuses).map(Number);
+  const own = {};
+  if (ids.length) {
+    const [rows] = await pool.query('SELECT id, title, status FROM tasks WHERE id IN (?) AND assignee_id = ? AND deleted_at IS NULL', [ids, user.id]);
+    if (rows.length !== ids.length) throw new CheckinError(400, 'Invalid task (use your own tasks only)');
+    for (const r of rows) own[r.id] = r;
+  }
+  const date = localNow().date;
+  const chatId = await ensureChat(user.id);
+  if (!chatId) throw new CheckinError(403, 'Not allowed');
+
+  const changed = [];
+  for (const [id, st] of Object.entries(statuses)) {
+    if (own[id].status === st) continue;
+    try {
+      changed.push(await T.updateTaskStatus(Number(id), st, user, 'checkin'));
+    } catch (e) {
+      if (!(e instanceof T.TaskError)) throw e; // e.g. reassigned meanwhile: skip that one
+    }
+  }
+  const d = await dayTasks(user.id);
+  const summary = { counts: d.counts, tasks: [...d.doneToday, ...d.open].map((t) => ({ id: t.id, title: t.title, status: t.status })) };
+  const existing = await getSignoff(user.id, date);
+  const lines = ['Sign-off' + (existing ? ' (update)' : '') + ': Done ' + d.counts.done + ' · Baaki ' + d.counts.left + ' · Aaj diye ' + d.counts.given];
+  for (const t of d.doneToday) lines.push('✓ ' + t.title);
+  for (const t of d.open) lines.push((t.status === 'todo' ? '○ ' : '◐ ') + t.title);
+  if (note) lines.push(note);
+  const message = await postMemberMessage(chatId, user, lines.join('\n'));
+  await pool.query(
+    `INSERT INTO signoffs (user_id, date, note, summary, message_id) VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE note = VALUES(note), summary = VALUES(summary), message_id = VALUES(message_id)`,
+    [user.id, date, note, JSON.stringify(summary), message.id]);
+  await refreshDay(user.id);
+  rt.sendToBosses({ type: 'signoff', userId: user.id, userName: user.name, date, counts: d.counts, updated: !!existing }).catch(() => {});
+  return { signoff: shapeSignoff(await getSignoff(user.id, date)), created: !existing, tasks: changed };
+}
+
+// ---------- typed text in the check-in chat (kept for Reports history) ----------
 const ROW_SELECT =
   "SELECT c.id, c.user_id, DATE_FORMAT(c.date, '%Y-%m-%d') date, c.kind, c.text, c.summary, c.payload, c.message_id, " +
   'c.created_at, c.updated_at, (SELECT COUNT(*) FROM checkin_revisions r WHERE r.checkin_id = c.id) revisions FROM checkins c ';
@@ -204,168 +360,42 @@ function shape(r) {
   };
 }
 
-async function saveRow(existing, userId, date, kind, text, summary, payload, messageId) {
-  if (existing) {
-    await pool.query('INSERT INTO checkin_revisions (checkin_id, old_text, old_payload) VALUES (?, ?, ?)',
-      [existing.id, existing.text, existing.payload]);
-  }
-  const s = JSON.stringify(summary);
-  const p = JSON.stringify(payload);
-  await pool.query(
-    `INSERT INTO checkins (user_id, date, kind, text, summary, payload, message_id) VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE text = ?, summary = ?, payload = ?, message_id = ?`,
-    [userId, date, kind, text, s, p, messageId, text, s, p, messageId]);
-  return getRow(userId, date, kind);
-}
-
-// ---------- summary: deterministic now, AI refines it after the reply ----------
 const BLOCK_RE = /(block|stuck|atak|atka|atki|ruka|ruki|dikkat|problem|issue|help|waiting|intezaar|nahi ho pa|दिक्कत|समस्या|अटक|रुका|रुकी)/i;
 const DONE_RE = /(ho gaya|ho gayi|ho gya|ho gyi|kar diya|kar di|kar liya|complete|\bdone\b|finish|khatam|हो गया|हो गई|हो गयी|कर दिया|पूरा|खत्म)/i;
-
-function basicSummary(kind, tasks, text) {
+function basicSummary(text) {
   const cut = (a) => [...new Set(a)].slice(0, 8);
   const lines = String(text || '').split(/[\n.!?।]+/).map((x) => x.trim()).filter((x) => x.length > 2).map((x) => x.slice(0, 160));
   const blockers = lines.filter((x) => BLOCK_RE.test(x));
   const rest = lines.filter((x) => !BLOCK_RE.test(x));
-  if (kind === 'morning') return { done: [], pending: cut([...tasks.map((t) => t.title), ...rest]), blockers: cut(blockers) };
-  return {
-    done: cut([...tasks.filter((t) => t.status === 'done').map((t) => t.title), ...rest.filter((x) => DONE_RE.test(x))]),
-    pending: cut(tasks.filter((t) => t.status !== 'done').map((t) => t.title + (t.status === 'in_progress' ? ' (in progress)' : ''))),
-    blockers: cut(blockers),
-  };
+  return { done: cut(rest.filter((x) => DONE_RE.test(x))), pending: cut(rest.filter((x) => !DONE_RE.test(x))), blockers: cut(blockers) };
 }
 
-// One cheap AI call; only written if text AND payload are still the same (a newer edit wins, e.g. a later
-// status-only change). Failure keeps the basic one.
-async function refineSummary(id, kind, payload, text) {
-  if (!text) return;
-  const s = await provider.summarize({ kind, text, tasks: payload.tasks });
-  if (!s) return;
-  await pool.query('UPDATE checkins SET summary = ? WHERE id = ? AND text = ? AND payload = ?',
-    [JSON.stringify(s), id, text, JSON.stringify(payload)]);
-}
-
-// ---------- submit (POST /checkins) ----------
-function submissionText(kind, edit, selected, statuses, own, text) {
-  const lines = [(kind === 'morning' ? 'Aaj ka plan' : 'Aaj ka work report') + (edit ? ' (update)' : '') + ':'];
-  if (selected && selected.length) {
-    lines.push(kind === 'morning' ? 'Aaj ye karunga:' : 'Aaj ke tasks:');
-    for (const id of selected) lines.push('• ' + own[id].title);
-  }
-  for (const st of ['done', 'review', 'in_progress', 'todo']) {
-    const ids = Object.keys(statuses || {}).filter((id) => statuses[id] === st);
-    if (!ids.length) continue;
-    lines.push(LABEL[st] + ':');
-    for (const id of ids) lines.push('• ' + own[id].title);
-  }
-  if (text) lines.push(text);
-  return lines.join('\n');
-}
-
-async function submit(user, body) {
-  body = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-  if (user.role !== 'member') throw new CheckinError(403, 'Not allowed');
-  const kind = body.kind;
-  if (!KINDS.includes(kind)) throw new CheckinError(400, 'Invalid kind');
-
-  let text;
-  if (body.text !== undefined && body.text !== null) {
-    if (typeof body.text !== 'string') throw new CheckinError(400, 'Invalid text');
-    text = body.text.trim();
-    if (text.length > 4000) throw new CheckinError(400, 'Text is too long');
-  }
-  let selected;
-  if (body.selectedTaskIds !== undefined && body.selectedTaskIds !== null) {
-    const a = body.selectedTaskIds;
-    if (!Array.isArray(a) || a.length > MAX_TASKS) throw new CheckinError(400, 'Invalid selectedTaskIds');
-    selected = [...new Set(a.map(toId))];
-    if (selected.some((i) => !i)) throw new CheckinError(400, 'Invalid selectedTaskIds');
-  }
-  let statuses;
-  if (body.taskStatuses !== undefined && body.taskStatuses !== null) {
-    const o = body.taskStatuses;
-    if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > MAX_TASKS) throw new CheckinError(400, 'Invalid taskStatuses');
-    statuses = {};
-    for (const [k, v] of Object.entries(o)) {
-      const id = toId(k);
-      if (!id || !STATUSES.includes(v)) throw new CheckinError(400, 'Invalid taskStatuses');
-      statuses[id] = v;
-    }
-  }
-  const hasSel = !!(selected && selected.length);
-  const hasSt = !!(statuses && Object.keys(statuses).length);
-  if (!text && !hasSel && !hasSt) throw new CheckinError(400, 'Nothing to submit');
-
-  // every task must be the caller's own (not deleted)
-  const ids = [...new Set([...(selected || []), ...Object.keys(statuses || {}).map(Number)])];
-  const own = {};
-  if (ids.length) {
-    const [rows] = await pool.query(
-      'SELECT id, title, status FROM tasks WHERE id IN (?) AND assignee_id = ? AND deleted_at IS NULL', [ids, user.id]);
-    if (rows.length !== ids.length) throw new CheckinError(400, 'Invalid task (use your own tasks only)');
-    for (const r of rows) own[r.id] = r;
-  }
-
-  const date = localNow().date; // edits only ever touch today's row (same local day)
-  const chatId = await ensureChat(user.id);
-  if (!chatId) throw new CheckinError(403, 'Not allowed');
-  const existing = await getRow(user.id, date, kind);
-  const old = existing ? parse(existing.payload) || {} : {};
-
-  // 1. a normal message from the member, so the chat history reads naturally
-  const message = await postMemberMessage(chatId, user, submissionText(kind, !!existing, selected, statuses, own, text));
-
-  // 2. task status changes through tasks.js (permission checks again, task_events source 'checkin')
-  const changed = [];
-  for (const [id, st] of Object.entries(statuses || {})) {
-    if (own[id].status === st) continue;
-    try {
-      changed.push(await T.updateTaskStatus(Number(id), st, user, 'checkin', message.id));
-    } catch (e) {
-      if (!(e instanceof T.TaskError)) throw e; // e.g. reassigned meanwhile: skip that one
-    }
-  }
-
-  // 3. upsert today's row (old version kept in checkin_revisions)
-  const selectedTaskIds = selected !== undefined ? selected : (old.selectedTaskIds || []);
-  const taskStatuses = { ...(old.taskStatuses || {}), ...(statuses || {}) };
-  const newText = text !== undefined ? (text || null) : (existing ? existing.text : null);
-  const snapIds = new Set(kind === 'morning' ? selectedTaskIds : Object.keys(taskStatuses).map(Number));
-  const tasks = (await userTasks(user.id)).filter((t) => snapIds.has(t.id)).map(brief);
-  const payload = { selectedTaskIds, taskStatuses, tasks };
-  const row = await saveRow(existing, user.id, date, kind, newText, basicSummary(kind, tasks, newText), payload, message.id);
-
-  // 4. after the reply: AI engine on new free text (completes tasks the member names) + AI summary of the whole row
-  if (newText) {
-    setImmediate(async () => {
-      // only NEW text: an edit resends the same text, and re-reading it would override the picked statuses
-      if (text && (!existing || text !== existing.text)) {
-        try { await require('./ai/engine').onMessage({ ...message, text }, user); } catch (e) { console.error('ai engine (checkin):', e.message); }
-      }
-      try { await refineSummary(row.id, kind, payload, newText); } catch (e) { console.error('checkin summary:', e.message); }
-    });
-  }
-  return { checkin: shape(row), created: !existing, message, tasks: changed };
-}
-
-// A typed/voice message by the owner in their check-in chat: append to today's text (evening once the evening
-// prompt went out or evening time passed, else morning). Called after the reply by routes/chats.js.
+// Append the owner's typed/voice message to today's check-in text (evening after eveningTime, else morning);
+// AI summary refines it. Called after the reply by routes/chats.js (not for commands).
 async function onChatMessage(message, user) {
   if (!message || !message.text || user.role !== 'member') return;
   const [[chat]] = await pool.query("SELECT owner_id FROM chats WHERE id = ? AND type = 'checkin'", [message.chatId]);
   if (!chat || chat.owner_id !== user.id) return;
   const s = await getSettings();
   const now = localNow();
-  const [[ev]] = await pool.query(
-    "SELECT 1 x FROM checkin_prompts WHERE user_id = ? AND date = ? AND kind = 'evening'", [user.id, now.date]);
-  const kind = ev || now.minutes >= toMin(s.eveningTime) ? 'evening' : 'morning';
+  const kind = now.minutes >= toMin(s.eveningTime) ? 'evening' : 'morning';
   const existing = await getRow(user.id, now.date, kind);
   const text = (existing && existing.text ? existing.text + '\n' + message.text : message.text).slice(0, 16000);
   const p = existing ? parse(existing.payload) || {} : {};
   const payload = { selectedTaskIds: p.selectedTaskIds || [], taskStatuses: p.taskStatuses || {}, tasks: p.tasks || [] };
-  const row = await saveRow(existing, user.id, now.date, kind, text, basicSummary(kind, payload.tasks, text), payload,
-    existing && existing.message_id ? existing.message_id : message.id);
-  await refineSummary(row.id, kind, payload, text);
+  if (existing) {
+    await pool.query('INSERT INTO checkin_revisions (checkin_id, old_text, old_payload) VALUES (?, ?, ?)', [existing.id, existing.text, existing.payload]);
+  }
+  const sum = JSON.stringify(basicSummary(text));
+  const pj = JSON.stringify(payload);
+  const mid = existing && existing.message_id ? existing.message_id : message.id;
+  await pool.query(
+    `INSERT INTO checkins (user_id, date, kind, text, summary, payload, message_id) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE text = ?, summary = ?, payload = ?, message_id = ?`,
+    [user.id, now.date, kind, text, sum, pj, mid, text, sum, pj, mid]);
+  const row = await getRow(user.id, now.date, kind);
+  const ai = await provider.summarize({ kind, text, tasks: [] });
+  if (ai) await pool.query('UPDATE checkins SET summary = ? WHERE id = ? AND text = ?', [JSON.stringify(ai), row.id, text]);
 }
 
 // ---------- reads ----------
@@ -383,43 +413,45 @@ async function history(userId, qFrom, qTo) {
   const { from, to } = range(qFrom, qTo);
   const [rows] = await pool.query(
     ROW_SELECT + "WHERE c.user_id = ? AND c.date BETWEEN ? AND ? ORDER BY c.date DESC, c.kind = 'evening', c.id", [userId, from, to]);
-  return { from, to, checkins: rows.map(shape) };
+  const [subs] = await pool.query(SIGNOFF_SELECT + 'WHERE s.user_id = ? AND s.date BETWEEN ? AND ? ORDER BY s.date DESC', [userId, from, to]);
+  return { from, to, checkins: rows.map(shape), signoffs: subs.map(shapeSignoff) };
 }
 
-// Member: today's prompt/submission state and task chips.
+// Member: GET /checkins/today -> today's cards state, task list and sign-off.
 async function today(user) {
   if (user.role !== 'member') throw new CheckinError(403, 'Not allowed');
   const s = await getSettings();
   const now = localNow();
   const chatId = await ensureChat(user.id);
-  const [rows] = await pool.query(ROW_SELECT + 'WHERE c.user_id = ? AND c.date = ?', [user.id, now.date]);
-  const [marks] = await pool.query('SELECT kind FROM checkin_prompts WHERE user_id = ? AND date = ?', [user.id, now.date]);
-  const sent = new Set(marks.map((m) => m.kind));
-  const by = {};
-  for (const r of rows) by[r.kind] = shape(r);
-  const all = await userTasks(user.id);
-  const sel = new Set(by.morning ? by.morning.selectedTaskIds : []);
-  const slot = (k) => ({ prompted: sent.has(k), nudged: sent.has(k + '_nudge'), submitted: !!by[k], checkin: by[k] || null });
+  const [marks] = await pool.query('SELECT kind, message_id FROM checkin_prompts WHERE user_id = ? AND date = ?', [user.id, now.date]);
+  const mark = (k) => marks.find((m) => m.kind === k);
+  const so = await getSignoff(user.id, now.date);
+  const d = await dayTasks(user.id);
   return {
     date: now.date, chatId, settings: publicSettings(s), workday: s.enabled && s.days.includes(now.dow),
-    morning: slot('morning'), evening: slot('evening'),
-    tasks: all.filter((t) => t.status !== 'done').map(brief),
-    eveningTasks: all.filter((t) => t.status !== 'done' || sel.has(t.id)).map(brief),
+    eveningOpen: now.minutes >= toMin(s.eveningTime),
+    day: { prompted: !!mark('day'), messageId: mark('day') && mark('day').message_id ? Number(mark('day').message_id) : null },
+    signoff: { prompted: !!mark('signoff'), submitted: !!so, signoff: so ? shapeSignoff(so) : null },
+    tasks: d.open, doneToday: d.doneToday, counts: d.counts,
   };
 }
 
-// Boss: one day, every member (active ones, plus inactive ones who submitted that day).
+// Boss: one day, every member (active ones, plus inactive ones who submitted that day). signoff = the new evening flow;
+// morning/evening = typed check-in text (and old round-1 submissions).
 async function dayReport(qDate) {
   const date = qDate === undefined || qDate === '' ? localNow().date : qDate;
   if (!isDate(date)) throw new CheckinError(400, 'Invalid date');
   const s = await getSettings();
   const [members] = await pool.query(
     `SELECT u.id, u.name, u.active FROM users u WHERE u.role = 'member' AND u.is_bot = 0
-       AND (u.active = 1 OR EXISTS (SELECT 1 FROM checkins c WHERE c.user_id = u.id AND c.date = ?)) ORDER BY u.name`, [date]);
+       AND (u.active = 1 OR EXISTS (SELECT 1 FROM checkins c WHERE c.user_id = u.id AND c.date = ?)
+         OR EXISTS (SELECT 1 FROM signoffs x WHERE x.user_id = u.id AND x.date = ?)) ORDER BY u.name`, [date, date]);
   const [rows] = await pool.query(ROW_SELECT + 'WHERE c.date = ?', [date]);
+  const [subs] = await pool.query(SIGNOFF_SELECT + 'WHERE s.date = ?', [date]);
   const [marks] = await pool.query('SELECT user_id, kind FROM checkin_prompts WHERE date = ?', [date]);
   const got = {};
   for (const r of rows) got[r.user_id + ':' + r.kind] = shape(r);
+  const so = new Map(subs.map((r) => [r.user_id, shapeSignoff(r)]));
   const sent = new Set(marks.map((m) => m.user_id + ':' + m.kind));
   const slot = (id, k) => {
     const c = got[id + ':' + k];
@@ -427,7 +459,11 @@ async function dayReport(qDate) {
   };
   return {
     date, workday: s.enabled && s.days.includes(dowOf(date)),
-    members: members.map((m) => ({ id: m.id, name: m.name, active: !!m.active, morning: slot(m.id, 'morning'), evening: slot(m.id, 'evening') })),
+    members: members.map((m) => ({
+      id: m.id, name: m.name, active: !!m.active,
+      signoff: { status: so.has(m.id) ? 'submitted' : 'missing', prompted: sent.has(m.id + ':signoff'), signoff: so.get(m.id) || null },
+      morning: slot(m.id, 'morning'), evening: slot(m.id, 'evening'),
+    })),
   };
 }
 
@@ -441,71 +477,57 @@ async function userHistory(userId, from, to) {
 }
 
 // ---------- scheduler ----------
-function promptText(name, kind, tasks, nudge) {
-  const list = tasks.map((t) => '• ' + t.title +
-    (kind === 'evening' ? ' (' + LABEL[t.status] + ')' : t.dueDate ? ' (due ' + t.dueDate + ')' : ''));
-  if (kind === 'morning') {
-    return [nudge ? 'Reminder: ' + name + ', aaj ka plan abhi tak nahi aaya.' : 'Good morning ' + name + '!',
-      tasks.length ? 'Aaj ke tasks:' : 'Aapka koi open task nahi hai.', ...list,
-      'Aaj kya karoge? Tasks chuniye ya likh kar bataiye.'].join('\n');
+const activeMembers = async () =>
+  (await pool.query("SELECT id, name FROM users WHERE role = 'member' AND is_bot = 0 AND active = 1 ORDER BY id"))[0];
+
+// Morning cards now (debug /admin/jobs/run 'morning' too): post missing ones, refresh existing ones.
+async function runMorning() {
+  await ensureAllChats();
+  const date = localNow().date;
+  let posted = 0; let refreshed = 0;
+  for (const m of await activeMembers()) {
+    try {
+      if (await marker(m.id, date, 'day')) { await refreshDay(m.id); refreshed++; } else if (await sendCard(m, date, 'day')) posted++;
+    } catch (e) { console.error('checkin day card (user ' + m.id + '):', e.message); }
   }
-  return [nudge ? 'Reminder: ' + name + ', aaj ka work report abhi tak nahi aaya.' : 'Aaj ka work report, ' + name + ':',
-    ...(tasks.length ? ['Aaj ke tasks:', ...list] : []),
-    'Kya kiya, kya pending hai, koi dikkat? Har task ka status chuniye ya likh kar bataiye.'].join('\n');
+  return { posted, refreshed };
 }
 
-async function sendPrompt(m, date, kind, nudge) {
-  const markKind = nudge ? kind + '_nudge' : kind;
-  // claim first: the UNIQUE marker means only one process / tick ever posts this prompt
-  const [claim] = await pool.query('INSERT IGNORE INTO checkin_prompts (user_id, date, kind) VALUES (?, ?, ?)', [m.id, date, markKind]);
-  if (!claim.affectedRows) return;
-  let message = null;
-  try {
-    const chatId = await ensureChat(m.id);
-    if (!chatId) throw new Error('no check-in chat');
-    const all = kind === 'morning' ? (await userTasks(m.id)).filter((t) => t.status !== 'done').map(brief) : await eveningTasks(m.id, date);
-    const tasks = all.slice(0, 30);
-    const payload = { kind, date, tasks };
-    if (nudge) payload.nudge = true;
-    message = await insertMessage(chatId, await botUserId(), promptText(m.name, kind, tasks, nudge), 'checkin_prompt', payload, 'bot-');
-    await pool.query('UPDATE checkin_prompts SET message_id = ? WHERE user_id = ? AND date = ? AND kind = ?', [message.id, m.id, date, markKind]);
-    await deliver(message);
-  } catch (e) {
-    // nothing posted yet -> release the claim so the next tick retries; once posted, never post again
-    if (!message) await pool.query('DELETE FROM checkin_prompts WHERE user_id = ? AND date = ? AND kind = ?', [m.id, date, markKind]).catch(() => {});
-    throw e;
+// Evening sign-off cards now (debug 'evening' too): post missing ones.
+async function runEvening() {
+  await ensureAllChats();
+  const date = localNow().date;
+  let posted = 0;
+  for (const m of await activeMembers()) {
+    try { if (await sendCard(m, date, 'signoff')) posted++; } catch (e) { console.error('checkin signoff card (user ' + m.id + '):', e.message); }
   }
+  return { posted };
 }
 
-// Morning prompt in [morningTime, eveningTime); evening prompt from eveningTime to local midnight (so a late start
-// catches up the same day only). Nudge once, nudgeMinutes after the prompt, if still nothing was submitted.
+// From morningTime: 'day' card; from eveningTime: 'signoff' card; nudge once nudgeMinutes after it if not signed off.
+// Only on check-in days; a late start catches up the same day.
 async function tick() {
   await ensureAllChats();
   const s = await getSettings();
   const now = localNow();
-  if (!s.enabled || !s.days.includes(now.dow)) return;
-  const morning = toMin(s.morningTime);
-  const evening = toMin(s.eveningTime);
-  if (now.minutes < morning) return;
-  const [members] = await pool.query(
-    "SELECT id, name FROM users WHERE role = 'member' AND is_bot = 0 AND active = 1 ORDER BY id");
+  if (!s.enabled || !s.days.includes(now.dow) || now.minutes < toMin(s.morningTime)) return;
+  const evening = now.minutes >= toMin(s.eveningTime);
+  const members = await activeMembers();
   if (!members.length) return;
   const [marks] = await pool.query(
     'SELECT user_id, kind, TIMESTAMPDIFF(MINUTE, created_at, NOW()) age FROM checkin_prompts WHERE date = ?', [now.date]);
-  const [subs] = await pool.query('SELECT user_id, kind FROM checkins WHERE date = ?', [now.date]);
+  const [subs] = await pool.query('SELECT user_id FROM signoffs WHERE date = ?', [now.date]);
   const age = new Map(marks.map((r) => [r.user_id + ':' + r.kind, Number(r.age)]));
-  const done = new Set(subs.map((r) => r.user_id + ':' + r.kind));
+  const signed = new Set(subs.map((r) => r.user_id));
   for (const m of members) {
-    for (const kind of KINDS) {
-      const open = kind === 'morning' ? now.minutes < evening : now.minutes >= evening;
-      const key = m.id + ':' + kind;
-      if (!open || done.has(key)) continue;
-      try {
-        if (!age.has(key)) await sendPrompt(m, now.date, kind, false);
-        else if (s.nudgeMinutes > 0 && !age.has(key + '_nudge') && age.get(key) >= s.nudgeMinutes) await sendPrompt(m, now.date, kind, true);
-      } catch (e) {
-        console.error('checkin scheduler (user ' + m.id + ', ' + kind + '):', e.message);
-      }
+    try {
+      if (!age.has(m.id + ':day')) await sendCard(m, now.date, 'day');
+      if (!evening || signed.has(m.id)) continue;
+      const k = m.id + ':signoff';
+      if (!age.has(k)) await sendCard(m, now.date, 'signoff');
+      else if (s.nudgeMinutes > 0 && !age.has(k + '_nudge') && age.get(k) >= s.nudgeMinutes) await sendCard(m, now.date, 'signoff', true);
+    } catch (e) {
+      console.error('checkin scheduler (user ' + m.id + '):', e.message);
     }
   }
 }
@@ -524,6 +546,7 @@ function start() {
 }
 
 module.exports = {
-  CheckinError, start, ensureChat, botSeen, onChatMessage, submit, today, history, dayReport, userHistory,
-  getSettings: async () => publicSettings(await getSettings()), updateSettings, localNow, TZ,
+  CheckinError, start, ensureChat, ensureAllChats, botSeen, onChatMessage, signoff, today, history, dayReport, userHistory,
+  getSettings: async () => publicSettings(await getSettings()), updateSettings, localNow, TZ, refreshDay, refreshDaySoon,
+  runMorning, runEvening, postBotCard: insertMessage, deliver,
 };

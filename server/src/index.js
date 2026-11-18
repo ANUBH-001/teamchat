@@ -60,4 +60,5 @@ require('./realtime').attach(server);
 const port = process.env.PORT || 3000;
 server.listen(port, () => console.log('Server on :' + port));
 require('./backup').start();
-require('./checkins').start(); // daily check-in prompts / nudges (1-minute tick, TZ)
+require('./checkins').start(); // daily check-in cards: morning tasks + evening sign-off (1-minute tick, TZ)
+require('./jobs').start(); // retention purge, 6-day reminders, 14-day task cleanup

@@ -80,6 +80,7 @@ function Root() {
           headerStyle: { backgroundColor: t.primary },
           headerTintColor: '#FFFFFF',
           tabBarStyle: { backgroundColor: t.card },
+          tabBarHideOnKeyboard: true, // more room for the chat + chip row while typing
           tabBarActiveTintColor: t.accent,
           tabBarInactiveTintColor: t.subtext,
         })}

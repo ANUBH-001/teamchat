@@ -14,6 +14,7 @@ import TaskModal from '../components/TaskModal';
 import TaskBoard from '../components/TaskBoard';
 import TaskOverview, { TileKey } from '../components/TaskOverview';
 import TaskDetailScreen from './TaskDetailScreen';
+import { MyDayPanel, SignoffPanel, StalePanel } from '../components/TodayPanel';
 
 type Seg = 'overview' | 'board' | 'list';
 type Filters = { status: Status | 'overdue' | 'open' | 'all'; assignee: 'all' | 'me' | number; project: string; q: string };
@@ -58,7 +59,7 @@ export default function TasksScreen() {
   }, []);
   useEffect(() => { load(); }, [load]);
   // lists, counts and the activity feed follow WebSocket task events, reconnect and app foreground
-  useLiveRefresh(load, ['task', 'task_deleted']);
+  useLiveRefresh(load, ['task', 'task_deleted', 'task_stale', 'tasks_purged', 'reset']);
   const { refreshing, onRefresh } = usePullRefresh(load);
   const refreshControl = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.accent]} />;
 
@@ -80,6 +81,7 @@ export default function TasksScreen() {
     });
   }, [tasks, filters, me.id]);
 
+  const stale = useMemo(() => tasks.filter((x) => x.stale && (isBoss || x.assigneeId === me.id)), [tasks, isBoss, me.id]);
   const openTask = useCallback((x: Task) => setDetail(x.id), []);
   const goList = (f: Partial<Filters>) => { setFilters({ ...NO_FILTER, ...f }); setSeg('list'); };
   const onTile = (k: TileKey) => {
@@ -112,7 +114,9 @@ export default function TasksScreen() {
       {!loaded ? (
         <ActivityIndicator color={t.accent} style={{ marginTop: 30 }} />
       ) : seg === 'overview' ? (
-        <ScrollView refreshControl={refreshControl} contentContainerStyle={{ paddingBottom: 90 }}>
+        <ScrollView refreshControl={refreshControl} contentContainerStyle={{ paddingBottom: 90 }} keyboardShouldPersistTaps="handled">
+          {isBoss ? <SignoffPanel onPerson={(id) => goList({ assignee: id })} /> : <MyDayPanel />}
+          <StalePanel tasks={stale} days={ps.taskReminderDays || 6} onOpen={(id) => setDetail(id)} />
           <TaskOverview
             sum={sum} activity={activity} canPraise={isBoss && ps.praiseEnabled}
             onTile={onTile} onTeam={(id) => goList({ assignee: id })} onOpenTask={(id) => setDetail(id)}

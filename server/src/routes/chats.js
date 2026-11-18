@@ -21,6 +21,7 @@ function formatMessage(r, viewer) {
     deleted,
     clientId: r.client_id,
     createdAt: r.created_at,
+    editedAt: r.edited_at || null,
     type: r.type || 'text',
     payload: parsePayload(deleted && viewer.role !== 'boss' ? null : r.payload),
     replyTo: r.reply_to_id ? {
@@ -41,7 +42,7 @@ function parsePayload(s) {
 }
 
 const MSG_SELECT =
-  'SELECT m.id, m.chat_id, m.sender_id, m.body, m.created_at, m.deleted_at, m.client_id, m.type, m.payload, m.reply_to_id, ' +
+  'SELECT m.id, m.chat_id, m.sender_id, m.body, m.created_at, m.edited_at, m.deleted_at, m.client_id, m.type, m.payload, m.reply_to_id, ' +
   'm.visible_to, m.mentions, u.name sender_name, rm.body reply_body, rm.deleted_at reply_deleted_at, ru.name reply_sender_name ' +
   'FROM messages m JOIN users u ON u.id = m.sender_id ' +
   'LEFT JOIN messages rm ON rm.id = m.reply_to_id LEFT JOIN users ru ON ru.id = rm.sender_id ';
@@ -147,9 +148,9 @@ async function chatSummaries(user, onlyChatId) {
 // Current members (no bot), check-in guard applied.
 async function memberList(chatId, createdBy) {
   const [rows] = await pool.query(
-    'SELECT u.id, u.name, u.role ' + rt.MEMBER_FROM + 'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND u.is_bot = 0 AND ' +
+    'SELECT u.id, u.name, u.role, u.phone ' + rt.MEMBER_FROM + 'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND u.is_bot = 0 AND ' +
     rt.MEMBER_OK + ' ORDER BY u.name', [chatId]);
-  return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, isCreator: u.id === createdBy }));
+  return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, phone: u.phone, isCreator: u.id === createdBy }));
 }
 
 // Group management guard: member + group chat (+ creator or boss when manage). -> chat row, or sends the error.
@@ -362,22 +363,33 @@ router.get('/:id/messages', async (req, res) => {
   }
 });
 
-// "@Anubhav" -> user ids of chat members: first name (case-insensitive), else the fuzzy name matcher (single hit only).
-async function resolveMentions(text, chatId) {
-  if (!text.includes('@')) return [];
+// Mentions -> {ids, tagged}. tagged = [{token, id}]: "@Name" tokens the app sent with structured mentionIds (picker),
+// trusted as-is, so two people with the same name can be told apart. Other "@Name" tokens: chat members by first name
+// (case-insensitive), else the fuzzy matcher; only a single hit counts (an ambiguous name mentions nobody).
+async function resolveMentions(text, chatId, rawIds) {
+  if (!text.includes('@')) return { ids: [], tagged: [] };
+  const { bestMatches, tagMentions, cleanToken, MENTION_RE } = require('../ai/names');
+  const want = [...new Set((Array.isArray(rawIds) ? rawIds : []).map((n) => parseInt(n, 10)).filter((n) => n > 0))].slice(0, 20);
+  let tagged = [];
+  if (want.length) {
+    const [users] = await pool.query('SELECT id, name FROM users WHERE id IN (?) AND active = 1 AND is_bot = 0', [want]);
+    tagged = tagMentions(text, want, users);
+  }
   const [rows] = await pool.query(
     'SELECT u.id, u.name FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ? AND cm.left_at IS NULL AND u.is_bot = 0',
     [chatId]);
-  const { matchPeople } = require('../ai/names');
-  const ids = new Set();
-  for (const m of text.matchAll(/(^|[^\p{L}\p{N}_@])@([\p{L}\p{M}\p{N}_.-]+)/gu)) {
-    const tok = m[2].replace(/[.,_-]+$/, '').toLowerCase();
+  const ids = new Set(tagged.map((x) => x.id));
+  const skip = tagged.map((x) => x.token);
+  for (const m of text.matchAll(MENTION_RE)) {
+    const tok = cleanToken(m[2]);
     if (!tok) continue;
+    const k = skip.indexOf(tok);
+    if (k >= 0) { skip.splice(k, 1); continue; }
     const first = rows.filter((r) => String(r.name).trim().split(/\s+/)[0].toLowerCase() === tok);
-    const hits = first.length ? first : matchPeople(tok, rows);
-    if (first.length || hits.length === 1) hits.forEach((h) => ids.add(h.id));
+    const hits = first.length === 1 ? first : bestMatches(tok, rows).people;
+    if (hits.length === 1) ids.add(hits[0].id);
   }
-  return [...ids].slice(0, 50);
+  return { ids: [...ids].slice(0, 50), tagged };
 }
 
 router.post('/:id/messages', async (req, res) => {
@@ -403,7 +415,7 @@ router.post('/:id/messages', async (req, res) => {
     };
     let row = await find();
     if (row) return res.json({ message: (await withReactions([formatMessage(row, req.user)]))[0], duplicate: true });
-    const mentions = await resolveMentions(text, chatId);
+    const { ids: mentions, tagged } = await resolveMentions(text, chatId, req.body.mentionIds);
     let id;
     try {
       const [r] = await pool.query(
@@ -438,10 +450,14 @@ router.post('/:id/messages', async (req, res) => {
     for (const u of members) rt.sendToUser(u, { type: 'message', message });
     await rt.pushStatus(chatId);
     res.status(201).json({ message });
-    // Slash command first, else the natural-language AI engine; runs after the reply, never delays or fails the send.
+    // Slash command first, then a reply to a task card (note / "desc:"), else the natural-language AI engine.
+    // Runs after the reply, never delays or fails the send.
     setImmediate(async () => {
       try {
-        if (!(await require('../ai/commands').handle(message, req.user))) await require('../ai/engine').onMessage(message, req.user);
+        const cmd = require('../ai/commands');
+        if (await cmd.handle(message, req.user, { tagged })) return;
+        if (await cmd.handleReply(message, req.user)) return;
+        await require('../ai/engine').onMessage(message, req.user);
       } catch (e) { console.error('ai engine:', e.message); }
     });
     // A typed/voice reply in the member's own check-in chat is also stored as today's check-in text (not commands).
@@ -477,3 +493,4 @@ module.exports.formatMessage = formatMessage;
 module.exports.MSG_SELECT = MSG_SELECT;
 module.exports.VISIBLE = VISIBLE;
 module.exports.reactionsFor = reactionsFor;
+module.exports.resolveMentions = resolveMentions;

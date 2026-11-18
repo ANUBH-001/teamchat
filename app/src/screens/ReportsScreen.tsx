@@ -3,11 +3,12 @@ import {
   View, Text, FlatList, Pressable, TextInput, ScrollView, Switch, RefreshControl, ActivityIndicator, AppState, BackHandler,
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useTheme } from '../useTheme';
 import { usePullRefresh } from '../useLive';
 import { Theme } from '../theme';
-import { AdminDay, AdminUserHistory, Checkin, CheckinSettings } from '../chatTypes';
+import { AdminDay, AdminUserHistory, Checkin, CheckinSettings, Signoff } from '../chatTypes';
 
 // Boss-only, pull-only: no websocket, no notifications. Refetches on pull, on focus and on foreground.
 const GREEN = '#25A244';
@@ -28,13 +29,15 @@ const Pill = React.memo(function Pill({ label, status }: { label: string; status
   );
 });
 
+// Same green bar as Settings (the tab header is hidden on these sub-screens): below the status bar, full width.
 function TopBar({ t, title, onBack }: { t: Theme; title: string; onBack: () => void }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+    <View style={{ backgroundColor: t.primary, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, margin: -16, marginBottom: 12, flexDirection: 'row', alignItems: 'center' }}>
       <Pressable onPress={onBack} hitSlop={10} style={{ paddingRight: 12 }}>
-        <Text style={{ color: t.primary, fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
+        <Text style={{ color: '#fff', fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
       </Pressable>
-      <Text style={{ color: t.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{title}</Text>
+      <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', flex: 1 }} numberOfLines={1}>{title}</Text>
     </View>
   );
 }
@@ -46,9 +49,16 @@ const MemberRow = React.memo(function MemberRow({ m, t, onPress }: { m: Member; 
   return (
     <Pressable onPress={() => onPress(m)} style={{ backgroundColor: t.card, borderRadius: 8, padding: 12, marginBottom: 8 }}>
       <Text style={{ color: t.text, fontWeight: '600' }}>{m.name}{m.active ? '' : ' (inactive)'}</Text>
-      <View style={{ flexDirection: 'row', marginTop: 6, flexWrap: 'wrap' }}>
-        <Pill label="Morning" status={m.morning.status} />
-        <Pill label="Evening" status={m.evening.status} />
+      <View style={{ flexDirection: 'row', marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Pill label="Sign-off" status={m.signoff ? m.signoff.status : 'missing'} />
+        {!!m.signoff?.signoff && (
+          <Text style={{ color: t.subtext, fontSize: 12, marginLeft: 8 }}>
+            Done {m.signoff.signoff.counts.done} · Baaki {m.signoff.signoff.counts.left} · Aaj diye {m.signoff.signoff.counts.given}
+          </Text>
+        )}
+        {(m.morning.status === 'submitted' || m.evening.status === 'submitted') && (
+          <Text style={{ color: t.subtext, fontSize: 12, marginLeft: 8 }}>+ notes</Text>
+        )}
       </View>
     </Pressable>
   );
@@ -161,7 +171,21 @@ const Entry = React.memo(function Entry({ c, label, t }: { c: Checkin | undefine
   );
 });
 
-type DayGroup = { date: string; morning?: Checkin; evening?: Checkin };
+type DayGroup = { date: string; morning?: Checkin; evening?: Checkin; signoff?: Signoff };
+
+const LABEL: Record<string, string> = { done: 'Done', in_progress: 'In progress', review: 'Testing', todo: 'Not started' };
+const SignoffEntry = ({ so, t }: { so: Signoff | undefined; t: Theme }) => {
+  if (!so) return <Text style={{ color: RED, fontSize: 13, marginTop: 6 }}>Sign-off: missing</Text>;
+  return (
+    <View style={{ marginTop: 8 }}>
+      <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>
+        Sign-off · Done {so.counts.done} · Baaki {so.counts.left} · Aaj diye {so.counts.given}
+      </Text>
+      {so.tasks.map((x) => <Text key={x.id} style={{ color: t.text, fontSize: 14 }}>{'• ' + x.title + ' (' + (LABEL[x.status] || x.status) + ')'}</Text>)}
+      {!!so.note && <Text style={{ color: t.text, fontSize: 14, fontStyle: 'italic', marginTop: 4 }}>{so.note}</Text>}
+    </View>
+  );
+};
 
 const DayCard = React.memo(function DayCard({ g, t, open, onToggle }: { g: DayGroup; t: Theme; open: boolean; onToggle: (d: string) => void }) {
   return (
@@ -169,14 +193,14 @@ const DayCard = React.memo(function DayCard({ g, t, open, onToggle }: { g: DayGr
       <Pressable onPress={() => onToggle(g.date)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <Text style={{ color: t.text, fontWeight: '600' }}>{g.date}</Text>
         <View style={{ flexDirection: 'row' }}>
-          <Pill label="M" status={g.morning ? 'submitted' : 'missing'} />
-          <Pill label="E" status={g.evening ? 'submitted' : 'missing'} />
+          <Pill label="Sign-off" status={g.signoff ? 'submitted' : 'missing'} />
         </View>
       </Pressable>
       {open && (
         <View>
-          <Entry c={g.morning} label="Plan (morning)" t={t} />
-          <Entry c={g.evening} label="Report (evening)" t={t} />
+          <SignoffEntry so={g.signoff} t={t} />
+          {!!g.morning && <Entry c={g.morning} label="Notes (morning)" t={t} />}
+          {!!g.evening && <Entry c={g.evening} label="Notes (evening)" t={t} />}
         </View>
       )}
     </View>
@@ -213,6 +237,11 @@ function MemberDetail({ member, date, onBack }: { member: Member; date: string; 
       const g = map.get(c.date) || { date: c.date };
       g[c.kind] = c;
       map.set(c.date, g);
+    }
+    for (const so of data?.signoffs ?? []) {
+      const g = map.get(so.date) || { date: so.date };
+      g.signoff = so;
+      map.set(so.date, g);
     }
     return [...map.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [data, date]);
@@ -285,7 +314,7 @@ export function CheckinSettingsScreen({ onBack }: { onBack: () => void }) {
   const save = async () => {
     const fail = (m: string) => { setMsg(m); setIsErr(true); };
     if (!TIME_RE.test(morning.trim())) return fail('Morning time must be HH:MM (24 hour), e.g. 10:00');
-    if (!TIME_RE.test(evening.trim())) return fail('Evening time must be HH:MM (24 hour), e.g. 18:30');
+    if (!TIME_RE.test(evening.trim())) return fail('Evening time must be HH:MM (24 hour), e.g. 18:00');
     if (toMin(morning.trim()) >= toMin(evening.trim())) return fail('Morning time must be before evening time');
     const n = Number(nudge.trim());
     if (nudge.trim() === '' || !Number.isInteger(n) || n < 0 || n > 720) return fail('Nudge minutes: whole number 0-720 (0 = no nudge)');
@@ -315,10 +344,10 @@ export function CheckinSettingsScreen({ onBack }: { onBack: () => void }) {
             <Text style={{ color: t.text, fontWeight: '600' }}>Daily check-ins enabled</Text>
             <Switch value={enabled} onValueChange={setEnabled} trackColor={{ true: t.accent, false: t.border }} thumbColor="#fff" />
           </View>
-          <Text style={label}>Morning time (HH:MM)</Text>
+          <Text style={label}>Morning task card (HH:MM)</Text>
           <TextInput style={input} value={morning} onChangeText={setMorning} placeholder="10:00" placeholderTextColor={t.subtext} maxLength={5} />
-          <Text style={label}>Evening time (HH:MM)</Text>
-          <TextInput style={input} value={evening} onChangeText={setEvening} placeholder="18:30" placeholderTextColor={t.subtext} maxLength={5} />
+          <Text style={label}>Evening sign-off (HH:MM)</Text>
+          <TextInput style={input} value={evening} onChangeText={setEvening} placeholder="18:00" placeholderTextColor={t.subtext} maxLength={5} />
           <Text style={label}>Days</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10 }}>
             {DAYS.map((x) => {
@@ -334,7 +363,7 @@ export function CheckinSettingsScreen({ onBack }: { onBack: () => void }) {
               );
             })}
           </View>
-          <Text style={label}>Nudge after (minutes, 0 = no nudge)</Text>
+          <Text style={label}>Sign-off reminder after (minutes, 0 = none)</Text>
           <TextInput style={input} value={nudge} onChangeText={setNudge} keyboardType="number-pad" maxLength={3} placeholder="120" placeholderTextColor={t.subtext} />
           <Text style={{ color: t.subtext, fontSize: 12, marginBottom: 10 }}>Time zone: {s.timezone}. Members get phone reminders at these times.</Text>
           {!!msg && <Text style={{ color: isErr ? RED : GREEN, marginBottom: 8 }}>{msg}</Text>}

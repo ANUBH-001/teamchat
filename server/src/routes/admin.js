@@ -180,4 +180,29 @@ router.put('/chats/:id/settings', async (req, res) => {
   }
 });
 
+// ---------- Danger zone / debug ----------
+// POST /admin/reset {confirm:'RESET'} -> {ok, backup, chatsDeleted}; ws {type:'reset'} to everyone.
+router.post('/reset', async (req, res) => {
+  try {
+    if ((req.body || {}).confirm !== 'RESET') return res.status(400).json({ error: 'Type RESET to confirm', code: 'BAD_REQUEST' });
+    res.json(await require('../jobs').resetAll(req.user));
+  } catch (e) {
+    console.error('admin reset:', e.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /admin/jobs/run {job:'purge'|'reminders'|'taskcleanup'|'morning'|'evening'} -> {ok, job, result} (runs now, for testing)
+router.post('/jobs/run', async (req, res) => {
+  try {
+    const job = String((req.body || {}).job || '');
+    const result = await require('../jobs').runNow(job);
+    if (result === null) return res.status(400).json({ error: 'Unknown job', code: 'BAD_REQUEST' });
+    res.json({ ok: true, job, result });
+  } catch (e) {
+    console.error('job run:', e.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;

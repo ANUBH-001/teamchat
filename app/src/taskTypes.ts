@@ -16,6 +16,9 @@ export type Task = {
   updatedAt: string;
   completedAt: string | null;
   overdue: boolean;
+  ageDays?: number; // days since created
+  stale?: boolean; // open and older than the reminder setting (6 days)
+  remindedAt?: string | null;
 };
 export type UserCount = {
   id: number; name: string; total: number; todo: number; in_progress: number; review: number; done: number;
