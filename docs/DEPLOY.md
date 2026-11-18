@@ -71,7 +71,9 @@ Order zaroor yahi. Server code, migration, AI key, APK aur force-update settings
    b. Jab sab ne update kar liya ya ready ho: min version code `2`. Tab v1 build par blocking Update screen aati hai (server 426 `UPDATE_REQUIRED`).
    Rollback: min version code `0` (sab unblock).
 
-## Round 2 update (BUILT 2026-11-18, not deployed; deploy only when owner says)
+## Round 2 update (DEPLOYED 2026-11-18: pushed 0db6464, rollback hash 2a76c17, DB backup /root/team-chat-dbbackup/pre-008-20261118-0827.sql, migrate_008 applied, retention ON by owner's choice)
+Then owner asked for a fresh start: admin reset run on prod 08:30 (backups `/root/team-chat-dbbackup/pre-reset-20261118-0830.sql` + `server/backup/reset-*.json`); users kept. APK 0.3.0 uploaded as `TeamChat.apk` (old one at `/root/TeamChat-0.2.0.bak.apk`, local copy `d:\r&D\TeamChat-0.3.0.apk`), latest = 3, min = 0.
+Note: code default `latestVersionCode` is 3, so set it in `app_settings` (or Settings) to the version whose APK is actually uploaded; otherwise old clients get a banner for an APK that is not there yet.
 1. DB backup first (`mysqldump ... team_chat_db > /root/team-chat-dbbackup/pre-008-<date>.sql`), then BEFORE the new server starts:
    `mysql -u team_chat_user -p team_chat_db < /opt/node/team-chat/server/sql/migrate_008.sql`
    (adds `tasks.reminded_at`, `signoffs`, two indexes; sets check-in times 10:00 / 18:00).
