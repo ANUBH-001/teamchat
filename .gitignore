@@ -12,3 +12,4 @@ app/ios/
 app/modules/*/android/build/
 server/updates/
 app/dist-update/
+app/update-*.tar.gz

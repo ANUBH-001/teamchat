@@ -50,7 +50,7 @@
 - Migration `server/sql/migrate_007.sql` (applied locally, not on prod).
 - Tests (owner allowed for this round only): multi-user API + WebSocket E2E 59/59 pass; emulator UI as boss and member, light + dark. Screenshots sent to owner.
 
-## OTA updates (built, not yet tested/deployed)
+## OTA updates (deployed + tested 2026-11-19)
 expo-updates ~0.27.5, `/updates/manifest` + `/updates/assets`, Update app card, banner, `publish-update.ps1`, app 0.5.0 (code 5), runtimeVersion "1". Needs one last APK install, then JS updates go OTA.
 
 ## Remaining (in this order)
