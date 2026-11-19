@@ -82,7 +82,7 @@ Note: code default `latestVersionCode` is 3, so set it in `app_settings` (or Set
    daily job deletes tasks older than 14 days (both dump JSON to `server/backup/` first). Turn it off in Admin > Settings > Data retention if not wanted yet.
 4. APK 0.3.0 / versionCode 3 (no new native dep): rebuild release, upload as `TeamChat.apk`, then Settings: latest code `3`, name `0.3.0`; min `3` only when everyone updated.
 
-## Round 3 update (NOT deployed yet; app 0.4.0 / versionCode 4, migrate_009)
+## Round 3 update (DEPLOYED 2026-11-19: pushed 599a2f6, rollback hash 0db6464 + /root/team-chat-dbbackup/pre-009-20261119-1141.sql, APK 0.4.0 uploaded (old at /root/TeamChat-0.3.0.bak.apk, local d:&DTeamChat-0.4.0.apk), migrate_009 applied, latest = min = 4, ws Authorization header verified through Apache)
 Forced update: 0.3.0 clients will be blocked (426) once min = 4; announce to the team first. Order:
 1. Release APK 0.4.0 (no new native dep) -> upload FIRST as `server/public/download/TeamChat.apk` (keep the old one as a .bak). Check `curl -sI .../download/TeamChat.apk` -> 200.
 2. DB backup: `mysqldump ... team_chat_db > /root/team-chat-dbbackup/pre-009-<date>.sql`.
