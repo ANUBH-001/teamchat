@@ -15,7 +15,14 @@ const DUMMY_HASH = bcrypt.hashSync('dummy-pin-0000', 10);
 
 const hashCode = (code) => crypto.createHash('sha256').update(String(code).trim().toUpperCase()).digest('hex');
 const publicUser = (u) => ({ id: u.id, phone: u.phone, name: u.name, role: u.role, avatarEmoji: u.avatar_emoji || null });
-const normPhone = (p) => String(p || '').replace(/\s+/g, '');
+// Indian numbers are stored as plain 10 digits: "+91 98712 72058", "919871272058", "09871272058" -> "9871272058"
+function normPhone(p) {
+  let s = String(p || '').replace(/[\s()-]+/g, '');
+  if (/^\+91\d{10}$/.test(s)) s = s.slice(3);
+  else if (/^91\d{10}$/.test(s)) s = s.slice(2);
+  else if (/^0\d{10}$/.test(s)) s = s.slice(1);
+  return s;
+}
 
 // ---------- rate limit (in memory; one PM2 process) ----------
 // /auth/login and /auth/activate: 10 per minute and 50 per hour per IP -> 429 RATE_LIMITED.
@@ -119,4 +126,5 @@ router.patch('/me', requireAuth, async (req, res) => {
 
 module.exports = router;
 module.exports.hashCode = hashCode;
+module.exports.normPhone = normPhone;
 module.exports.startSession = startSession;

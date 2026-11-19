@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const pool = require('../db');
 const { requireAuth, requireBoss } = require('../middleware/auth');
-const { hashCode } = require('./auth');
+const { hashCode, normPhone } = require('./auth');
 const rt = require('../realtime');
 const checkins = require('../checkins');
 const settings = require('../settings');
@@ -71,7 +71,7 @@ router.post('/users', async (req, res) => {
   try {
     const name = users.cleanName(req.body.name);
     await users.assertNameFree(name, 0);
-    const phone = String(req.body.phone || '').replace(/\s+/g, '');
+    const phone = normPhone(req.body.phone); // stored as 10 digits, no +91
     const role = req.body.role === 'boss' ? 'boss' : 'member';
     if (!/^\+?\d{7,15}$/.test(phone)) return res.status(400).json({ error: 'Invalid phone number' });
     const [[dup]] = await pool.query('SELECT id FROM users WHERE phone = ?', [phone]);
