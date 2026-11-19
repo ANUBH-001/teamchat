@@ -42,7 +42,14 @@ router.get('/manifest', (req, res) => {
   if (!rv || !RV_RE.test(rv)) return res.status(400).json({ error: 'runtime version galat hai' });
   try {
     const dir = latestDir(rv);
-    if (!dir) return res.status(404).json({ error: 'is runtime ka update nahi hai' });
+    if (!dir) {
+      // nothing published for this runtime: tell the app "no update" (not an error), it keeps its current code
+      if (req.get('expo-protocol-version') !== '1') return res.status(404).json({ error: 'is runtime ka update nahi hai' });
+      res.set({ 'expo-protocol-version': '1', 'expo-sfv-version': '0', 'cache-control': 'private, max-age=0' });
+      const b = crypto.randomBytes(16).toString('hex');
+      res.setHeader('content-type', `multipart/mixed; boundary=${b}`);
+      return res.end(Buffer.from(part(b, 'directive', { type: 'noUpdateAvailable' }) + `--${b}--\r\n`, 'utf8'));
+    }
     const metaRaw = fs.readFileSync(path.join(dir, 'metadata.json'));
     const meta = JSON.parse(metaRaw.toString('utf8').replace(/^﻿/, ''));
     const h = hashOf(metaRaw, 'sha256', 'hex');
