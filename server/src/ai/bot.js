@@ -14,12 +14,23 @@ async function botUserId() {
   return cached;
 }
 
+const LINK_KINDS = ['task', 'ask', 'reminder'];
+// Card links (round 3): source_message_id = payload.replyTo (the human message that caused it), task_id = payload.task.id.
+function linksOf(payload) {
+  const p = payload || {};
+  return {
+    sourceMessageId: Number.isInteger(p.replyTo) ? p.replyTo : null,
+    taskId: LINK_KINDS.includes(p.kind) && p.task && Number.isInteger(p.task.id) ? p.task.id : null,
+  };
+}
+
 async function insertAndSend(chatId, senderId, type, body, payload, visibleTo, prefix, mentions) {
   const { MSG_SELECT, formatMessage } = require('../routes/chats'); // lazy: chats.js requires this file
+  const link = type === 'bot' ? linksOf(payload) : { sourceMessageId: null, taskId: null };
   const [r] = await pool.query(
-    'INSERT INTO messages (chat_id, sender_id, body, client_id, type, payload, visible_to, mentions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO messages (chat_id, sender_id, body, client_id, type, payload, visible_to, mentions, source_message_id, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [chatId, senderId, String(body).slice(0, 4000), prefix + crypto.randomUUID(), type, payload ? JSON.stringify(payload) : null,
-      visibleTo || null, mentions && mentions.length ? JSON.stringify(mentions) : null]);
+      visibleTo || null, mentions && mentions.length ? JSON.stringify(mentions) : null, link.sourceMessageId, link.taskId]);
   const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [r.insertId]);
   const message = formatMessage(row, { role: 'member' });
   // Ephemeral (visibleTo set): only that user ever gets it, here and in every REST read.
@@ -37,16 +48,21 @@ const postSystem = (chatId, actor, body) => insertAndSend(chatId, actor.id, 'sys
 
 const EVENT_TEXT = {
   created: 'Task assigned', completed: 'Task done', review: 'Testing', updated: 'Task updated', reassigned: 'Task reassigned',
-  due: 'Due date changed', deleted: 'Task deleted', note: 'Task note', praise: 'Praise',
+  due: 'Due date changed', deleted: 'Task closed', closed: 'Task closed', reopened: 'Task reopened', note: 'Task note', praise: 'Praise',
+  planning: 'Planning', coding: 'Coding', testing: 'Testing', change_merged: 'Change merged', done: 'Done (apna part)',
+  answered: 'Jawab mila', edited: 'Task updated (edit)',
 };
+const namesOf = (task) => (task.assignees && task.assignees.length ? task.assignees.map((a) => a.name).join(', ') : task.assigneeName || '');
 
-// Public task card: {kind:'task', event, task, actorId, actorName, note?, byAi?} (+ legacy action/replyTo for old app builds).
+// Public task card: {kind:'task', event, task, actorId, actorName, note?, byAi?, replyTo?} (+ legacy action).
+// replyTo = source message id (card shows attached under it in the app).
 function taskCard(chatId, event, task, actor, extra = {}) {
   const payload = {
     kind: 'task', event, task, actorId: actor.id, actorName: actor.name || null, ...extra,
     action: event === 'created' || event === 'completed' ? event : 'updated',
   };
-  let body = (EVENT_TEXT[event] || 'Task') + ': ' + task.title + (task.assigneeName ? ' (' + task.assigneeName + ')' : '');
+  const who = namesOf(task);
+  let body = (EVENT_TEXT[event] || 'Task') + ': ' + task.title + ' #' + task.id + (who ? ' (' + who + ')' : '');
   if (extra.note) body += '\n' + extra.note;
   if (event === 'due') body += ' - ' + (task.dueDate || 'no date');
   return postBot(chatId, body, payload);
@@ -70,4 +86,4 @@ async function ensureDm(aId, bId) {
   return { chatId: r.insertId, created: true };
 }
 
-module.exports = { botUserId, postBot, postSystem, taskCard, ephemeral, errorCard, infoCard, ensureDm };
+module.exports = { linksOf, EVENT_TEXT, botUserId, postBot, postSystem, taskCard, ephemeral, errorCard, infoCard, ensureDm };

@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { checkVersion } from './src/updateStore';
 import { UpdateBanner, UpdateScreen } from './src/components/UpdateScreen';
+import InAppBanner from './src/components/InAppBanner';
 import { useUpdateState } from './src/updateStore';
 
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = { Chats: 'chatbubbles', Tasks: 'checkbox', Admin: 'people' };
@@ -89,6 +90,7 @@ function Root() {
         <Tab.Screen name="Tasks" component={TasksScreen} />
         <Tab.Screen name="Admin" component={AdminScreen} options={{ title: user.role === 'boss' ? 'Admin' : 'Account' }} />
       </Tab.Navigator>
+      <InAppBanner root />
     </NavigationContainer>
   );
 }

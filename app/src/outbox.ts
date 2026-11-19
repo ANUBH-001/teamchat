@@ -29,6 +29,7 @@ export async function pendingFor(chatId: number, senderId: number, senderName: s
 
 export async function enqueue(chatId: number, text: string, clientId: string, createdAt: string, replyTo?: ReplyRef | null, mentionIds?: number[]) {
   const items = await load();
+  if (items.some((i) => i.clientId === clientId)) { flushOutbox(); return; } // same send twice (e.g. notification Reply)
   items.push({ clientId, chatId, text, createdAt, replyTo: replyTo ?? null, mentionIds: mentionIds && mentionIds.length ? mentionIds : undefined });
   await save(items);
   flushOutbox();

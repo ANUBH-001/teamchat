@@ -1,14 +1,15 @@
 // In-process daily/weekly jobs (1-minute tick, local time TZ like the check-in scheduler). Each job runs once per local
 // day; the last run date is stored in app_settings 'job.<name>.lastRun' (restarts never repeat a job the same day).
 // - purge (Sunday >= 23:00, needs retentionEnabled): HARD-deletes messages older than messageRetentionDays (7) in every
-//   chat, except each chat's pinned message and today's check-in cards; reactions/revisions of them deleted, replies and
-//   task source links set NULL. A JSON dump goes to server/backup/purge-YYYY-MM-DD.json first.
+//   chat, except each chat's pinned message and today's check-in cards; reactions/revisions of them deleted, replies,
+//   card source links and task source links set NULL (task timelines keep a text snapshot in task_events.source_text). A JSON dump goes to server/backup/purge-YYYY-MM-DD.json first.
 //   (Owner's explicit request: real deletion for retention only; everything else stays soft delete.)
 // - reminders (daily >= check-in morningTime, taskReminderDays > 0): open tasks created >= N days ago get ONE reminder
-//   (tasks.reminded_at): card in the assignee's Daily Check-in chat (mentions them -> notification) + ws
-//   {type:'task_stale', task, days} to bosses and the assignee (Tasks tab "6+ din pending").
-// - taskcleanup (daily >= 01:00, needs retentionEnabled): HARD-deletes tasks (+ task_events) created >= taskDeleteDays (14)
-//   ago, done or not; dump to server/backup/tasks-YYYY-MM-DD.json first; ws {type:'tasks_purged', taskIds}.
+//   (tasks.reminded_at): card in the Daily Check-in chat of every assignee not done yet (mentions them -> notification)
+//   + ws {type:'task_stale', task, days} to bosses and those assignees (Tasks tab "6+ din pending").
+// - taskcleanup (daily >= 01:00, needs retentionEnabled): HARD-deletes ONLY done or closed tasks (+ assignees, events)
+//   whose completed_at / closed_at is >= taskDeleteDays (14) days ago; open tasks are never deleted. Dump to
+//   server/backup/tasks-YYYY-MM-DD.json first; ws {type:'tasks_purged', taskIds}.
 // - morning / evening: the check-in cards (checkins.js runs them on its own tick; here only for POST /admin/jobs/run).
 // resetAll(): admin "Reset app data" (POST /admin/reset).
 const fs = require('fs');
@@ -20,6 +21,7 @@ const backup = require('./backup');
 const checkins = require('./checkins');
 const bot = require('./ai/bot');
 const T = require('./tasks');
+const users = require('./users');
 
 const CHUNK = 500;
 const chunks = (a) => { const out = []; for (let i = 0; i < a.length; i += CHUNK) out.push(a.slice(i, i + CHUNK)); return out; };
@@ -55,6 +57,7 @@ async function runPurge() {
     await pool.query('DELETE FROM message_reactions WHERE message_id IN (?)', [part]);
     await pool.query('DELETE FROM message_revisions WHERE message_id IN (?)', [part]);
     await pool.query('UPDATE messages SET reply_to_id = NULL WHERE reply_to_id IN (?)', [part]);
+    await pool.query('UPDATE messages SET source_message_id = NULL WHERE source_message_id IN (?)', [part]);
     await pool.query('UPDATE tasks SET source_message_id = NULL WHERE source_message_id IN (?)', [part]);
     await pool.query('UPDATE checkin_prompts SET message_id = NULL WHERE message_id IN (?)', [part]);
     await pool.query('DELETE FROM messages WHERE id IN (?)', [part]);
@@ -69,8 +72,8 @@ async function runReminders() {
   const days = s.taskReminderDays;
   if (!days) return { reminded: 0 };
   const [rows] = await pool.query(
-    `SELECT t.id FROM tasks t JOIN users u ON u.id = t.assignee_id WHERE t.deleted_at IS NULL AND t.status <> 'done'
-       AND t.reminded_at IS NULL AND u.active = 1 AND t.created_at <= NOW() - INTERVAL ? DAY ORDER BY t.id`, [days]);
+    `SELECT t.id FROM tasks t WHERE t.deleted_at IS NULL AND t.status NOT IN ('done', 'closed')
+       AND t.reminded_at IS NULL AND t.created_at <= NOW() - INTERVAL ? DAY ORDER BY t.id`, [days]);
   const [bosses] = await pool.query("SELECT id FROM users WHERE role = 'boss' AND active = 1");
   let n = 0;
   for (const r of rows) {
@@ -79,13 +82,20 @@ async function runReminders() {
     if (!claim.affectedRows) continue;
     try {
       const task = await T.getTask(r.id);
-      const chatId = await checkins.ensureChat(task.assigneeId); // null for a boss
-      if (chatId) {
-        await bot.postBot(chatId, 'Ye task ' + task.ageDays + ' din se pending hai, complete karo: "' + task.title + '" (#' + task.id + ')',
-          { kind: 'reminder', task, days: task.ageDays }, null, [task.assigneeId]);
+      const pending = [];
+      for (const a of task.assignees.filter((x) => x.status !== 'done')) {
+        const u = await users.get(a.id);
+        if (u && u.active) pending.push(a);
+      }
+      for (const a of pending) {
+        const chatId = await checkins.ensureChat(a.id); // null for a boss
+        if (chatId) {
+          await bot.postBot(chatId, 'Ye task ' + task.ageDays + ' din se pending hai, complete karo: "' + task.title + '" (#' + task.id + ')',
+            { kind: 'reminder', task, days: task.ageDays, assigneeId: a.id }, null, [a.id]);
+        }
       }
       const ev = { type: 'task_stale', task, days: task.ageDays };
-      new Set([...bosses.map((b) => b.id), task.assigneeId]).forEach((id) => rt.sendToUser(id, ev));
+      new Set([...bosses.map((b) => b.id), ...pending.map((a) => a.id)]).forEach((id) => rt.sendToUser(id, ev));
       n++;
     } catch (e) {
       console.error('task reminder #' + r.id + ':', e.message);
@@ -98,18 +108,26 @@ async function runReminders() {
 async function runTaskCleanup() {
   const s = await settings.all();
   const days = s.taskDeleteDays;
-  const [rows] = await pool.query('SELECT * FROM tasks WHERE created_at <= NOW() - INTERVAL ? DAY', [days]);
+  // owner rule: never delete open tasks; done / closed ones go N days after they were finished / closed
+  const [rows] = await pool.query(
+    `SELECT * FROM tasks WHERE (status = 'done' AND COALESCE(completed_at, updated_at) <= NOW() - INTERVAL ? DAY)
+       OR (status = 'closed' AND COALESCE(closed_at, updated_at) <= NOW() - INTERVAL ? DAY)`, [days, days]);
   if (!rows.length) return { deleted: 0, file: null };
   const ids = rows.map((r) => r.id);
-  const events = [];
-  for (const part of chunks(ids)) events.push(...(await pool.query('SELECT * FROM task_events WHERE task_id IN (?)', [part]))[0]);
-  const file = dump('tasks', { job: 'taskcleanup', deleteDays: days, tasks: rows, task_events: events });
+  const events = []; const assignees = [];
+  for (const part of chunks(ids)) {
+    events.push(...(await pool.query('SELECT * FROM task_events WHERE task_id IN (?)', [part]))[0]);
+    assignees.push(...(await pool.query('SELECT * FROM task_assignees WHERE task_id IN (?)', [part]))[0]);
+  }
+  const file = dump('tasks', { job: 'taskcleanup', deleteDays: days, tasks: rows, task_assignees: assignees, task_events: events });
   for (const part of chunks(ids)) {
     await pool.query('DELETE FROM task_events WHERE task_id IN (?)', [part]);
+    await pool.query('DELETE FROM task_assignees WHERE task_id IN (?)', [part]);
+    await pool.query('UPDATE messages SET task_id = NULL WHERE task_id IN (?)', [part]);
     await pool.query('DELETE FROM tasks WHERE id IN (?)', [part]);
   }
   rt.sendToAll({ type: 'tasks_purged', taskIds: ids });
-  for (const id of new Set(rows.map((r) => r.assignee_id).filter(Boolean))) checkins.refreshDaySoon(id);
+  for (const id of new Set(assignees.map((r) => r.user_id).filter(Boolean))) checkins.refreshDaySoon(id);
   return { deleted: ids.length, file: path.basename(file) };
 }
 
@@ -127,6 +145,7 @@ async function resetAll(actor) {
     await q('DELETE FROM message_reactions');
     await q('DELETE FROM message_revisions');
     await q('DELETE FROM task_events');
+    await q('DELETE FROM task_assignees');
     await q('DELETE FROM tasks');
     await q('UPDATE messages SET reply_to_id = NULL');
     await q('DELETE FROM messages');

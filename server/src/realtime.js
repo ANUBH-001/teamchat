@@ -76,10 +76,10 @@ async function markDeliveredOnConnect(userId) {
   }
 }
 
-// Drop every live socket of a user (e.g. deactivated by the boss).
-function closeUser(userId) {
+// Drop every live socket of a user: 4401 deactivated / logged out by admin, 4409 SESSION_REPLACED (login on another phone).
+function closeUser(userId, code = 4401, reason = 'Not authenticated') {
   const set = clients.get(userId);
-  if (set) for (const ws of set) ws.close(4401, 'Not authenticated');
+  if (set) for (const ws of set) ws.close(code, reason);
 }
 
 function attach(server) {
@@ -91,11 +91,14 @@ function attach(server) {
       // Force update: app version below minVersionCode (query v, missing = 0) -> closed with 4426.
       const s = await require('./settings').all();
       if (s.minVersionCode > (parseInt(params.get('v'), 10) || 0)) return ws.close(4426, 'UPDATE_REQUIRED');
-      const token = params.get('token');
+      // token: Authorization header (app 0.4.0+, keeps it out of proxy logs), else ?token= (old apps; drop once min >= 4)
+      const h = String(req.headers.authorization || '');
+      const token = h.startsWith('Bearer ') ? h.slice(7) : params.get('token');
       const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
-      const [[u]] = await pool.query('SELECT id, name, active FROM users WHERE id = ?', [payload.id]);
+      const [[u]] = await pool.query('SELECT id, name, active, session_id FROM users WHERE id = ?', [payload.id]);
       if (!u || !u.active) throw new Error('bad user');
-      user = u;
+      if (!require('./middleware/auth').sessionOk(u, payload)) return ws.close(4409, 'SESSION_REPLACED');
+      user = { id: u.id, name: u.name };
     } catch (e) {
       return ws.close(4401, 'Not authenticated');
     }

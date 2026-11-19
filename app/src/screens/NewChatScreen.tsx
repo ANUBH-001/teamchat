@@ -104,7 +104,7 @@ export default function NewChatScreen({
                   onPress={() => mode === 'dm' ? startDm(item) : setPicked((c) => (on ? c.filter((i) => i !== item.id) : [...c, item.id]))}
                   style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8 }}
                 >
-                  <Avatar name={item.name} id={item.id} size={42} />
+                  <Avatar name={item.name} id={item.id} userId={item.id} emoji={item.avatarEmoji} size={42} />
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={{ color: t.text, fontSize: 16 }}>{item.name}</Text>
                     <Text style={{ color: t.subtext, fontSize: 13 }}>{item.phone}</Text>

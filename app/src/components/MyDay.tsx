@@ -4,16 +4,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../useTheme';
 import { api } from '../api';
 import { CheckinToday, DayTask } from '../chatTypes';
-import { OVERDUE_COLOR, Status, STATUS_COLOR } from '../taskTypes';
+import { OVERDUE_COLOR, StepStatus, STATUS_COLOR } from '../taskTypes';
+import StatusChips from './StatusChips';
 import { formatDue } from '../dates';
 import { loadCheckinToday, onCheckinToday, peekCheckinToday } from '../checkinStore';
 import { useLiveRefresh } from '../useLive';
 
-// 3-state toggle per task. 'review' (Testing) shows as In progress and is only changed when the member taps.
-const CHOICES: { s: Status; label: string }[] = [
-  { s: 'done', label: 'Done' }, { s: 'in_progress', label: 'In progress' }, { s: 'todo', label: 'Not started' },
-];
-const shown = (st: Status): Status => (st === 'review' ? 'in_progress' : st);
+// Old keys (old payloads) are shown as their new step.
+const norm = (st: string): StepStatus => (st === 'in_progress' ? 'coding' : st === 'review' ? 'testing' : st === 'closed' ? 'done' : (st as StepStatus));
 
 export function Flags({ task }: { task: DayTask }) {
   const t = useTheme();
@@ -53,7 +51,7 @@ export function Counts({ c }: { c: { given: number; done: number; left: number }
 export default function MyDay({ compact }: { compact?: boolean }) {
   const t = useTheme();
   const [d, setD] = useState<CheckinToday | null>(peekCheckinToday());
-  const [picks, setPicks] = useState<Record<number, Status>>({});
+  const [picks, setPicks] = useState<Record<number, StepStatus>>({});
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -65,7 +63,7 @@ export default function MyDay({ compact }: { compact?: boolean }) {
     loadCheckinToday().catch(() => setFailed(true));
     return off;
   }, []);
-  useLiveRefresh(load, ['task', 'task_deleted', 'tasks_purged', 'reset']);
+  useLiveRefresh(load, ['task', 'tasks_purged', 'reset']);
 
   if (!d) {
     return failed
@@ -74,14 +72,14 @@ export default function MyDay({ compact }: { compact?: boolean }) {
   }
   const list = [...d.tasks, ...d.doneToday];
   const so = d.signoff.signoff;
-  const cur = (x: DayTask) => picks[x.id] ?? shown(x.status);
+  const cur = (x: DayTask) => picks[x.id] ?? norm(x.status);
 
   const submit = async () => {
     if (busy) return;
     setBusy(true); setErr('');
     try {
-      const taskStatuses: Record<string, Status> = {};
-      for (const x of list) if (picks[x.id] && picks[x.id] !== shown(x.status)) taskStatuses[String(x.id)] = picks[x.id];
+      const taskStatuses: Record<string, StepStatus> = {};
+      for (const x of list) if (picks[x.id] && picks[x.id] !== norm(x.status)) taskStatuses[String(x.id)] = picks[x.id];
       await api('POST', '/checkins/signoff', { taskStatuses, note: note.trim() || undefined });
       setPicks({}); setNote('');
       await loadCheckinToday(true);
@@ -99,21 +97,8 @@ export default function MyDay({ compact }: { compact?: boolean }) {
             {x.title}
           </Text>
           <Flags task={x} />
-          <View style={{ flexDirection: 'row', marginTop: 6 }}>
-            {CHOICES.map((c) => {
-              const on = cur(x) === c.s;
-              return (
-                <Pressable
-                  key={c.s} onPress={() => setPicks((p) => ({ ...p, [x.id]: c.s }))}
-                  style={{
-                    flex: 1, minHeight: 38, borderRadius: 10, marginRight: c.s === 'todo' ? 0 : 6, alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: on ? STATUS_COLOR[c.s] : t.soft, borderWidth: 1, borderColor: on ? STATUS_COLOR[c.s] : t.border,
-                  }}
-                >
-                  <Text style={{ color: on ? '#fff' : t.text, fontSize: 12, fontWeight: on ? '700' : '500' }}>{c.label}</Text>
-                </Pressable>
-              );
-            })}
+          <View style={{ marginTop: 6 }}>
+            <StatusChips value={cur(x)} small onPick={(st) => setPicks((p) => ({ ...p, [x.id]: st }))} />
           </View>
         </View>
       ))}

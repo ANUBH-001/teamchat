@@ -15,12 +15,13 @@ async function runBackup(name) {
   const q = async (sql) => (await pool.query(sql))[0];
   const data = {
     exportedAt: new Date().toISOString(),
-    users: await q('SELECT id, phone, name, role, active, is_bot, created_at FROM users'), // no pin_hash, no invites
+    users: await q('SELECT id, phone, name, role, active, is_bot, avatar_emoji, created_at FROM users'), // no pin_hash, session_id, invites
     chats: await q('SELECT * FROM chats'),
     chat_members: await q('SELECT * FROM chat_members'),
     messages: await q('SELECT * FROM messages'), // includes soft-deleted (deleted_at)
     message_revisions: await q('SELECT * FROM message_revisions'),
     tasks: await q('SELECT * FROM tasks'),
+    task_assignees: await q('SELECT * FROM task_assignees'),
     task_events: await q('SELECT * FROM task_events'),
     // dates as plain 'YYYY-MM-DD' strings (no timezone shift)
     checkins: await q("SELECT id, user_id, DATE_FORMAT(date, '%Y-%m-%d') date, kind, text, summary, payload, message_id, created_at, updated_at FROM checkins"),

@@ -10,8 +10,10 @@ import { useLiveRefresh, usePullRefresh } from '../useLive';
 import ReportsScreen, { CheckinSettingsScreen } from './ReportsScreen';
 import SettingsScreen from './SettingsScreen';
 import BackgroundCard from '../components/BackgroundCard';
+import Avatar from '../components/Avatar';
+import ProfileSheet from '../components/ProfileSheet';
 
-type Row = { id: number; phone: string; name: string; role: string; active: boolean; activated: boolean };
+type Row = { id: number; phone: string; name: string; role: string; active: boolean; activated: boolean; avatarEmoji?: string | null };
 
 export default function AdminScreen() {
   const t = useColorScheme() === 'dark' ? dark : light;
@@ -22,6 +24,7 @@ export default function AdminScreen() {
   const [invite, setInvite] = useState<{ label: string; code: string } | null>(null);
   const [err, setErr] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [editing, setEditing] = useState<{ id: number; name: string; avatarEmoji: string | null } | null>(null);
   const [sub, setSub] = useState<'main' | 'reports' | 'settings' | 'app'>('main');
   const toMain = useCallback(() => setSub('main'), []);
   const nav = useNavigation();
@@ -61,12 +64,17 @@ export default function AdminScreen() {
     setPhone('');
   });
 
-  const reset = (u: Row) => Alert.alert('Reset PIN', 'Reset PIN for ' + u.name + '?', [
+  const reset = (u: Row) => Alert.alert('Reset PIN / new invite', 'Reset PIN for ' + u.name + '? Uska device logout ho jayega.', [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Reset', onPress: () => run(async () => {
       const r = await api<{ inviteCode: string }>('POST', '/admin/users/' + u.id + '/invite');
       setInvite({ label: u.name, code: r.inviteCode });
     }) },
+  ]);
+
+  const forceLogout = (u: Row) => Alert.alert('Logout device', u.name + ' ko uske phone se logout kar dein?', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Logout', style: 'destructive', onPress: () => run(async () => { await api('POST', '/admin/users/' + u.id + '/logout'); }) },
   ]);
 
   const toggle = (u: Row) => run(() => api('PATCH', '/admin/users/' + u.id, { active: !u.active }));
@@ -76,6 +84,21 @@ export default function AdminScreen() {
     borderRadius: 8, padding: 10, fontSize: 15, marginBottom: 8,
   } as const;
   const btn = { backgroundColor: t.accent, borderRadius: 20, paddingVertical: 10, alignItems: 'center' } as const;
+
+  const profileBtn = user ? (
+    <TouchableOpacity
+      onPress={() => setEditing({ id: user.id, name: user.name, avatarEmoji: user.avatarEmoji || null })}
+      style={{ ...btn, marginTop: 12, flexDirection: 'row', justifyContent: 'center', minHeight: 48 }}
+    >
+      <Text style={{ color: '#fff', fontWeight: '600' }}>Edit profile (naam, emoji)</Text>
+    </TouchableOpacity>
+  ) : null;
+  const sheet = editing ? (
+    <ProfileSheet
+      visible onClose={() => setEditing(null)} userId={editing.id} name={editing.name} avatarEmoji={editing.avatarEmoji}
+      onSaved={() => { if (isBoss) load(); }}
+    />
+  ) : null;
 
   const logoutBtn = (
     <TouchableOpacity onPress={logout} style={{ ...btn, backgroundColor: t.primary, marginTop: 12 }}>
@@ -87,7 +110,9 @@ export default function AdminScreen() {
     return <View style={{ flex: 1, padding: 16, backgroundColor: t.background }}>
       <Text style={{ color: t.subtext }}>Only the boss can manage members.</Text>
       <BackgroundCard />
+      {profileBtn}
       {logoutBtn}
+      {sheet}
     </View>;
   }
 
@@ -145,15 +170,30 @@ export default function AdminScreen() {
         }
         renderItem={({ item: u }) => (
           <View style={{ backgroundColor: t.card, borderRadius: 8, padding: 12, marginBottom: 8 }}>
-            <Text style={{ color: t.text, fontWeight: '600' }}>
-              {u.name}{u.role === 'boss' ? ' (boss)' : ''}
-            </Text>
-            <Text style={{ color: t.subtext }}>
-              {u.phone} - {u.activated ? 'activated' : 'not activated'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Avatar name={u.name} id={u.id} userId={u.id} emoji={u.avatarEmoji} size={40} />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={{ color: t.text, fontWeight: '600' }}>
+                  {u.name}{u.role === 'boss' ? ' (boss)' : ''}
+                </Text>
+                <Text style={{ color: t.subtext }}>
+                  {u.phone} - {u.activated ? 'activated' : 'not activated'}
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 }}>
+              <TouchableOpacity onPress={() => setEditing({ id: u.id, name: u.name, avatarEmoji: u.avatarEmoji || null })} style={{ marginRight: 16, minHeight: 32, justifyContent: 'center' }}>
+                <Text style={{ color: t.primary, fontWeight: '600' }}>Edit profile</Text>
+              </TouchableOpacity>
+              {u.id !== user?.id && (
+                <TouchableOpacity onPress={() => forceLogout(u)} style={{ minHeight: 32, justifyContent: 'center' }}>
+                  <Text style={{ color: t.danger, fontWeight: '600' }}>Logout device</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
               <TouchableOpacity onPress={() => reset(u)}>
-                <Text style={{ color: t.primary, fontWeight: '600' }}>Reset PIN</Text>
+                <Text style={{ color: t.primary, fontWeight: '600' }}>Reset PIN / new invite</Text>
               </TouchableOpacity>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Text style={{ color: t.subtext, marginRight: 6 }}>{u.active ? 'Active' : 'Deactivated'}</Text>
@@ -163,8 +203,9 @@ export default function AdminScreen() {
             </View>
           </View>
         )}
-        ListFooterComponent={<View><BackgroundCard />{logoutBtn}</View>}
+        ListFooterComponent={<View><BackgroundCard />{profileBtn}{logoutBtn}</View>}
       />
+      {sheet}
     </View>
   );
 }

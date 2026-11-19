@@ -17,9 +17,16 @@
 | 8b | Daily check-ins (private chat per member, boss Reports) | DONE (tested 2026-11-17) |
 | 9 | Background alerts: Android foreground service keeps socket alive | DONE (tested on tab 2026-11-17) |
 | 10 | Feedback round (2026-11-17): slash commands, groups, Tasks overview/board, Settings, QoL, force update | DONE: approved, pushed, deployed, APK 0.2.0 |
-| 11 | Round 2 (2026-11-18): person picker, composer / @ helpers, /ask /desc, edit/delete, retention, check-in rework, reset | BUILT + TESTED 2026-11-18 (not pushed / deployed) |
+| 11 | Round 2 (2026-11-18): person picker, composer / @ helpers, /ask /desc, edit/delete, retention, check-in rework, reset | DONE: deployed 2026-11-18, APK 0.3.0 |
+| 12 | Round 3 (2026-11-18): multi-assignee, 6 statuses + close, member visibility, message<->task links, emoji avatars, one login per user, security, perf | BUILT + TESTED locally 2026-11-18 (migrate_009 local only), awaiting owner approval / push / deploy |
 
-## Round 2 (2026-11-18) - BUILT + TESTED
+## Round 3 (2026-11-18) - BUILT + TESTED (local), awaiting owner approval
+- Plan: owner-approved round-3 plan (15 items + bug 1). Backend: status.js, users.js (cache + name/emoji rules), tasks.js rewrite (task_assignees, aggregate, close/reopen, visibility, brief shape, scope/with lists, timeline sources), commands (multi @, self words, /assign /unassign /planning /coding /merged /status /close /reopen, multi /ask), handleLinked (reply chains + #N notes, ask answers), edit/delete propagation, card <-> source links, kind filter, chat info tasks, single session + rate limits + headers, jobs (cleanup only done/closed, per-assignee reminders).
+- App 0.4.0: Mine/Everyone + Closed filters, 6-column board, people section + per-person status, close/reopen, expandable timeline sources, check-in card actions, AI|All|Chat filter with cards attached under the source, #N chip, ask card chips + in-app banner + notification Reply, DM task sheet, chat info for all chats, profile (name + emoji) and admin logout/reset, "Me (khud)" in pickers (bug 1).
+- Test pass (owner allowed, 2026-11-18): new backend E2E 237/237 (15 areas, iter 1 232/235), corpus 209/209, e2e 59/59, bc 84/84, reset 19/19 (expectations updated only for intended round-3 changes), emulator UI boss + member (light, dark spot checks). 9 bugs fixed: one-emoji rule + flags (users.js), AI placeholder title "<UNKNOWN>" (provider.js), AI-filter own message vanishing, ask card Description opens the editor, ask banner / notification / "Chat mein dekho" scroll to the message, chained sheets dropped (350 ms gap), squashed Tasks filter chips, Undo alert shows my step, "now ago". Not tested: notification Reply action, 300-msg scroll, voice. Details: build-session scratchpad round3-results.md.
+- Owner decisions: never delete open tasks; min version 4 at deploy; unique names in code only (409); Everyone shows names; "#N" message = note for admin/creator/assignee; deleting a /task message keeps the task; Mine = assigned + created.
+
+## Round 2 (2026-11-18) - DEPLOYED
 - Prod bug fixed: two users named "Rishit" made every `/task rishit ...` unresolvable. New shared person resolution (names.js: exact > prefix > fuzzy incl. "anubav"/"rishith"; fillers; chat members first), structured `mentionIds` from the app, AI pick from context, and a tappable **userpicker** card (never "Poora naam likhiye" without choices).
 - Composer: `/` and `@` buttons, quick chips on focus, command sheet, people sheet (phone tail for same names), person sheet (open tasks + Status poochho / Update / Done / Reassign / Due / Description / Naya task / Mention).
 - New commands `/ask #id` (status question card + notification) and `/desc #id`; swipe-reply to a task card adds a note (`desc:` replaces the description).
@@ -44,7 +51,7 @@
 - Tests (owner allowed for this round only): multi-user API + WebSocket E2E 59/59 pass; emulator UI as boss and member, light + dark. Screenshots sent to owner.
 
 ## Remaining (in this order)
-0. Round 2: tested; owner approval, then push + APK 0.3.0 + deploy (DEPLOY.md "Round 2"; migrate_008 first; retention is ON by default).
+0. Round 3: owner approval (test pass done), push, release APK 0.4.0, deploy per DEPLOY.md "Round 3" (APK upload, DB backup, migrate_009, restart, latest = min = 4).
 1. Owner approves the UI (screenshots).
 2. Git push to `ANUBH-001/teamchat` main (only after approval).
 3. Rebuild release APK: versionCode 2, new native dep `expo-clipboard` (dev build needs it too).

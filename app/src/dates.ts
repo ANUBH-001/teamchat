@@ -26,3 +26,11 @@ export function copyText(text: string) {
     Share.share({ message: text }).catch(() => {});
   }
 }
+
+// Local 'YYYY-MM-DD' for today + offset days.
+export const isoDay = (offset: number) => {
+  const d = new Date(Date.now() + offset * 86400000);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
+// Next given weekday (0 = Sun .. 6 = Sat), never today.
+export const nextDow = (dow: number) => isoDay(((dow - new Date().getDay() + 7) % 7) || 7);

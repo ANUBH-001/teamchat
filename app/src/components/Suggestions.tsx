@@ -2,9 +2,9 @@ import React from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Theme } from '../theme';
 
-export type Suggestion = { key: string; title: string; sub?: string; left?: React.ReactNode; onPress: () => void };
+export type Suggestion = { key: string; title: string; sub?: string; left?: React.ReactNode; right?: React.ReactNode; onPress: () => void };
 
-// Small card above the composer: slash commands, my open tasks, @mention members.
+// Small card above the composer: slash commands, my open tasks (status on the right), @mention members.
 export default function Suggestions({ items, t }: { items: Suggestion[]; t: Theme }) {
   if (!items.length) return null;
   return (
@@ -22,6 +22,7 @@ export default function Suggestions({ items, t }: { items: Suggestion[]; t: Them
               <Text numberOfLines={1} style={{ color: t.text, fontSize: 15, fontWeight: '600' }}>{s.title}</Text>
               {!!s.sub && <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 12 }}>{s.sub}</Text>}
             </View>
+            {s.right}
           </Pressable>
         ))}
       </ScrollView>

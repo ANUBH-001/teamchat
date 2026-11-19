@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-nativ
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../useTheme';
 import { COMMANDS, Command } from '../commands';
-import { STATUS_COLOR, Task } from '../taskTypes';
+import { colorOf, Task } from '../taskTypes';
 import Sheet from './Sheet';
 import Avatar from './Avatar';
 
@@ -37,29 +37,41 @@ export function CommandSheet({ visible, onClose, onPick }: { visible: boolean; o
 }
 
 // People list: avatar, name, phone tail (tells same-name people apart). Chat members first.
-export function PeopleSheet({ visible, onClose, title, people, loading, onPick }: {
+// me: pinned first row "Me (khud)" (task / assign / reassign / tasks pickers). multi: checkboxes + "Done" button.
+export function PeopleSheet({ visible, onClose, title, people, loading, onPick, me, multi, onPickMany }: {
   visible: boolean; onClose: () => void; title: string; people: PickPerson[]; loading?: boolean; onPick: (p: PickPerson) => void;
+  me?: PickPerson | null; multi?: boolean; onPickMany?: (ps: PickPerson[]) => void;
 }) {
   const t = useTheme();
   const [q, setQ] = useState('');
-  useEffect(() => { if (visible) setQ(''); }, [visible]);
+  const [sel, setSel] = useState<PickPerson[]>([]);
+  useEffect(() => { if (visible) { setQ(''); setSel([]); } }, [visible]);
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return people.filter((p) => !s || p.name.toLowerCase().includes(s) || String(p.phone || '').includes(s));
-  }, [people, q]);
+    return people.filter((p) => (!me || p.id !== me.id) && (!s || p.name.toLowerCase().includes(s) || String(p.phone || '').includes(s)));
+  }, [people, q, me]);
+  const showMe = !!me && (!q.trim() || 'me khud'.includes(q.trim().toLowerCase()) || me.name.toLowerCase().includes(q.trim().toLowerCase()));
   const inChat = list.filter((p) => p.inChat);
   const rest = list.filter((p) => !p.inChat);
-  const row = (p: PickPerson) => (
-    <Pressable
-      key={p.id} onPress={() => onPick(p)} android_ripple={{ color: t.border }}
-      style={{ flexDirection: 'row', alignItems: 'center', minHeight: 56, paddingHorizontal: 20 }}
-    >
-      <Avatar name={p.name} id={p.id} size={38} />
-      <Text numberOfLines={1} style={{ flex: 1, color: t.text, fontSize: 16, marginLeft: 14 }}>{p.name}</Text>
-      {p.role === 'boss' && <Text style={{ color: t.accent, fontSize: 11, fontWeight: '700', marginRight: 10 }}>ADMIN</Text>}
-      <Text style={{ color: t.subtext, fontSize: 12 }}>{phoneTail(p.phone)}</Text>
-    </Pressable>
-  );
+  const tap = (p: PickPerson) => {
+    if (!multi) { onPick(p); return; }
+    setSel((cur) => (cur.some((x) => x.id === p.id) ? cur.filter((x) => x.id !== p.id) : cur.length >= 10 ? cur : [...cur, p]));
+  };
+  const row = (p: PickPerson, label?: string) => {
+    const on = multi && sel.some((x) => x.id === p.id);
+    return (
+      <Pressable
+        key={p.id} onPress={() => tap(p)} android_ripple={{ color: t.border }}
+        style={{ flexDirection: 'row', alignItems: 'center', minHeight: 56, paddingHorizontal: 20 }}
+      >
+        <Avatar name={p.name} id={p.id} userId={p.id} size={38} />
+        <Text numberOfLines={1} style={{ flex: 1, color: t.text, fontSize: 16, marginLeft: 14, fontWeight: label ? '600' : '400' }}>{label || p.name}</Text>
+        {p.role === 'boss' && !label && <Text style={{ color: t.accent, fontSize: 11, fontWeight: '700', marginRight: 10 }}>ADMIN</Text>}
+        {!label && <Text style={{ color: t.subtext, fontSize: 12 }}>{phoneTail(p.phone)}</Text>}
+        {multi && <Ionicons name={on ? 'checkbox' : 'square-outline'} size={22} color={on ? t.accent : t.subtext} style={{ marginLeft: 10 }} />}
+      </Pressable>
+    );
+  };
   const head = (label: string) => (
     <Text style={{ color: t.subtext, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4 }}>{label}</Text>
   );
@@ -72,12 +84,23 @@ export function PeopleSheet({ visible, onClose, title, people, loading, onPick }
           style={{ flex: 1, color: t.text, fontSize: 15, marginLeft: 8, paddingVertical: 8 }}
         />
       </View>
+      {multi && (
+        <Pressable
+          disabled={!sel.length} onPress={() => onPickMany && onPickMany(sel)}
+          style={{ marginHorizontal: 16, marginBottom: 6, minHeight: 44, borderRadius: 22, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', opacity: sel.length ? 1 : 0.5 }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700' }}>
+            {sel.length ? 'Done (' + sel.map((x) => (me && x.id === me.id ? 'Me' : firstName(x.name))).join(', ') + ')' : 'Log chuno'}
+          </Text>
+        </Pressable>
+      )}
       {loading && !people.length && <ActivityIndicator color={t.accent} style={{ margin: 20 }} />}
+      {showMe && me && row(me, 'Me (khud)')}
       {inChat.length > 0 && rest.length > 0 && head('IS CHAT MEIN')}
-      {inChat.map(row)}
+      {inChat.map((p) => row(p))}
       {inChat.length > 0 && rest.length > 0 && head('BAAKI TEAM')}
-      {rest.map(row)}
-      {!loading && !list.length && <Text style={{ color: t.subtext, padding: 20, textAlign: 'center' }}>Koi nahi mila</Text>}
+      {rest.map((p) => row(p))}
+      {!loading && !list.length && !showMe && <Text style={{ color: t.subtext, padding: 20, textAlign: 'center' }}>Koi nahi mila</Text>}
     </Sheet>
   );
 }
@@ -119,7 +142,7 @@ export function PersonSheet({ visible, onClose, person, tasks, onAction }: {
   return (
     <Sheet visible={visible} onClose={onClose}>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 10 }}>
-        <Avatar name={person.name} id={person.id} size={44} />
+        <Avatar name={person.name} id={person.id} userId={person.id} size={44} />
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text numberOfLines={1} style={{ color: t.text, fontSize: 17, fontWeight: '700' }}>{person.name}</Text>
           <Text style={{ color: t.subtext, fontSize: 12 }}>{phoneTail(person.phone)}</Text>
@@ -141,7 +164,7 @@ export function PersonSheet({ visible, onClose, person, tasks, onAction }: {
                 backgroundColor: on ? t.accent : t.card, borderWidth: 1, borderColor: on ? t.accent : t.border,
               }}
             >
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: on ? '#fff' : STATUS_COLOR[x.status], marginRight: 8 }} />
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: on ? '#fff' : colorOf(x.status), marginRight: 8 }} />
               <Text numberOfLines={1} style={{ color: on ? '#fff' : t.text, fontSize: 13, flexShrink: 1 }}>{x.title}</Text>
               <Text style={{ color: on ? '#fff' : t.subtext, fontSize: 11, marginLeft: 6 }}>#{x.id}</Text>
             </Pressable>

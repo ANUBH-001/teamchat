@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
   failed_attempts INT NOT NULL DEFAULT 0,
   locked_until TIMESTAMP NULL,
   is_bot TINYINT(1) NOT NULL DEFAULT 0, -- 'Team Assistant' system user (inactive, cannot log in)
+  avatar_emoji VARCHAR(16) NULL,
+  session_id CHAR(32) NULL, -- current login (JWT sv); a new login rotates it and logs the old device out
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -65,7 +67,13 @@ CREATE TABLE IF NOT EXISTS messages (
   reply_to_id BIGINT NULL, -- swipe-to-reply: quoted message in the same chat
   visible_to INT NULL, -- ephemeral bot reply: only this user ever receives it
   mentions TEXT NULL, -- JSON array of mentioned user ids
+  source_message_id BIGINT NULL, -- bot card: the human message that caused it (no FK: purge hard-deletes)
+  task_id INT NULL, -- card / command / #N message / reply in a task reply chain
   INDEX idx_chat_created (chat_id, created_at),
+  INDEX idx_msg_source (source_message_id),
+  INDEX idx_msg_task (task_id),
+  INDEX idx_msg_chat_id (chat_id, id),
+  INDEX idx_msg_reply (reply_to_id),
   INDEX idx_visible_to (visible_to),
   INDEX idx_messages_created (created_at),
   FOREIGN KEY (visible_to) REFERENCES users(id),
@@ -89,7 +97,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   assignee_id INT NULL,
   created_by INT NULL,
   source_message_id BIGINT NULL,
-  status ENUM('todo','in_progress','review','done') NOT NULL DEFAULT 'todo', -- review = 'Testing' in the app
+  status VARCHAR(20) NOT NULL DEFAULT 'todo', -- aggregate: todo|planning|coding|testing|change_merged|done, or closed
   due_at TIMESTAMP NULL,
   completed_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -98,7 +106,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   project VARCHAR(60) NULL,
   chat_id INT NULL, -- chat where the task was made (/task); bot cards go there
   reminded_at TIMESTAMP NULL, -- 6-day pending reminder sent (once)
+  closed_at TIMESTAMP NULL,
+  closed_by INT NULL,
   INDEX idx_tasks_created (created_at),
+  INDEX idx_tasks_assignee_status (assignee_id, status),
+  CONSTRAINT fk_tasks_closed_by FOREIGN KEY (closed_by) REFERENCES users(id),
   FOREIGN KEY (assignee_id) REFERENCES users(id),
   FOREIGN KEY (chat_id) REFERENCES chats(id),
   FOREIGN KEY (created_by) REFERENCES users(id),
@@ -113,9 +125,30 @@ CREATE TABLE IF NOT EXISTS task_events (
   old_value TEXT NULL,
   new_value TEXT NULL,
   source VARCHAR(10) NOT NULL DEFAULT 'manual',
-  message_id BIGINT NULL, -- chat message that triggered an 'ai' change
+  message_id BIGINT NULL, -- chat message that triggered the change
+  subject_id INT NULL, -- 'status': whose per-person status changed
+  chat_id INT NULL, -- chat of message_id (kept after the purge)
+  source_text VARCHAR(1000) NULL, -- snapshot of the message text
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_te_message (message_id),
+  INDEX idx_te_task (task_id, id),
   FOREIGN KEY (task_id) REFERENCES tasks(id)
+);
+
+-- Multi-assignee: one row per person, own status; tasks.status = aggregate (lowest step; done when all done)
+CREATE TABLE IF NOT EXISTS task_assignees (
+  task_id INT NOT NULL,
+  user_id INT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'todo',
+  completed_at TIMESTAMP NULL,
+  added_by INT NULL,
+  added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  removed_at TIMESTAMP NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (task_id, user_id),
+  INDEX idx_ta_user (user_id, removed_at, status),
+  FOREIGN KEY (task_id) REFERENCES tasks(id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 -- One reaction per user per message; removing sets deleted_at, reacting again revives the row.

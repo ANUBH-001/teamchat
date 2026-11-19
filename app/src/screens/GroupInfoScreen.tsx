@@ -9,9 +9,12 @@ import { Chat } from '../chatTypes';
 import { Theme } from '../theme';
 import { useLiveRefresh } from '../useLive';
 import Avatar from '../components/Avatar';
+import TaskActionSheet from '../components/TaskActionSheet';
+import { AnyTask, isBrief, labelOf, colorOf, assigneeNamesOf } from '../taskTypes';
+import { useUser } from '../userStore';
 import NewChatScreen from './NewChatScreen';
 
-type Member = { id: number; name: string; role: 'boss' | 'member'; isCreator: boolean };
+type Member = { id: number; name: string; role: 'boss' | 'member'; isCreator: boolean; phone?: string; avatarEmoji?: string | null };
 type ChatSettings = { botEnabled: boolean; aiDetect: boolean; notifyAdmin: boolean };
 
 const Badge = ({ label, t }: { label: string; t: Theme }) => (
@@ -30,9 +33,9 @@ function SwitchRow({ label, sub, value, onChange, t }: { label: string; sub?: st
   );
 }
 
-// Tap the chat header -> members, add / remove, rename, mute, leave; admin also sees per-group bot settings.
-export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpenChat }: {
-  chat: Chat; onBack: () => void; onChanged: () => void; onLeft: () => void; onOpenChat: (c: Chat) => void;
+// Chat info for every chat type (group, all, dm): members, tasks of this chat, mute / pin, add / remove, leave; admin also sees per-group bot settings.
+export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpenChat, onOpenTask }: {
+  chat: Chat; onBack: () => void; onChanged: () => void; onLeft: () => void; onOpenChat: (c: Chat) => void; onOpenTask?: (id: number) => void;
 }) {
   const t = useTheme();
   const { user } = useAuth();
@@ -40,6 +43,7 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
   const me = user!;
   const isBoss = me.role === 'boss';
   const isGroup = chat.type === 'group';
+  const isDm = chat.type === 'dm';
   const [members, setMembers] = useState<Member[]>([]);
   const [name, setName] = useState(chat.name);
   const [editing, setEditing] = useState(false);
@@ -47,12 +51,16 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
   const [cs, setCs] = useState<ChatSettings | null>(null);
   const [adding, setAdding] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [tasks, setTasks] = useState<AnyTask[]>([]);
+  const [pinned, setPinned] = useState(!!chat.pinned);
+  const [sel, setSel] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await api<{ chat: Chat; members: Member[] }>('GET', '/chats/' + chat.id);
+      const r = await api<{ chat: Chat; members: Member[]; tasks?: AnyTask[] }>('GET', '/chats/' + chat.id);
       setMembers(r.members);
-      if (r.chat) { setName((n) => (editing ? n : r.chat.name)); if (r.chat.muted !== undefined) setMuted(!!r.chat.muted); }
+      setTasks(r.tasks || []);
+      if (r.chat) { setName((n) => (editing ? n : r.chat.name)); if (r.chat.muted !== undefined) setMuted(!!r.chat.muted); if (r.chat.pinned !== undefined) setPinned(!!r.chat.pinned); }
     } catch (e) {}
     setLoaded(true);
   }, [chat.id, editing]);
@@ -78,6 +86,10 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
     setMuted(v);
     try { await api('PATCH', '/chats/' + chat.id + '/me', { muted: v }); onChanged(); } catch (e) { setMuted(!v); fail(e); }
   };
+  const togglePin = async (v: boolean) => {
+    setPinned(v);
+    try { await api('PATCH', '/chats/' + chat.id + '/me', { pinned: v }); onChanged(); } catch (e) { setPinned(!v); fail(e); }
+  };
   const setSetting = async (k: keyof ChatSettings, v: boolean) => {
     if (!cs) return;
     const old = cs;
@@ -102,6 +114,12 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
     try { onOpenChat((await api<{ chat: Chat }>('POST', '/chats/dm', { userId: m.id })).chat); } catch (e) { fail(e); }
   };
 
+  const creator = members.find((m) => m.isCreator);
+  const otherId = isDm ? (members.find((m) => m.id !== me.id)?.id ?? chat.otherUserId) : null;
+  const other = isDm ? members.find((m) => m.id === otherId) : undefined;
+  const otherLive = useUser(otherId);
+  const title = isDm ? (otherLive?.name || other?.name || chat.name) : name;
+
   if (adding) {
     return (
       <NewChatScreen
@@ -121,11 +139,13 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
         <Pressable onPress={onBack} hitSlop={10} style={{ paddingRight: 12 }}>
           <Text style={{ color: '#fff', fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
         </Pressable>
-        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', flex: 1 }}>{isGroup ? 'Group info' : 'Chat info'}</Text>
+        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', flex: 1 }}>{isGroup ? 'Group info' : isDm ? 'Contact info' : 'Chat info'}</Text>
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 32 }} keyboardShouldPersistTaps="handled">
         <View style={{ alignItems: 'center', paddingTop: 24 }}>
-          <Avatar name={chat.name} id={chat.id} size={88} />
+          {isDm && otherId
+            ? <Avatar name={title} id={otherId} userId={otherId} emoji={other?.avatarEmoji || chat.otherUserEmoji} size={88} />
+            : <Avatar name={chat.name} id={chat.id} size={88} />}
           {editing ? (
             <TextInput
               value={name} onChangeText={setName} autoFocus maxLength={100} onSubmitEditing={saveName} onBlur={saveName} returnKeyType="done"
@@ -133,15 +153,27 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
             />
           ) : (
             <Pressable disabled={!canManage} onPress={() => setEditing(true)} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, minHeight: 44 }}>
-              <Text style={{ color: t.text, fontSize: 20, fontWeight: '700' }}>{chat.name}</Text>
+              <Text style={{ color: t.text, fontSize: 20, fontWeight: '700' }}>{title}</Text>
               {canManage && <Ionicons name="pencil" size={16} color={t.subtext} style={{ marginLeft: 8 }} />}
             </Pressable>
           )}
-          <Text style={{ color: t.subtext, fontSize: 13 }}>{isGroup ? 'Group' : 'Everyone'} · {members.length || chat.membersCount} members</Text>
+          {isDm ? (
+            <>
+              {!!other?.phone && <Text style={{ color: t.subtext, fontSize: 14 }}>{other.phone}</Text>}
+              {!!other && <Text style={{ color: t.subtext, fontSize: 13 }}>{other.role === 'boss' ? 'Admin' : 'Member'}</Text>}
+            </>
+          ) : (
+            <>
+              <Text style={{ color: t.subtext, fontSize: 13 }}>{isGroup ? 'Group' : 'Everyone'} · {members.length || chat.membersCount} members</Text>
+              {!!creator && <Text style={{ color: t.subtext, fontSize: 12, marginTop: 2 }}>Created by {creator.name}</Text>}
+            </>
+          )}
         </View>
 
         <View style={card}>
           <SwitchRow label="Mute notifications" sub="@mentions still notify you" value={muted} onChange={toggleMute} t={t} />
+          {line}
+          <SwitchRow label="Pin chat" sub="Chat list mein sabse upar" value={pinned} onChange={togglePin} t={t} />
         </View>
 
         {isBoss && (
@@ -161,8 +193,29 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
           </>
         )}
 
-        <Text style={label}>Members</Text>
+        <Text style={label}>{isDm ? 'Shared tasks' : 'Is chat ke tasks'}</Text>
         <View style={card}>
+          {!loaded && <ActivityIndicator color={t.accent} style={{ margin: 16 }} />}
+          {loaded && tasks.length === 0 && <Text style={{ color: t.subtext, padding: 16 }}>Koi open task nahi</Text>}
+          {tasks.map((k, i) => {
+            const names = assigneeNamesOf(k).join(', ');
+            return (
+              <View key={k.id}>
+                {i > 0 && line}
+                <Pressable disabled={isBrief(k)} onPress={() => setSel(k.id)} style={{ paddingHorizontal: 16, paddingVertical: 10, minHeight: 56, justifyContent: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text numberOfLines={2} style={{ color: t.text, fontSize: 15, flex: 1 }}>#{k.id} {k.title}</Text>
+                    <Text style={{ color: '#fff', backgroundColor: colorOf(k.status), fontSize: 11, fontWeight: '700', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8, overflow: 'hidden' }}>{labelOf(k.status)}</Text>
+                  </View>
+                  {!!names && <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 12, marginTop: 2 }}>{names}</Text>}
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+
+        {!isDm && <Text style={label}>Members</Text>}
+        {!isDm && <View style={card}>
           {canManage && (
             <>
               <Pressable onPress={() => setAdding(true)} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 56, paddingHorizontal: 16 }}>
@@ -179,7 +232,7 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
             <View key={m.id}>
               {i > 0 && line}
               <Pressable onPress={() => dm(m)} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 60, paddingHorizontal: 16 }}>
-                <Avatar name={m.name} id={m.id} size={42} />
+                <Avatar name={m.name} id={m.id} userId={m.id} emoji={m.avatarEmoji} size={42} />
                 <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 12 }}>
                   <Text numberOfLines={1} style={{ color: t.text, fontSize: 16, flexShrink: 1 }}>{m.name}{m.id === me.id ? ' (You)' : ''}</Text>
                   {m.role === 'boss' && <Badge label="Admin" t={t} />}
@@ -193,7 +246,7 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
               </Pressable>
             </View>
           ))}
-        </View>
+        </View>}
 
         {isGroup && (
           <Pressable onPress={leave} style={{ ...card, flexDirection: 'row', alignItems: 'center', minHeight: 56, paddingHorizontal: 16 }}>
@@ -202,6 +255,10 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
           </Pressable>
         )}
       </ScrollView>
+      <TaskActionSheet
+        visible={sel != null} onClose={() => setSel(null)} taskId={sel}
+        onOpen={onOpenTask ? (id) => { setSel(null); onOpenTask(id); } : undefined} onChanged={() => load()}
+      />
     </View>
   );
 }

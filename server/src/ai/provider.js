@@ -8,7 +8,8 @@
 const settings = require('../settings');
 
 const ACTIONS = ['create_task', 'complete_task', 'update_task', 'list_tasks', 'none', 'clarify'];
-const STATUSES = ['todo', 'in_progress', 'review', 'done'];
+const S = require('../status');
+const STATUSES = S.STATUSES;
 const TIMEOUT_MS = 15000;
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -37,7 +38,7 @@ function parseDecision(raw) {
   return {
     action: o.action,
     task_id: posInt(o.task_id),
-    status: STATUSES.includes(o.status) ? o.status : null,
+    status: S.norm(o.status),
     ...top,
     tasks,
     confidence: typeof o.confidence === 'number' && isFinite(o.confidence) ? Math.min(Math.max(o.confidence, 0), 1) : 0,
@@ -50,7 +51,7 @@ function systemPrompt() {
 Reply ONLY with the JSON object of the schema. Actions:
 - create_task: the boss gives work to people ("Anubhav ko report bhejni hai kal tak", "Tushar fix login by Friday"). Put each task in "tasks": title (short work phrase in the sender's words and word order, without "hai"/"karna hai" filler, e.g. "Report bhejni", "Landing page banana", "Fix login"), assignee_name (as written), assignee_id (from members, if sure), due_date YYYY-MM-DD if a day/date is given.
 - complete_task: the sender says a task is finished ("ho gaya", "ho gayi", "done", "complete", "kar diya"). Set task_id.
-- update_task: the sender started a task (status "in_progress"), sent it for testing (status "review": "testing baaki", "test kar lo") or moved it back ("todo"); the boss may also change due_date, title or assignee_name. Set task_id.
+- update_task: the sender moved a task to a step: "planning" (plan / design / soch raha), "coding" (started, code kar raha), "testing" ("testing baaki", "test kar lo"), "change_merged" ("merge ho gaya", PR merged) or back to "todo"; the boss may also change due_date, title or assignee_name. Set task_id.
 - list_tasks: the sender asks for their tasks or what is pending ("mere task", "my tasks"). If the boss asks about one person, set assignee_name.
 - clarify: it is clearly about a task but you cannot tell which task or which person.
 - none: normal chat, or anything else.
@@ -260,7 +261,7 @@ function mock({ message, sender, members, openTasks }) {
   }
   // "shuru kar diya" = started, not done
   if (DONE_RE.test(message) && !/(shuru|start|शुरू)/i.test(message)) return pickTask('complete_task', message, openTasks);
-  if (START_RE.test(message)) return pickTask('update_task', message, openTasks, { status: 'in_progress' });
+  if (START_RE.test(message)) return pickTask('update_task', message, openTasks, { status: S.fromNote(message) || 'coding' });
   if (LIST_RE.test(message)) {
     const lower = message.toLowerCase();
     const who = sender.role === 'boss' && members.find((m) => m.id !== sender.id && lower.includes(m.name.toLowerCase()));
@@ -315,20 +316,14 @@ async function taskTitle(text) {
   const r = await call(TITLE_PROMPT, JSON.stringify({ text: String(text || '').slice(0, 1000) }), TITLE_SCHEMA, 'task_title', 256);
   let o = r.raw;
   if (typeof o === 'string') { try { o = JSON.parse(o); } catch (e) { o = null; } }
-  const title = o && typeof o === 'object' ? str(o.title, 120) : null;
+  let title = o && typeof o === 'object' ? str(o.title, 120) : null;
+  if (title && /^(<[^>]*>|\[[^\]]*\]|unknown|n\/?a|none|null|untitled|task)$/i.test(title)) title = null; // placeholder answers ("<UNKNOWN>") -> simple rules
   if (title) return { title, project: str(o.project, 60), description: str(o.description, 2000), byAi: true, error: null };
   return { ...mockTitle(text), description: null, byAi: false, error: r.error };
 }
 
-// /update note -> status (keywords only, deterministic): testing/review -> review; done words -> done; start words -> in_progress.
-const REVIEW_RE = /(testing|test\s*(baaki|baki|pending|karna|krna|kar\s*lo|kr\s*lo|kijiye)|\breview\b|\bqa\b|check\s*(kar|kr)\s*(lo|lijiye|lena|do)|टेस्टिंग|टेस्ट)/i;
-function statusFromNote(note) {
-  const s = String(note || '');
-  if (REVIEW_RE.test(s)) return 'review';
-  if (DONE_RE.test(s) && !/(shuru|start|शुरू)/i.test(s)) return 'done';
-  if (START_RE.test(s)) return 'in_progress';
-  return null;
-}
+// /update note -> status: status.js fromNote (merged -> testing -> done -> planning -> coding).
+const statusFromNote = S.fromNote;
 
 // Admin "Test key": one tiny real call, even when aiEnabled is off.
 async function testAi() {

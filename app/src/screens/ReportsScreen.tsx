@@ -9,6 +9,7 @@ import { useTheme } from '../useTheme';
 import { usePullRefresh } from '../useLive';
 import { Theme } from '../theme';
 import { AdminDay, AdminUserHistory, Checkin, CheckinSettings, Signoff } from '../chatTypes';
+import { labelOf } from '../taskTypes';
 
 // Boss-only, pull-only: no websocket, no notifications. Refetches on pull, on focus and on foreground.
 const GREEN = '#25A244';
@@ -156,7 +157,7 @@ const Bullets = ({ title, items, t }: { title: string; items: string[]; t: Theme
 const Entry = React.memo(function Entry({ c, label, t }: { c: Checkin | undefined; label: string; t: Theme }) {
   if (!c) return <Text style={{ color: RED, fontSize: 13, marginTop: 6 }}>{label}: missing</Text>;
   const picked = c.tasks.filter((x) => c.selectedTaskIds.includes(x.id)).map((x) => x.title);
-  const changed = c.tasks.filter((x) => c.taskStatuses[String(x.id)]).map((x) => x.title + ' → ' + c.taskStatuses[String(x.id)]);
+  const changed = c.tasks.filter((x) => c.taskStatuses[String(x.id)]).map((x) => x.title + ' → ' + labelOf(c.taskStatuses[String(x.id)]));
   return (
     <View style={{ marginTop: 8 }}>
       <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>{label}{c.edited ? ' (edited)' : ''}</Text>
@@ -173,7 +174,6 @@ const Entry = React.memo(function Entry({ c, label, t }: { c: Checkin | undefine
 
 type DayGroup = { date: string; morning?: Checkin; evening?: Checkin; signoff?: Signoff };
 
-const LABEL: Record<string, string> = { done: 'Done', in_progress: 'In progress', review: 'Testing', todo: 'Not started' };
 const SignoffEntry = ({ so, t }: { so: Signoff | undefined; t: Theme }) => {
   if (!so) return <Text style={{ color: RED, fontSize: 13, marginTop: 6 }}>Sign-off: missing</Text>;
   return (
@@ -181,7 +181,7 @@ const SignoffEntry = ({ so, t }: { so: Signoff | undefined; t: Theme }) => {
       <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>
         Sign-off · Done {so.counts.done} · Baaki {so.counts.left} · Aaj diye {so.counts.given}
       </Text>
-      {so.tasks.map((x) => <Text key={x.id} style={{ color: t.text, fontSize: 14 }}>{'• ' + x.title + ' (' + (LABEL[x.status] || x.status) + ')'}</Text>)}
+      {so.tasks.map((x) => <Text key={x.id} style={{ color: t.text, fontSize: 14 }}>{'• ' + x.title + ' (' + labelOf(x.status) + ')'}</Text>)}
       {!!so.note && <Text style={{ color: t.text, fontSize: 14, fontStyle: 'italic', marginTop: 4 }}>{so.note}</Text>}
     </View>
   );

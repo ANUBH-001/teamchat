@@ -17,6 +17,7 @@ function formatMessage(r, viewer) {
     chatId: r.chat_id,
     senderId: r.sender_id,
     senderName: r.sender_name,
+    senderEmoji: r.sender_emoji || null,
     text: deleted && viewer.role !== 'boss' ? null : r.body,
     deleted,
     clientId: r.client_id,
@@ -33,6 +34,8 @@ function formatMessage(r, viewer) {
     visibleTo: r.visible_to || null,
     mentions: (parsePayload(r.mentions) || []).filter((n) => Number.isInteger(n)),
     reactions: [],
+    sourceMessageId: r.source_message_id ? Number(r.source_message_id) : null,
+    taskId: r.task_id || null,
   };
 }
 
@@ -43,7 +46,7 @@ function parsePayload(s) {
 
 const MSG_SELECT =
   'SELECT m.id, m.chat_id, m.sender_id, m.body, m.created_at, m.edited_at, m.deleted_at, m.client_id, m.type, m.payload, m.reply_to_id, ' +
-  'm.visible_to, m.mentions, u.name sender_name, rm.body reply_body, rm.deleted_at reply_deleted_at, ru.name reply_sender_name ' +
+  'm.visible_to, m.mentions, m.source_message_id, m.task_id, u.name sender_name, u.avatar_emoji sender_emoji, rm.body reply_body, rm.deleted_at reply_deleted_at, ru.name reply_sender_name ' +
   'FROM messages m JOIN users u ON u.id = m.sender_id ' +
   'LEFT JOIN messages rm ON rm.id = m.reply_to_id LEFT JOIN users ru ON ru.id = rm.sender_id ';
 // Ephemeral filter for every message read (one placeholder: the viewer id).
@@ -107,7 +110,7 @@ async function chatSummaries(user, onlyChatId) {
   const others = {};
   if (dmIds.length) {
     const [o] = await pool.query(
-      'SELECT cm.chat_id, u.id, u.name FROM chat_members cm JOIN users u ON u.id = cm.user_id ' +
+      'SELECT cm.chat_id, u.id, u.name, u.avatar_emoji FROM chat_members cm JOIN users u ON u.id = cm.user_id ' +
       'WHERE cm.chat_id IN (?) AND cm.user_id <> ?', [dmIds, user.id]);
     for (const r of o) others[r.chat_id] = r;
   }
@@ -116,6 +119,7 @@ async function chatSummaries(user, onlyChatId) {
     type: r.type,
     name: r.type === 'dm' ? (others[r.id] ? others[r.id].name : 'Chat') : r.name,
     otherUserId: r.type === 'dm' && others[r.id] ? others[r.id].id : null,
+    otherUserEmoji: r.type === 'dm' && others[r.id] ? others[r.id].avatar_emoji || null : null,
     createdBy: r.created_by,
     membersCount: Number(r.members),
     unread: Number(r.unread),
@@ -148,9 +152,9 @@ async function chatSummaries(user, onlyChatId) {
 // Current members (no bot), check-in guard applied.
 async function memberList(chatId, createdBy) {
   const [rows] = await pool.query(
-    'SELECT u.id, u.name, u.role, u.phone ' + rt.MEMBER_FROM + 'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND u.is_bot = 0 AND ' +
+    'SELECT u.id, u.name, u.role, u.phone, u.avatar_emoji ' + rt.MEMBER_FROM + 'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND u.is_bot = 0 AND ' +
     rt.MEMBER_OK + ' ORDER BY u.name', [chatId]);
-  return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, phone: u.phone, isCreator: u.id === createdBy }));
+  return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, phone: u.phone, avatarEmoji: u.avatar_emoji || null, isCreator: u.id === createdBy }));
 }
 
 // Group management guard: member + group chat (+ creator or boss when manage). -> chat row, or sends the error.
@@ -218,7 +222,15 @@ router.get('/:id', async (req, res) => {
     if (!(await isMember(chatId, req.user.id))) return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
     const [chat] = await chatSummaries(req.user, chatId);
     if (!chat) return res.status(404).json({ error: 'Chat not found', code: 'NOT_FOUND' });
-    res.json({ chat, members: await memberList(chatId, chat.createdBy) });
+    // open tasks made in this chat (brief for tasks the viewer cannot open); DMs also show tasks shared by the two people
+    const T = require('../tasks');
+    const [trows] = await pool.query(T.SELECT + " AND t.chat_id = ? AND t.status NOT IN ('done', 'closed') ORDER BY t.id DESC LIMIT 50", [chatId]);
+    let tasks = await T.shapeRows(trows);
+    if (chat.type === 'dm' && chat.otherUserId) {
+      const shared = (await T.listTasks({ with: chat.otherUserId, status: 'open' }, req.user)).filter((t) => !tasks.some((x) => x.id === t.id));
+      tasks = [...tasks, ...shared].slice(0, 80);
+    }
+    res.json({ chat, members: await memberList(chatId, chat.createdBy), tasks: tasks.map((t) => T.forViewer(t, req.user)) });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -344,14 +356,16 @@ router.get('/:id/messages', async (req, res) => {
     const after = parseInt(req.query.after, 10);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 200);
     const me = req.user.id;
+    // kind: all (default) | ai = bot cards only | chat = human text messages only
+    const kind = req.query.kind === 'ai' ? "AND m.type = 'bot' " : req.query.kind === 'chat' ? "AND m.type = 'text' " : '';
     let rows;
     let hasMore = false;
     if (after) {
-      [rows] = await pool.query(MSG_SELECT + 'WHERE m.chat_id = ? AND m.id > ? AND ' + VISIBLE + 'ORDER BY m.id ASC LIMIT 500',
+      [rows] = await pool.query(MSG_SELECT + 'WHERE m.chat_id = ? AND m.id > ? ' + kind + 'AND ' + VISIBLE + 'ORDER BY m.id ASC LIMIT 500',
         [chatId, after, me]);
     } else {
       [rows] = await pool.query(
-        MSG_SELECT + 'WHERE m.chat_id = ? ' + (before ? 'AND m.id < ? ' : '') + 'AND ' + VISIBLE + 'ORDER BY m.id DESC LIMIT ?',
+        MSG_SELECT + 'WHERE m.chat_id = ? ' + (before ? 'AND m.id < ? ' : '') + kind + 'AND ' + VISIBLE + 'ORDER BY m.id DESC LIMIT ?',
         before ? [chatId, before, me, limit + 1] : [chatId, me, limit + 1]);
       hasMore = rows.length > limit;
       rows = rows.slice(0, limit).reverse();
@@ -392,6 +406,17 @@ async function resolveMentions(text, chatId, rawIds) {
   return { ids: [...ids].slice(0, 50), tagged };
 }
 
+// Plain text with exactly one "#N" token for an existing task the sender can view -> that task id (message link).
+async function hashTask(text, user) {
+  const ids = [...new Set([...text.matchAll(/(^|\s)#(\d{1,9})(?=[\s.,!?:;)]|$)/g)].map((m) => Number(m[2])))];
+  if (ids.length !== 1) return null;
+  const T = require('../tasks');
+  try {
+    const t = await T.getTask(ids[0]);
+    return T.canView(t, user) ? t.id : null;
+  } catch (e) { return null; }
+}
+
 router.post('/:id/messages', async (req, res) => {
   try {
     const chatId = parseInt(req.params.id, 10);
@@ -401,13 +426,16 @@ router.post('/:id/messages', async (req, res) => {
     if (!text || text.length > 4000) return res.status(400).json({ error: 'Message is empty or too long' });
     if (!clientId) return res.status(400).json({ error: 'clientId is required' });
     let replyToId = null;
+    let taskId = null;
     if (req.body.replyToId != null && req.body.replyToId !== '') {
       replyToId = parseInt(req.body.replyToId, 10);
       if (!replyToId) return res.status(400).json({ error: 'Invalid replyToId' });
       const [[orig]] = await pool.query(
-        'SELECT 1 x FROM messages m WHERE m.id = ? AND m.chat_id = ? AND ' + VISIBLE, [replyToId, chatId, req.user.id]);
+        'SELECT m.task_id FROM messages m WHERE m.id = ? AND m.chat_id = ? AND ' + VISIBLE, [replyToId, chatId, req.user.id]);
       if (!orig) return res.status(400).json({ error: 'Replied message not found in this chat' });
+      taskId = orig.task_id || null; // reply chain: a reply to a task-linked message is linked to the same task
     }
+    if (!taskId && !text.startsWith('/')) taskId = await hashTask(text, req.user);
 
     const find = async () => {
       const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.sender_id = ? AND m.client_id = ?', [req.user.id, clientId]);
@@ -419,8 +447,8 @@ router.post('/:id/messages', async (req, res) => {
     let id;
     try {
       const [r] = await pool.query(
-        'INSERT INTO messages (chat_id, sender_id, body, client_id, reply_to_id, mentions) VALUES (?, ?, ?, ?, ?, ?)',
-        [chatId, req.user.id, text, clientId, replyToId, mentions.length ? JSON.stringify(mentions) : null]);
+        'INSERT INTO messages (chat_id, sender_id, body, client_id, reply_to_id, mentions, task_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [chatId, req.user.id, text, clientId, replyToId, mentions.length ? JSON.stringify(mentions) : null, taskId]);
       id = r.insertId;
     } catch (e) {
       if (e.code === 'ER_DUP_ENTRY') {
@@ -450,13 +478,13 @@ router.post('/:id/messages', async (req, res) => {
     for (const u of members) rt.sendToUser(u, { type: 'message', message });
     await rt.pushStatus(chatId);
     res.status(201).json({ message });
-    // Slash command first, then a reply to a task card (note / "desc:"), else the natural-language AI engine.
-    // Runs after the reply, never delays or fails the send.
+    // Slash command first, then a task-linked message (card reply / reply chain / #N: note, "desc:", answer), else the
+    // natural-language AI engine. Runs after the reply, never delays or fails the send.
     setImmediate(async () => {
       try {
         const cmd = require('../ai/commands');
         if (await cmd.handle(message, req.user, { tagged })) return;
-        if (await cmd.handleReply(message, req.user)) return;
+        if (await cmd.handleLinked(message, req.user)) return;
         await require('../ai/engine').onMessage(message, req.user);
       } catch (e) { console.error('ai engine:', e.message); }
     });

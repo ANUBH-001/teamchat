@@ -22,7 +22,7 @@ class CheckinError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-const STATUSES = ['todo', 'in_progress', 'review', 'done'];
+const S = require('./status');
 const CHAT_NAME = 'Daily Check-in';
 const MAX_TASKS = 50;
 const MAX_RANGE_DAYS = 31;
@@ -180,18 +180,20 @@ async function postMemberMessage(chatId, user, body) {
 }
 
 // ---------- today's tasks ----------
+// status = the member's OWN status on the task (multi-assignee); taskStatus = the task's aggregate
 const item = (t) => ({
-  id: t.id, title: t.title, status: t.status, dueDate: t.dueDate, project: t.project, overdue: t.overdue, stale: t.stale, ageDays: t.ageDays,
+  id: t.id, title: t.title, status: t.myStatus, taskStatus: t.status, dueDate: t.dueDate, project: t.project, overdue: t.overdue,
+  stale: t.stale, ageDays: t.ageDays, assigneeCount: t.assignees.length, createdBy: t.createdBy, description: t.description || null,
 });
-const userTasks = (userId) => T.listTasks({ assignee: String(userId) }, { id: userId, role: 'member' });
+const userTasks = (userId) => T.assignedTo(userId);
 
 // -> {open, doneToday, counts:{given (created today), done (completed today), left (open)}}
 async function dayTasks(userId) {
   await settings.all();
   const all = await userTasks(userId);
   const start = T.startOfToday().getTime();
-  const open = all.filter((t) => t.status !== 'done').slice(0, MAX_TASKS).map(item);
-  const doneToday = all.filter((t) => t.status === 'done' && t.completedAt && new Date(t.completedAt).getTime() >= start).map(item);
+  const open = all.filter((t) => t.myStatus !== 'done').slice(0, MAX_TASKS).map(item);
+  const doneToday = all.filter((t) => t.myStatus === 'done' && t.myCompletedAt && new Date(t.myCompletedAt).getTime() >= start).map(item);
   const given = all.filter((t) => new Date(t.createdAt).getTime() >= start).length;
   return { open, doneToday, counts: { given, done: doneToday.length, left: open.length } };
 }
@@ -205,7 +207,7 @@ function cardBody(kind, name, d, nudge) {
   }
   return [(nudge ? 'Reminder: ' : '') + name + ', aaj ka sign-off karo.',
     'Aaj diye: ' + d.counts.given + ' · Done: ' + d.counts.done + ' · Baaki: ' + d.counts.left,
-    'Har task ka status chuniye (Done / In progress / Not started), phir "Submit sign-off".'].join('\n');
+    'Har task ka status chuniye (Todo / Planning / Coding / Testing / Change merged / Done), phir "Submit sign-off".'].join('\n');
 }
 
 const cardPayload = (kind, date, d, nudge) => ({
@@ -298,14 +300,16 @@ async function signoff(user, body) {
     if (typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length > MAX_TASKS) throw new CheckinError(400, 'Invalid taskStatuses');
     for (const [k, v] of Object.entries(o)) {
       const id = toId(k);
-      if (!id || !STATUSES.includes(v)) throw new CheckinError(400, 'Invalid taskStatuses');
-      statuses[id] = v;
+      if (!id || !S.norm(v)) throw new CheckinError(400, 'Invalid taskStatuses');
+      statuses[id] = S.norm(v); // old app keys in_progress / review are aliased
     }
   }
   const ids = Object.keys(statuses).map(Number);
   const own = {};
   if (ids.length) {
-    const [rows] = await pool.query('SELECT id, title, status FROM tasks WHERE id IN (?) AND assignee_id = ? AND deleted_at IS NULL', [ids, user.id]);
+    const [rows] = await pool.query(
+      `SELECT t.id, t.title, ta.status FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id AND ta.user_id = ? AND ta.removed_at IS NULL
+       WHERE t.id IN (?) AND t.deleted_at IS NULL AND t.status <> 'closed'`, [user.id, ids]);
     if (rows.length !== ids.length) throw new CheckinError(400, 'Invalid task (use your own tasks only)');
     for (const r of rows) own[r.id] = r;
   }
@@ -317,7 +321,7 @@ async function signoff(user, body) {
   for (const [id, st] of Object.entries(statuses)) {
     if (own[id].status === st) continue;
     try {
-      changed.push(await T.updateTaskStatus(Number(id), st, user, 'checkin'));
+      changed.push(await T.updateTask(Number(id), { status: st, userId: user.id }, user, 'checkin'));
     } catch (e) {
       if (!(e instanceof T.TaskError)) throw e; // e.g. reassigned meanwhile: skip that one
     }
@@ -327,7 +331,7 @@ async function signoff(user, body) {
   const existing = await getSignoff(user.id, date);
   const lines = ['Sign-off' + (existing ? ' (update)' : '') + ': Done ' + d.counts.done + ' · Baaki ' + d.counts.left + ' · Aaj diye ' + d.counts.given];
   for (const t of d.doneToday) lines.push('✓ ' + t.title);
-  for (const t of d.open) lines.push((t.status === 'todo' ? '○ ' : '◐ ') + t.title);
+  for (const t of d.open) lines.push((t.status === 'todo' ? '○ ' : '◐ ') + t.title + ' [' + (S.LABEL[t.status] || t.status) + ']');
   if (note) lines.push(note);
   const message = await postMemberMessage(chatId, user, lines.join('\n'));
   await pool.query(

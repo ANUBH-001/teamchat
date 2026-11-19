@@ -7,7 +7,7 @@ import { useTheme } from '../useTheme';
 import { Chat } from '../chatTypes';
 import { onEvent } from '../realtime';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
-import { takePendingChat, setActiveChat, setChatPrefs } from '../push';
+import { takePendingChat, takePendingMessage, setActiveChat, setChatPrefs } from '../push';
 import ChatRow from '../components/ChatRow';
 import ChatScreen from './ChatScreen';
 import NewChatScreen from './NewChatScreen';
@@ -16,8 +16,8 @@ import TaskDetailScreen from './TaskDetailScreen';
 import Sheet, { SheetRow } from '../components/Sheet';
 
 type View_ =
-  | { k: 'list' } | { k: 'chat'; chat: Chat } | { k: 'new'; mode: 'dm' | 'group' }
-  | { k: 'info'; chat: Chat } | { k: 'task'; id: number; chat: Chat };
+  | { k: 'list' } | { k: 'chat'; chat: Chat; focusId?: number | null } | { k: 'new'; mode: 'dm' | 'group' }
+  | { k: 'info'; chat: Chat } | { k: 'task'; id: number; chat: Chat; from?: 'info' };
 
 export default function ChatsScreen() {
   const t = useTheme();
@@ -52,22 +52,23 @@ export default function ChatsScreen() {
   }, []);
 
   // notification tap -> open that chat
-  const openChat = useCallback(async (id: number) => {
+  const openChat = useCallback(async (id: number, focusId: number | null = null) => {
     try {
       const list = (await api<{ chats: Chat[] }>('GET', '/chats')).chats;
       setChats(list);
       setChatPrefs(list);
       const c = list.find((x) => x.id === id);
-      if (c) setView({ k: 'chat', chat: c });
+      if (c) setView({ k: 'chat', chat: c, focusId });
     } catch (e) {}
   }, []);
 
   useEffect(() => {
     load();
     const pending = takePendingChat();
-    if (pending) openChat(pending);
+    const pendingMsg = takePendingMessage();
+    if (pending) openChat(pending, pendingMsg);
     return onEvent((e) => {
-      if (e.type === '_open_chat') { takePendingChat(); openChat(e.chatId); }
+      if (e.type === '_open_chat') { takePendingChat(); takePendingMessage(); openChat(e.chatId, e.messageId || null); }
     });
   }, [load, openChat]);
 
@@ -80,6 +81,7 @@ export default function ChatsScreen() {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       const v = viewRef.current;
       if (v.k === 'list') return false;
+      if (v.k === 'task' && v.from === 'info') { setView({ k: 'info', chat: v.chat }); return true; }
       if (v.k === 'info' || v.k === 'task') { setView({ k: 'chat', chat: v.chat }); return true; }
       setView({ k: 'list' });
       load();
@@ -94,15 +96,16 @@ export default function ChatsScreen() {
   if (view.k === 'chat') {
     return (
       <ChatScreen
-        key={view.chat.id} chat={view.chat} onBack={back} onOpenInfo={(c) => setView({ k: 'info', chat: c })}
+        key={view.chat.id} chat={view.chat} focusId={view.focusId || null} onBack={back} onOpenInfo={(c) => setView({ k: 'info', chat: c })}
         onOpenTask={(id) => setView({ k: 'task', id, chat: view.chat })} onOpenChat={openChat2}
       />
     );
   }
   if (view.k === 'info') {
-    return <GroupInfoScreen chat={view.chat} onBack={() => setView({ k: 'chat', chat: view.chat })} onChanged={load} onLeft={back} onOpenChat={openChat2} />;
+    return <GroupInfoScreen chat={view.chat} onBack={() => setView({ k: 'chat', chat: view.chat })} onChanged={load} onLeft={back} onOpenChat={openChat2}
+      onOpenTask={(id) => setView({ k: 'task', id, chat: view.chat, from: 'info' })} />;
   }
-  if (view.k === 'task') return <TaskDetailScreen taskId={view.id} onBack={() => setView({ k: 'chat', chat: view.chat })} />;
+  if (view.k === 'task') return <TaskDetailScreen taskId={view.id} onBack={() => setView({ k: view.from || 'chat', chat: view.chat })} />;
   if (view.k === 'new') {
     return <NewChatScreen mode={view.mode} onBack={back} onOpen={(c) => { setView({ k: 'chat', chat: c }); }} />;
   }

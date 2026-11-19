@@ -1,54 +1,69 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, Alert, ActivityIndicator, RefreshControl, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { api } from '../api';
+import { useNavigation } from '@react-navigation/native';
+import { api, ApiError } from '../api';
 import { useAuth } from '../auth';
+import { setPendingChat } from '../push';
 import { useTheme } from '../useTheme';
 import { usePublicSettings } from '../publicSettings';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
-import { OVERDUE_COLOR, STATUSES, STATUS_COLOR, STATUS_LABEL, Status, Task, TaskEvent } from '../taskTypes';
-import { describeEvent, ago, EVENT_ICON } from '../taskEvents';
-import { Person } from '../chatTypes';
+import { emitEvent } from '../realtime';
+import { Assignee, DetailEvent, OVERDUE_COLOR, StepStatus, Task, canClose, colorOf, isAssignee, labelOf } from '../taskTypes';
+import { describeEvent, ago, agoText, EVENT_ICON } from '../taskEvents';
 import Avatar from '../components/Avatar';
-import { formatDue } from '../dates';
+import StatusChips from '../components/StatusChips';
+import StatusPill from '../components/StatusPill';
+import PeoplePickSheet from '../components/PeoplePickSheet';
+import { copyText, formatDue, isoDay as isoDayD } from '../dates';
 import Sheet, { SheetRow } from '../components/Sheet';
 
-export const isoDay = (offset: number) => {
-  const d = new Date(Date.now() + offset * 86400000);
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-};
+export const isoDay = isoDayD; // kept for old imports
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) UIManager.setLayoutAnimationEnabledExperimental(true);
 
 export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId: number; onBack: () => void; onChanged?: () => void }) {
   const t = useTheme();
   const { user } = useAuth();
   const ps = usePublicSettings();
   const insets = useSafeAreaInsets();
+  const nav = useNavigation<any>();
   const me = user!;
   const [task, setTask] = useState<Task | null>(null);
-  const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [events, setEvents] = useState<DetailEvent[]>([]);
   const [err, setErr] = useState('');
+  const [denied, setDenied] = useState(false);
   const [note, setNote] = useState('');
-  const [people, setPeople] = useState<Person[]>([]);
-  const [sheet, setSheet] = useState<null | 'assignee' | 'due'>(null);
+  const [sheet, setSheet] = useState<null | 'due' | 'close' | 'people'>(null);
+  const [person, setPerson] = useState<Assignee | null>(null);
   const [dueText, setDueText] = useState('');
+  const [reason, setReason] = useState('');
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await api<{ task: Task; events: TaskEvent[] }>('GET', '/tasks/' + taskId);
-      setTask(r.task); setEvents(r.events); setErr('');
-    } catch (e: any) { setErr(e.message); }
+      const r = await api<{ task: Task; events: DetailEvent[] }>('GET', '/tasks/' + taskId);
+      setTask(r.task); setEvents(r.events); setErr(''); setDenied(false);
+    } catch (e: any) {
+      if (e instanceof ApiError && (e.status === 403 || e.code === 'NOT_ALLOWED')) setDenied(true);
+      else setErr(e.message);
+    }
   }, [taskId]);
   useEffect(() => { load(); }, [load]);
-  useLiveRefresh(load, ['task', 'task_deleted']);
+  useLiveRefresh(load, ['task']);
   const { refreshing, onRefresh } = usePullRefresh(load);
 
   const isBoss = me.role === 'boss';
-  const canManage = !!task && (isBoss || task.createdBy === me.id);
-  const canStatus = !!task && (isBoss || task.assigneeId === me.id);
-  const canPraise = !!task && ps.praiseEnabled && canManage && task.assigneeId !== me.id && (task.status === 'review' || task.status === 'done');
+  const closed = task?.status === 'closed';
+  const creator = !!task && task.createdBy === me.id;
+  const mine = !!task && isAssignee(task, me);
+  const manage = !!task && (isBoss || creator || mine) && !closed; // title / people / due (server re-checks)
+  const bossOrCreator = !!task && (isBoss || creator);
+  const myRow = task ? (task.assignees || []).find((a) => a.id === me.id) : null;
+  const canPraise = !!task && ps.praiseEnabled && bossOrCreator && !mine && ['testing', 'change_merged', 'done'].includes(task.status);
 
   const patch = async (body: object) => {
     if (busy) return;
@@ -61,6 +76,17 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
     } catch (e: any) { Alert.alert('Could not save', e.message); }
     setBusy(false);
   };
+  const post = async (path: string, body: object = {}) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await api<{ task?: Task }>('POST', '/tasks/' + taskId + path, body);
+      if (r && r.task) setTask(r.task);
+      await load();
+      onChanged?.();
+    } catch (e: any) { Alert.alert('Error', e.message); }
+    setBusy(false);
+  };
   const addNote = async () => {
     const n = note.trim();
     if (!n) return;
@@ -71,28 +97,28 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
     try { await api('POST', '/tasks/' + taskId + '/praise', {}); Alert.alert('Sent', '👏 Praise sent'); load(); }
     catch (e: any) { Alert.alert('Could not praise', e.message); }
   };
-  const del = () => Alert.alert('Delete task', 'Delete "' + task?.title + '"?', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: async () => {
-      try { await api('DELETE', '/tasks/' + taskId); onChanged?.(); onBack(); } catch (e: any) { Alert.alert('Error', e.message); }
-    } },
-  ]);
-  const openSheet = async (k: 'assignee' | 'due') => {
-    setSheet(k);
-    if (k === 'due') setDueText(task?.dueDate ?? '');
-    if (k === 'assignee' && !people.length) {
-      try { setPeople((await api<{ users: Person[] }>('GET', '/users')).users); } catch (e) {}
-    }
-  };
   const saveDue = (v: string | null) => {
     if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { Alert.alert('Date', 'Use YYYY-MM-DD'); return; }
     setSheet(null);
     patch({ dueDate: v });
   };
+  const doClose = () => { setSheet(null); post('/close', reason.trim() ? { reason: reason.trim() } : {}); setReason(''); };
+  const toggle = (id: number) => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setOpen((o) => (o === id ? null : id)); };
+  // same mechanism as a notification tap: switch to the Chats tab, then ask ChatsScreen to open the chat
+  const openChat = (chatId: number, messageId: number | null = null) => {
+    setPendingChat(chatId, messageId); // ChatsScreen takes it on mount if it was never opened
+    try { nav.navigate('Chats'); } catch (e) {}
+    setTimeout(() => emitEvent({ type: '_open_chat', chatId, messageId }), 350);
+  };
 
   const card = { backgroundColor: t.card, borderRadius: 16, marginHorizontal: 16, marginTop: 16, padding: 16 } as const;
   const label = { color: t.subtext, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 } as const;
-  const overdue = !!task && task.overdue && task.status !== 'done';
+  const overdue = !!task && task.overdue && task.status !== 'done' && !closed;
+  const btn = (text: string, color: string, onPress: () => void, extra: object = {}) => (
+    <Pressable onPress={onPress} style={{ flex: 1, minHeight: 48, borderRadius: 14, backgroundColor: t.card, borderWidth: 1, borderColor: color, alignItems: 'center', justifyContent: 'center', ...extra }}>
+      <Text style={{ color, fontWeight: '700', fontSize: 15 }}>{text}</Text>
+    </Pressable>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: t.background }}>
@@ -101,8 +127,18 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
           <Text style={{ color: '#fff', fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
         </Pressable>
         <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', flex: 1 }}>Task #{taskId}</Text>
+        {!!task && (
+          <Pressable onPress={() => copyText('#' + task.id + ' ' + task.title)} hitSlop={10} style={{ padding: 4 }}>
+            <Ionicons name="copy-outline" size={22} color="#fff" />
+          </Pressable>
+        )}
       </View>
-      {!task ? (
+      {denied ? (
+        <View style={{ alignItems: 'center', padding: 32 }}>
+          <Ionicons name="lock-closed-outline" size={44} color={t.subtext} />
+          <Text style={{ color: t.text, fontSize: 16, marginTop: 12, textAlign: 'center' }}>Ye task aap nahi dekh sakte</Text>
+        </View>
+      ) : !task ? (
         err ? <Text style={{ color: t.danger, padding: 20 }}>{err}</Text> : <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} />
       ) : (
         <ScrollView
@@ -117,8 +153,8 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
                 style={{ color: t.text, fontSize: 18, fontWeight: '700', borderBottomWidth: 2, borderBottomColor: t.accent, paddingVertical: 4 }}
               />
             ) : (
-              <Pressable disabled={!canManage} onPress={() => setEditTitle(task.title)}>
-                <Text style={{ color: t.text, fontSize: 18, fontWeight: '700', textDecorationLine: task.status === 'done' ? 'line-through' : 'none' }}>{task.title}</Text>
+              <Pressable disabled={!manage} onPress={() => setEditTitle(task.title)}>
+                <Text style={{ color: t.text, fontSize: 18, fontWeight: '700', textDecorationLine: task.status === 'done' || closed ? 'line-through' : 'none' }}>{task.title}</Text>
               </Pressable>
             )}
             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
@@ -127,63 +163,68 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
                   <Text style={{ color: t.subtext, fontSize: 12, fontWeight: '600' }}>{task.project}</Text>
                 </View>
               )}
-              <View style={{ backgroundColor: STATUS_COLOR[task.status], borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 }}>
-                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{STATUS_LABEL[task.status]}</Text>
+              <View style={{ backgroundColor: colorOf(task.status), borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 }}>
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{closed ? 'Closed' : labelOf(task.status)}</Text>
               </View>
               {overdue && <Text style={{ color: OVERDUE_COLOR, fontSize: 12, fontWeight: '700', marginLeft: 8 }}>Overdue</Text>}
             </View>
+            {closed && (
+              <Text style={{ color: t.subtext, fontSize: 12, marginTop: 8 }}>
+                Closed{task.closedAt ? ' · ' + agoText(task.closedAt) : ''}. Status / log badalne ke liye pehle Reopen karein.
+              </Text>
+            )}
             {!!task.description && <Text style={{ color: t.subtext, fontSize: 14, marginTop: 10 }}>{task.description}</Text>}
           </View>
 
-          <View style={{ ...card, padding: 0 }}>
-            <Pressable disabled={!canManage} onPress={() => openSheet('assignee')} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 60, paddingHorizontal: 16 }}>
-              {task.assigneeId ? <Avatar name={task.assigneeName || '?'} id={task.assigneeId} size={36} /> : <Ionicons name="person-outline" size={24} color={t.subtext} />}
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={{ color: t.subtext, fontSize: 12 }}>Assigned to</Text>
-                <Text style={{ color: t.text, fontSize: 16 }}>{task.assigneeName || 'Unassigned'}</Text>
+          <View style={card}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ ...label, marginBottom: 0, flex: 1 }}>People ({(task.assignees || []).length})</Text>
+              {manage && (
+                <Pressable onPress={() => setSheet('people')} hitSlop={8}>
+                  <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>Badlo</Text>
+                </Pressable>
+              )}
+            </View>
+            {(task.assignees || []).map((a, i) => (
+              <Pressable
+                key={a.id} disabled={!bossOrCreator || !!closed} onPress={() => setPerson(a)}
+                style={{ flexDirection: 'row', alignItems: 'center', minHeight: 56, borderTopWidth: i ? 1 : 0, borderTopColor: t.border }}
+              >
+                <Avatar name={a.name} id={a.id} userId={a.id} emoji={a.avatarEmoji} size={36} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text numberOfLines={1} style={{ color: t.text, fontSize: 15 }}>{a.id === me.id ? a.name + ' (Me)' : a.name}</Text>
+                  {!!(a.completedAt || a.updatedAt) && <Text style={{ color: t.subtext, fontSize: 11 }}>last change {agoText((a.completedAt || a.updatedAt)!)}</Text>}
+                </View>
+                <StatusPill status={a.status} />
+                {bossOrCreator && !closed && <Ionicons name="chevron-forward" size={18} color={t.subtext} style={{ marginLeft: 6 }} />}
+              </Pressable>
+            ))}
+            {!(task.assignees || []).length && <Text style={{ color: t.subtext }}>{task.assigneeName || 'Unassigned'}</Text>}
+            {mine && !closed && !!myRow && (
+              <View style={{ marginTop: 12 }}>
+                <Text style={label}>Mera status</Text>
+                <StatusChips value={myRow.status} disabled={busy} wrap onPick={(s: StepStatus) => patch({ status: s })} />
               </View>
-              {canManage && <Ionicons name="chevron-forward" size={20} color={t.subtext} />}
-            </Pressable>
-            <View style={{ height: 1, backgroundColor: t.border, marginLeft: 16 }} />
-            <Pressable disabled={!canManage} onPress={() => openSheet('due')} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 60, paddingHorizontal: 16 }}>
+            )}
+          </View>
+
+          <View style={{ ...card, padding: 0 }}>
+            <Pressable disabled={!manage} onPress={() => { setDueText(task.dueDate ?? ''); setSheet('due'); }} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 60, paddingHorizontal: 16 }}>
               <Ionicons name="calendar-outline" size={24} color={overdue ? OVERDUE_COLOR : t.subtext} style={{ width: 36, textAlign: 'center' }} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={{ color: t.subtext, fontSize: 12 }}>Due date</Text>
                 <Text style={{ color: overdue ? OVERDUE_COLOR : t.text, fontSize: 16 }}>{task.dueDate ? formatDue(task.dueDate) : 'No due date'}</Text>
               </View>
-              {canManage && <Ionicons name="chevron-forward" size={20} color={t.subtext} />}
+              {manage && <Ionicons name="chevron-forward" size={20} color={t.subtext} />}
             </Pressable>
             <View style={{ height: 1, backgroundColor: t.border, marginLeft: 16 }} />
             <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: 16 }}>
               <Ionicons name="create-outline" size={24} color={t.subtext} style={{ width: 36, textAlign: 'center' }} />
-              <Text style={{ color: t.subtext, fontSize: 14, marginLeft: 12 }}>Created by {task.createdByName || 'someone'} · {ago(task.createdAt)} ago</Text>
+              <Text style={{ color: t.subtext, fontSize: 14, marginLeft: 12 }}>Created by {task.createdByName || 'someone'} · {agoText(task.createdAt)}</Text>
             </View>
           </View>
 
-          {canStatus && (
-            <View style={card}>
-              <Text style={label}>Status</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 }}>
-                {STATUSES.map((s: Status) => {
-                  const on = task.status === s;
-                  return (
-                    <Pressable
-                      key={s} disabled={busy || on} onPress={() => patch({ status: s })}
-                      style={{
-                        width: '50%', padding: 4,
-                      }}
-                    >
-                      <View style={{ minHeight: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? STATUS_COLOR[s] : t.soft, borderWidth: 1, borderColor: on ? STATUS_COLOR[s] : t.border }}>
-                        <Text style={{ color: on ? '#fff' : t.text, fontWeight: '600' }}>{STATUS_LABEL[s]}</Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          )}
-
-          {(canStatus || canManage) && (
+          {!closed && (mine || bossOrCreator) && (
             <View style={card}>
               <Text style={label}>Add note</Text>
               <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
@@ -198,56 +239,89 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
             </View>
           )}
 
-          {(canPraise || canManage) && (
-            <View style={{ flexDirection: 'row', marginHorizontal: 16, marginTop: 16 }}>
-              {canPraise && (
-                <Pressable onPress={praise} style={{ flex: 1, minHeight: 48, borderRadius: 14, backgroundColor: t.card, borderWidth: 1, borderColor: t.accent, alignItems: 'center', justifyContent: 'center', marginRight: canManage ? 8 : 0 }}>
-                  <Text style={{ color: t.accent, fontWeight: '700', fontSize: 15 }}>👏 Praise</Text>
-                </Pressable>
-              )}
-              {canManage && (
-                <Pressable onPress={del} style={{ flex: 1, minHeight: 48, borderRadius: 14, backgroundColor: t.card, borderWidth: 1, borderColor: t.danger, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: t.danger, fontWeight: '700', fontSize: 15 }}>Delete</Text>
-                </Pressable>
-              )}
-            </View>
-          )}
+          <View style={{ flexDirection: 'row', marginHorizontal: 16, marginTop: 16 }}>
+            {canPraise && !closed && btn('👏 Praise', t.accent, praise, { marginRight: 8 })}
+            {btn('Copy', t.subtext, () => copyText('#' + task.id + ' ' + task.title), { marginRight: canClose(task, me) ? 8 : 0 })}
+            {canClose(task, me) && !closed && btn('Close', t.danger, () => setSheet('close'))}
+            {canClose(task, me) && closed && btn('Reopen', t.accent, () => post('/reopen'))}
+          </View>
 
           <View style={card}>
             <Text style={label}>Timeline</Text>
             {!events.length && <Text style={{ color: t.subtext }}>No activity yet.</Text>}
-            {events.map((e, i) => (
-              <View key={e.id} style={{ flexDirection: 'row', paddingBottom: i === events.length - 1 ? 0 : 14 }}>
-                <View style={{ alignItems: 'center', width: 28 }}>
-                  <Ionicons name={(EVENT_ICON[e.event] || 'ellipse') as any} size={18} color={t.accent} />
-                  {i < events.length - 1 && <View style={{ flex: 1, width: 2, backgroundColor: t.border, marginTop: 4 }} />}
+            {events.map((e, i) => {
+              const src = e.source;
+              const isOpen = open === e.id;
+              return (
+                <View key={e.id} style={{ flexDirection: 'row', paddingBottom: i === events.length - 1 ? 0 : 14 }}>
+                  <View style={{ alignItems: 'center', width: 28 }}>
+                    <Ionicons name={(EVENT_ICON[e.event] || 'ellipse') as any} size={18} color={t.accent} />
+                    {i < events.length - 1 && <View style={{ flex: 1, width: 2, backgroundColor: t.border, marginTop: 4 }} />}
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 8 }}>
+                    <Pressable disabled={!src} onPress={() => toggle(e.id)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={{ color: t.text, fontSize: 14, flex: 1 }}>{describeEvent(e, e.actorName || 'Someone')}</Text>
+                      {!!src && <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={t.subtext} />}
+                    </Pressable>
+                    {e.event === 'note' && !!e.newValue && (
+                      <Text style={{ color: t.text, fontSize: 14, fontStyle: 'italic', marginTop: 2 }}>{'"' + e.newValue + '"'}</Text>
+                    )}
+                    <Text style={{ color: t.subtext, fontSize: 12, marginTop: 1 }}>{new Date(e.createdAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
+                    {!!src && isOpen && (
+                      <View style={{ backgroundColor: t.soft, borderRadius: 12, padding: 10, marginTop: 8, borderLeftWidth: 3, borderLeftColor: t.accent }}>
+                        <Text style={{ color: t.accent, fontSize: 12, fontWeight: '700' }}>
+                          {src.senderName || 'Someone'}{src.chatName ? ' · ' + src.chatName : ''}
+                        </Text>
+                        {!!src.replyTo && (
+                          <View style={{ borderLeftWidth: 2, borderLeftColor: t.border, paddingLeft: 8, marginTop: 6 }}>
+                            <Text style={{ color: t.subtext, fontSize: 12, fontWeight: '600' }}>{src.replyTo.senderName}</Text>
+                            <Text numberOfLines={3} style={{ color: t.subtext, fontSize: 12 }}>{src.replyTo.text || 'Message ab available nahi hai'}</Text>
+                          </View>
+                        )}
+                        <Text style={{ color: src.text && src.available !== false ? t.text : t.subtext, fontSize: 14, marginTop: 6, fontStyle: src.text && src.available !== false ? 'normal' : 'italic' }}>
+                          {src.text && src.available !== false ? src.text : 'Message ab available nahi hai'}
+                        </Text>
+                        {!!src.chatId && (
+                          <Pressable onPress={() => openChat(src.chatId!, src.available ? src.messageId : null)} style={{ alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: t.accent, marginTop: 10 }}>
+                            <Text style={{ color: t.accent, fontWeight: '600', fontSize: 13 }}>Chat mein dekho</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    )}
+                  </View>
                 </View>
-                <View style={{ flex: 1, marginLeft: 8 }}>
-                  <Text style={{ color: t.text, fontSize: 14 }}>{describeEvent(e, e.actorName || 'Someone')}</Text>
-                  {e.event === 'note' && !!e.newValue && (
-                    <Text style={{ color: t.text, fontSize: 14, fontStyle: 'italic', marginTop: 2 }}>{'"' + e.newValue + '"'}</Text>
-                  )}
-                  <Text style={{ color: t.subtext, fontSize: 12, marginTop: 1 }}>{new Date(e.createdAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
         </ScrollView>
       )}
 
-      <Sheet visible={sheet === 'assignee'} onClose={() => setSheet(null)} title="Assign to">
-        {people.map((p) => (
-          <Pressable key={p.id} onPress={() => { setSheet(null); patch({ assigneeId: p.id }); }} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 56, paddingHorizontal: 20 }}>
-            <Avatar name={p.name} id={p.id} size={36} />
-            <Text style={{ color: t.text, fontSize: 16, marginLeft: 12, flex: 1 }}>{p.name}</Text>
-            {task?.assigneeId === p.id && <Ionicons name="checkmark" size={20} color={t.accent} />}
+      {task && (
+        <PeoplePickSheet
+          visible={sheet === 'people'} onClose={() => setSheet(null)} title="Task kiske liye" meId={me.id}
+          initial={(task.assignees || []).map((a) => a.id)}
+          onSave={(ids) => { setSheet(null); patch({ assigneeIds: ids }); }}
+        />
+      )}
+      <Sheet visible={!!person} onClose={() => setPerson(null)} title={person ? person.name + ' ka status' : ''}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+          {person && <StatusChips value={person.status} wrap onPick={(s: StepStatus) => { const uid = person.id; setPerson(null); patch({ status: s, userId: uid }); }} />}
+        </View>
+      </Sheet>
+      <Sheet visible={sheet === 'close'} onClose={() => setSheet(null)} title="Task close karein?">
+        <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+          <TextInput
+            value={reason} onChangeText={setReason} placeholder="Wajah (optional)" placeholderTextColor={t.subtext} maxLength={300}
+            style={{ minHeight: 46, backgroundColor: t.soft, color: t.text, borderRadius: 12, paddingHorizontal: 12, fontSize: 15 }}
+          />
+          <Pressable onPress={doClose} style={{ minHeight: 48, borderRadius: 24, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center', marginTop: 12 }}>
+            <Text style={{ color: '#fff', fontWeight: '700' }}>Close task</Text>
           </Pressable>
-        ))}
-        {!people.length && <ActivityIndicator color={t.accent} style={{ margin: 20 }} />}
+        </View>
       </Sheet>
       <Sheet visible={sheet === 'due'} onClose={() => setSheet(null)} title="Due date">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16 }}>
-          {[['Today', isoDay(0)], ['Tomorrow', isoDay(1)], ['In 3 days', isoDay(3)], ['Next week', isoDay(7)]].map(([l, d]) => (
+          {[['Today', isoDayD(0)], ['Tomorrow', isoDayD(1)], ['In 3 days', isoDayD(3)], ['Next week', isoDayD(7)]].map(([l, d]) => (
             <Pressable key={l} onPress={() => saveDue(d)} style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, borderRadius: 22, backgroundColor: t.soft, marginRight: 8, marginBottom: 8 }}>
               <Text style={{ color: t.text, fontWeight: '600' }}>{l}</Text>
             </Pressable>

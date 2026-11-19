@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import { colorFor } from '../theme';
+import { useUser } from '../userStore';
 
 export function initials(name: string) {
   const first = (w?: string) => Array.from(w ?? '').find((c) => /[\p{L}\p{N}]/u.test(c)) ?? '';
@@ -8,17 +9,40 @@ export function initials(name: string) {
   return ((first(p[0]) || '?') + (p.length > 1 ? first(p[p.length - 1]) : '')).toUpperCase();
 }
 
-function AvatarBase({ name, id, size = 48 }: { name: string; id: number; size?: number }) {
+// id = color seed (a user id or a chat id). userId = the person shown (emoji avatar from the user store, live).
+// emoji = explicit emoji (e.g. a payload snapshot) when no userId is known.
+function AvatarBase({ name, id, size = 48, userId, emoji }: { name: string; id: number; size?: number; userId?: number | null; emoji?: string | null }) {
+  const u = useUser(userId || null);
+  const e = (u && u.avatarEmoji) || emoji || null;
+  const label = (u && u.name) || name;
   return (
     <View
       style={{
         width: size, height: size, borderRadius: size / 2,
-        backgroundColor: colorFor(id), alignItems: 'center', justifyContent: 'center',
+        backgroundColor: e ? colorFor(userId || id) + '33' : colorFor(userId || id), alignItems: 'center', justifyContent: 'center',
       }}
     >
-      <Text style={{ color: '#fff', fontWeight: '600', fontSize: size * 0.38 }}>{initials(name)}</Text>
+      {e
+        ? <Text style={{ fontSize: size * 0.55 }}>{e}</Text>
+        : <Text style={{ color: '#fff', fontWeight: '600', fontSize: size * 0.38 }}>{initials(label)}</Text>}
     </View>
   );
 }
 
 export default React.memo(AvatarBase);
+
+// Up to `max` small overlapping avatars (+N) for a task's people.
+export function AvatarStack({ people, size = 22, max = 3 }: { people: { id: number; name: string; avatarEmoji?: string | null }[]; size?: number; max?: number }) {
+  const shown = people.slice(0, max);
+  const more = people.length - shown.length;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      {shown.map((p, i) => (
+        <View key={p.id} style={{ marginLeft: i ? -size * 0.3 : 0, borderRadius: size, borderWidth: 1.5, borderColor: '#fff' }}>
+          <AvatarBase name={p.name} id={p.id} userId={p.id} emoji={p.avatarEmoji || null} size={size} />
+        </View>
+      ))}
+      {more > 0 && <Text style={{ fontSize: 11, color: '#8696A0', marginLeft: 4 }}>+{more}</Text>}
+    </View>
+  );
+}

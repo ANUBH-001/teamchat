@@ -10,7 +10,13 @@ const pool = require('./db');
 const settings = require('./settings');
 
 const app = express();
-app.use(express.json());
+app.disable('x-powered-by');
+app.set('trust proxy', 'loopback'); // behind the local reverse proxy: req.ip = real client (rate limits)
+app.use((req, res, next) => {
+  res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' });
+  next();
+});
+app.use(express.json({ limit: '64kb' }));
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');

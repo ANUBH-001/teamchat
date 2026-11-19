@@ -7,6 +7,17 @@ const rt = require('../realtime');
 const checkins = require('../checkins');
 const settings = require('../settings');
 const provider = require('../ai/provider');
+const users = require('../users');
+
+const userError = (res, e) => {
+  if (e instanceof users.UserError) return res.status(e.status).json({ error: e.message, code: e.code });
+  res.status(500).json({ error: 'Server error' });
+};
+// Log a user out everywhere: new session id (old token -> 401 SESSION_REPLACED) + close sockets (4401).
+async function killSession(id) {
+  await pool.query('UPDATE users SET session_id = ? WHERE id = ?', [crypto.randomBytes(16).toString('hex'), id]);
+  rt.closeUser(id, 4401, 'LOGGED_OUT');
+}
 
 const router = express.Router();
 router.use(requireAuth, requireBoss);
@@ -49,8 +60,8 @@ router.get('/chats/:id/messages', async (req, res) => {
 router.get('/users', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, phone, name, role, active, (pin_hash IS NOT NULL) AS activated, created_at FROM users WHERE is_bot = 0 ORDER BY name');
-    res.json({ users: rows.map((r) => ({ ...r, active: !!r.active, activated: !!r.activated })) });
+      'SELECT id, phone, name, role, active, avatar_emoji, (pin_hash IS NOT NULL) AS activated, created_at FROM users WHERE is_bot = 0 ORDER BY name');
+    res.json({ users: rows.map(({ avatar_emoji: e, ...r }) => ({ ...r, avatarEmoji: e || null, active: !!r.active, activated: !!r.activated })) });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -58,10 +69,10 @@ router.get('/users', async (req, res) => {
 
 router.post('/users', async (req, res) => {
   try {
-    const name = String(req.body.name || '').trim();
+    const name = users.cleanName(req.body.name);
+    await users.assertNameFree(name, 0);
     const phone = String(req.body.phone || '').replace(/\s+/g, '');
     const role = req.body.role === 'boss' ? 'boss' : 'member';
-    if (!name || name.length > 100) return res.status(400).json({ error: 'Name is required' });
     if (!/^\+?\d{7,15}$/.test(phone)) return res.status(400).json({ error: 'Invalid phone number' });
     const [[dup]] = await pool.query('SELECT id FROM users WHERE phone = ?', [phone]);
     if (dup) return res.status(409).json({ error: 'Phone already exists' });
@@ -70,11 +81,12 @@ router.post('/users', async (req, res) => {
     if (chat) await pool.query('INSERT IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)', [chat.id, r.insertId]);
     if (role === 'member') await checkins.ensureChat(r.insertId).catch((e) => console.error('checkin chat:', e.message)); // private 'Daily Check-in' chat (member + bot only)
     const inviteCode = await createInvite(r.insertId);
+    users.invalidate();
     rt.sendToBosses({ type: 'users' }).catch(() => {});
     if (chat) rt.sendToChat(chat.id, { type: 'chat', chatId: chat.id }).catch(() => {});
     res.status(201).json({ user: { id: r.insertId, phone, name, role, active: true }, inviteCode });
   } catch (e) {
-    res.status(500).json({ error: 'Server error' });
+    userError(res, e);
   }
 });
 
@@ -84,6 +96,7 @@ router.post('/users/:id/invite', async (req, res) => {
     const [[u]] = await pool.query('SELECT id FROM users WHERE id = ? AND is_bot = 0', [id]);
     if (!u) return res.status(404).json({ error: 'User not found' });
     await pool.query('UPDATE users SET pin_hash = NULL, failed_attempts = 0, locked_until = NULL WHERE id = ?', [id]);
+    await killSession(id); // reset PIN / new invite also logs the current device out
     const inviteCode = await createInvite(id);
     rt.sendToBosses({ type: 'users' }).catch(() => {});
     res.json({ inviteCode });
@@ -92,29 +105,40 @@ router.post('/users/:id/invite', async (req, res) => {
   }
 });
 
+// Log a member's device out (new session id + close sockets). Their next request gets 401.
+router.post('/users/:id/logout', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const [[u]] = await pool.query('SELECT id FROM users WHERE id = ? AND is_bot = 0', [id || 0]);
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    await killSession(id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PATCH /admin/users/:id {name?, avatarEmoji?, active?}. Name unique (409 NAME_TAKEN). ws {type:'user'} to everyone.
 router.patch('/users/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const sets = [];
-    const vals = [];
+    const [[target]] = await pool.query('SELECT id FROM users WHERE id = ? AND is_bot = 0', [id || 0]);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    const { sets, vals, changes } = await users.profileUpdate(req.body || {}, id);
     if (req.body.active !== undefined) {
       if (id === req.user.id && !req.body.active) return res.status(400).json({ error: 'Cannot deactivate yourself' });
       sets.push('active = ?'); vals.push(req.body.active ? 1 : 0);
     }
-    if (req.body.name !== undefined) {
-      const name = String(req.body.name).trim();
-      if (!name || name.length > 100) return res.status(400).json({ error: 'Invalid name' });
-      sets.push('name = ?'); vals.push(name);
-    }
     if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
-    const [r] = await pool.query('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ? AND is_bot = 0', [...vals, id]);
-    if (!r.affectedRows) return res.status(404).json({ error: 'User not found' });
+    await pool.query('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ? AND is_bot = 0', [...vals, id]);
+    users.invalidate();
     if (req.body.active !== undefined && !req.body.active) rt.closeUser(id);
     if (req.body.active) await checkins.ensureChat(id).catch((e) => console.error('checkin chat:', e.message)); // no-op for bosses or if it exists
+    if (Object.keys(changes).length) await users.broadcast(id);
     rt.sendToBosses({ type: 'users' }).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: 'Server error' });
+    userError(res, e);
   }
 });
 

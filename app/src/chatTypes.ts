@@ -5,6 +5,7 @@ export type Chat = {
   type: 'all' | 'group' | 'dm' | 'checkin';
   name: string;
   otherUserId: number | null;
+  otherUserEmoji?: string | null;
   membersCount: number;
   unread: number;
   createdBy?: number | null;
@@ -31,10 +32,13 @@ export type Msg = {
   chatId: number;
   senderId: number;
   senderName: string;
+  senderEmoji?: string | null;
   text: string | null;
   deleted: boolean;
   createdAt: string;
-  editedAt?: string | null; // set = bubble shows "edited"
+  editedAt?: string | null;
+  sourceMessageId?: number | null; // bot card: the human message that caused it (shown attached under it)
+  taskId?: number | null; // card / command / "#N" message / reply in a task reply chain // set = bubble shows "edited"
   pending?: boolean;
   type?: 'text' | 'bot' | 'system' | 'checkin_prompt'; // 'bot' = task event card; 'system' = centered grey pill; 'checkin_prompt' = daily check-in card
   payload?: BotPayload | CheckinPromptPayload | null;
@@ -49,33 +53,48 @@ export type Reaction = { emoji: string; userIds: number[] };
 
 // Payload of a 'bot' message (server/src/ai/*). Old messages used `action` instead of `event` and had no ids of actors.
 export type BotItem = { id: number; title: string; dueDate: string | null };
-export type TaskEventName = 'created' | 'updated' | 'completed' | 'review' | 'reassigned' | 'due' | 'deleted' | 'note' | 'praise';
+export type TaskEventName =
+  | 'created' | 'updated' | 'completed' | 'review' | 'reassigned' | 'due' | 'deleted' | 'note' | 'praise'
+  | 'planning' | 'coding' | 'testing' | 'change_merged' | 'done' | 'closed' | 'reopened' | 'answered';
 export type PickUser = { id: number; name: string; phoneTail: string };
 export type BotPayload =
-  | { kind: 'task'; event?: TaskEventName; action?: 'created' | 'completed' | 'updated'; task: Task; actorId?: number; actorName?: string; note?: string; byAi?: boolean }
+  | {
+      kind: 'task'; event?: TaskEventName; action?: 'created' | 'completed' | 'updated'; task: Task; actorId?: number; actorName?: string;
+      note?: string; byAi?: boolean; replyTo?: number; undo?: 'status' | 'delete' | null; edited?: boolean;
+    }
   | { kind: 'picker'; command: string; text: string; tasks: { id: number; title: string; status: Status }[]; arg?: string }
-  // tap = send '/' + command + (pre ? ' ' + pre : '') + ' @' + firstName + (arg ? ' ' + arg : '') with mentionIds [id]
-  | { kind: 'userpicker'; command: string; text: string; users: PickUser[]; arg: string; pre: string }
-  | { kind: 'ask'; task: Task; actorId: number; actorName: string; assigneeId: number }
-  | { kind: 'reminder'; task: Task; days: number }
-  | { kind: 'list'; title: string; tasks: Task[] }
+  // tap = send '/' + command + (pre ? ' ' + pre : '') + ' @' + firstName + (arg ? ' ' + arg : '')
+  // with mentionIds [...keep ids, id] (keep = people already resolved in the same command; their '@Name' labels are in pre)
+  | { kind: 'userpicker'; command: string; text: string; users: PickUser[]; arg: string; pre: string; keep?: { label: string; id: number }[] }
+  | {
+      kind: 'ask'; task: Task; actorId: number; actorName: string; assigneeId: number; assigneeIds?: number[]; askId?: number; askerId?: number;
+      replyTo?: number;
+    }
+  | { kind: 'reminder'; task: Task; days: number; assigneeId?: number }
+  | {
+      kind: 'list'; title: string;
+      tasks: { id: number; title: string; status: Status; assigneeName: string | null; dueDate: string | null; overdue?: boolean; brief?: boolean }[];
+    }
   | { kind: 'help'; commands: { cmd: string; args: string; desc: string }[] }
   | { kind: 'error'; code: string; message: string }
   | {
       kind: 'summary'; userName: string;
-      counts: { done: number; in_progress: number; todo: number };
-      done: BotItem[]; in_progress: BotItem[]; todo: BotItem[];
+      // round 3 keys: todo, planning, coding, testing, change_merged, done (old cards: in_progress, review)
+      counts: Record<string, number>;
+      [status: string]: any;
     }
   | { kind: 'clarify'; text: string }
   | { kind: 'info'; text: string };
 
-export type Person = { id: number; name: string; phone: string; role?: 'boss' | 'member' };
+export type Person = { id: number; name: string; phone: string; role?: 'boss' | 'member'; avatarEmoji?: string | null };
 
 // ---- Daily check-ins (server/src/checkins.js) ----
 // 'day' = morning card (open tasks, pinned, kept live); 'signoff' = evening sign-off; 'morning'/'evening' = old round-1 prompts.
 export type CheckinKind = 'day' | 'signoff' | 'morning' | 'evening';
+// status = the member's OWN status on the task; taskStatus = the task's aggregate
 export type DayTask = {
   id: number; title: string; status: Status; dueDate: string | null; project?: string | null; overdue?: boolean; stale?: boolean; ageDays?: number;
+  taskStatus?: Status; assigneeCount?: number; createdBy?: number | null; description?: string | null;
 };
 export type CheckinTask = DayTask;
 export type DayCounts = { given: number; done: number; left: number };

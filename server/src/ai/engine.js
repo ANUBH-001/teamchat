@@ -13,8 +13,9 @@ const bot = require('./bot');
 
 const MIN_CONFIDENCE = 0.6;
 const MAX_OPEN_TASKS = 60;
-const TASK_RE = /(task|kaam|karna|karni|karo|kar do|kar dena|kar diya|kar di|bhej|bana|dekh|chahiye|assign|deadline|\bdue\b|\btak\b|ho gaya|ho gayi|ho gya|ho gyi|ho gai|hogaya|hogayi|complete|\bdone\b|finish|khatam|shuru|start|working on|kar raha|kar rahi|pending|status|baaki|baki|testing|काम|टास्क|करना|करनी|करो|कर दो|कर दिया|हो गया|हो गई|हो गयी|पूरा|खत्म|शुरू|बाकी|भेज|बना|तक)/i;
-const LABEL = { todo: 'Todo', in_progress: 'Doing', review: 'Testing', done: 'Done' };
+const TASK_RE = /(task|kaam|karna|karni|karo|kar do|kar dena|kar diya|kar di|bhej|bana|dekh|chahiye|assign|deadline|\bdue\b|\btak\b|ho gaya|ho gayi|ho gya|ho gyi|ho gai|hogaya|hogayi|complete|\bdone\b|finish|khatam|shuru|start|working on|kar raha|kar rahi|pending|status|baaki|baki|testing|merge|planning|coding|काम|टास्क|करना|करनी|करो|कर दो|कर दिया|हो गया|हो गई|हो गयी|पूरा|खत्म|शुरू|बाकी|भेज|बना|तक)/i;
+const S = require('../status');
+const LABEL = S.LABEL;
 
 // Ephemeral question back to the sender only.
 function clarify(chatId, userId, replyTo, text, options = []) {
@@ -53,9 +54,10 @@ async function onMessage(message, user) {
   const boss = user.role === 'boss';
   const sender = { id: user.id, name: user.name, role: user.role };
   const { chatType, members } = await chatContext(chatId);
-  // Boss sees all open tasks; a member only their own (so the model can only pick those).
-  const openTasks = (await T.listTasks({ assignee: boss ? 'all' : String(user.id) }, user))
-    .filter((t) => t.status !== 'done').slice(0, MAX_OPEN_TASKS);
+  // Boss sees all open tasks; a member only the ones assigned to them (so the model can only pick those).
+  const openTasks = (boss ? await T.listTasks({ scope: 'all', status: 'open' }, user)
+    : (await T.assignedTo(user.id)).filter((t) => t.myStatus !== 'done').map((t) => ({ ...t, status: t.myStatus })))
+    .slice(0, MAX_OPEN_TASKS);
 
   const d = await provider.decide({ message: text, sender, members, openTasks });
   if (d.action === 'none') return;
@@ -95,10 +97,11 @@ async function onMessage(message, user) {
       if (d.action === 'complete_task') {
         const r = await T.applyUpdate(task.id, { status: 'done' }, user, 'ai', message.id);
         if (!r.changed) return;
-        return bot.taskCard(chatId, 'completed', r.task, user, { byAi: true, replyTo, undo: 'status' });
+        return bot.taskCard(chatId, r.event, r.task, user, { byAi: true, replyTo, undo: 'status' });
       }
       const f = {};
-      if (d.status && d.status !== task.status) f.status = d.status;
+      const st = S.norm(d.status);
+      if (st && st !== task.status) f.status = st;
       if (boss) {
         if (d.due_date && d.due_date !== task.dueDate) f.dueDate = d.due_date;
         if (d.title && d.title !== task.title) f.title = d.title;
@@ -123,13 +126,11 @@ async function onMessage(message, user) {
       }
       const s = await T.mySummary(target.id);
       const cut = (list) => list.slice(0, 10);
-      const payload = {
-        kind: 'summary', replyTo, userId: target.id, userName: target.name,
-        counts: { done: s.done.length, review: s.review.length, in_progress: s.in_progress.length, todo: s.todo.length },
-        done: cut(s.done), review: cut(s.review), in_progress: cut(s.in_progress), todo: cut(s.todo),
-      };
+      const ORDER = ['done', 'change_merged', 'testing', 'coding', 'planning', 'todo'];
+      const payload = { kind: 'summary', replyTo, userId: target.id, userName: target.name, counts: {} };
+      for (const k of ORDER) { payload.counts[k] = s[k].length; payload[k] = cut(s[k]); }
       const lines = [target.name + ' ke tasks:'];
-      for (const k of ['done', 'review', 'in_progress', 'todo']) {
+      for (const k of ORDER) {
         lines.push(LABEL[k] + ' (' + s[k].length + ')');
         for (const t of payload[k]) lines.push('• ' + t.title + (t.dueDate ? ' - ' + t.dueDate : ''));
       }

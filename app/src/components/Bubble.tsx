@@ -9,6 +9,8 @@ import CheckinCard from './CheckinCard';
 import SwipeReply from './SwipeReply';
 import SystemPill from './SystemPill';
 import RichText from './RichText';
+import TaskAttachments from './TaskAttachment';
+import { useUser } from '../userStore';
 
 // Bot cards about one task (kind 'task' | 'ask'): replying to them updates that task (server: commands.handleReply).
 export const isTaskCard = (m: Msg) => {
@@ -37,10 +39,25 @@ type Props = {
   isBoss: boolean;
   highlight: boolean;
   onCardMic?: (cb: (said: string) => void) => void;
+  attachments?: Msg[]; // bot cards caused by this message (All filter), shown under the bubble
+  quote?: string | null; // bot card in the AI filter: one line of the source message
+  onTaskChip?: (taskId: number) => void; // "#N" chip on a task-linked text message
 };
+
+// Sender line in groups: live name + emoji from the user store (payload snapshot as fallback).
+function Sender({ id, name, emoji }: { id: number; name: string; emoji?: string | null }) {
+  const u = useUser(id);
+  const e = (u && u.avatarEmoji) || emoji || '';
+  return (
+    <Text numberOfLines={1} style={{ color: colorFor(id), fontWeight: '700', fontSize: 13, marginBottom: 2 }}>
+      {(e ? e + ' ' : '') + ((u && u.name) || name)}
+    </Text>
+  );
+}
 
 function BubbleBase({
   msg, mine, showSender, status, t, onLongPress, onReply, onQuotePress, onReact, onOpenTask, onSendText, onPrefill, meId, meName, isBoss, highlight, onCardMic,
+  attachments, quote, onTaskChip,
 }: Props) {
   if (msg.type === 'system') return <SystemPill text={msg.text || ''} t={t} />;
   if (msg.type === 'checkin_prompt' && !msg.deleted && msg.payload) {
@@ -49,7 +66,7 @@ function BubbleBase({
   if (msg.type === 'bot') {
     const card = (
       <BotCard msg={msg} t={t} meId={meId} isBoss={isBoss} time={timeOf(msg.createdAt)} onLongPress={onLongPress}
-        onOpenTask={onOpenTask} onSendText={onSendText} onPrefill={onPrefill} />
+        onOpenTask={onOpenTask} onSendText={onSendText} onPrefill={onPrefill} onReply={onReply} quote={quote} />
     );
     // task / ask cards: swipe right to reply (the server adds the reply as a note, "desc: ..." = description)
     if (!isTaskCard(msg)) return card;
@@ -58,6 +75,8 @@ function BubbleBase({
   const rt = msg.deleted ? null : msg.replyTo;
   const tinted = showSender && !mine;
   const reactions = msg.deleted ? [] : (msg.reactions ?? []).filter((r) => r.userIds.length > 0);
+  // task link (reply-chain note / "#N" message); command messages have their card instead
+  const chip = !msg.deleted && msg.taskId && !/^\s*\//.test(msg.text || '') ? msg.taskId : null;
   return (
     <SwipeReply enabled={!!msg.id && !msg.deleted} onReply={() => onReply(msg)} color={t.subtext}>
       <View
@@ -74,11 +93,7 @@ function BubbleBase({
             borderLeftWidth: tinted ? 3 : 0, borderLeftColor: tinted ? colorFor(msg.senderId) : 'transparent',
           }}
         >
-          {showSender && !mine && (
-            <Text style={{ color: colorFor(msg.senderId), fontWeight: '700', fontSize: 13, marginBottom: 2 }}>
-              {msg.senderName}
-            </Text>
-          )}
+          {showSender && !mine && <Sender id={msg.senderId} name={msg.senderName} emoji={msg.senderEmoji} />}
           {!!rt && (
             <Pressable
               onPress={() => onQuotePress(rt.id)}
@@ -104,6 +119,15 @@ function BubbleBase({
             <RichText text={msg.text || ''} t={t} meName={meName} mine={mine} style={{ color: t.text, fontSize: 15 }} />
           )}
           <View style={{ flexDirection: 'row', alignSelf: 'flex-end', alignItems: 'center', marginTop: 2 }}>
+            {chip && (
+              <Pressable
+                onPress={() => onTaskChip && onTaskChip(chip)} hitSlop={8}
+                style={{ flexDirection: 'row', alignItems: 'center', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, marginRight: 8, backgroundColor: 'rgba(0,0,0,0.08)' }}
+              >
+                <Ionicons name="checkbox-outline" size={11} color={t.accent} />
+                <Text style={{ color: t.accent, fontSize: 11, fontWeight: '700', marginLeft: 3 }}>#{chip}</Text>
+              </Pressable>
+            )}
             {msg.visibleTo != null && (
               <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
                 <Ionicons name="eye-off-outline" size={11} color={t.subtext} />
@@ -135,6 +159,12 @@ function BubbleBase({
               );
             })}
           </View>
+        )}
+        {!!attachments && attachments.length > 0 && (
+          <TaskAttachments
+            cards={attachments} mine={mine} t={t} meId={meId} isBoss={isBoss} onLongPress={onLongPress} onOpenTask={onOpenTask}
+            onSendText={onSendText} onPrefill={onPrefill} onReply={onReply}
+          />
         )}
       </View>
     </SwipeReply>

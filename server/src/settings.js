@@ -6,7 +6,7 @@ const pool = require('./db');
 const DEFAULTS = {
   aiEnabled: true, aiDetect: true, commandsEnabled: true, membersCanAssign: true, notifyAdminOnMemberChanges: true,
   quietTaskNotifs: true, praiseEnabled: true,
-  minVersionCode: 0, latestVersionCode: 3, latestVersionName: '0.3.0', apkUrl: '', updateMessage: '',
+  minVersionCode: 0, latestVersionCode: 4, latestVersionName: '0.4.0', apkUrl: '', updateMessage: '',
   // retention (jobs.js): weekly message purge + 14-day task cleanup only when retentionEnabled; reminder 0 = off
   retentionEnabled: true, taskReminderDays: 6, taskDeleteDays: 14, messageRetentionDays: 7,
 };

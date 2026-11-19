@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../useTheme';
 import { api } from '../api';
 import { AdminDay } from '../chatTypes';
-import { OVERDUE_COLOR, STATUS_COLOR, Task } from '../taskTypes';
+import { OVERDUE_COLOR, STATUS_COLOR, Task, assigneeNamesOf } from '../taskTypes';
 import { useLiveRefresh } from '../useLive';
 import Avatar from './Avatar';
 import MyDay from './MyDay';
@@ -44,7 +44,7 @@ export function SignoffPanel({ onPerson }: { onPerson: (id: number) => void }) {
               key={m.id} onPress={() => onPerson(m.id)}
               style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, minHeight: 56, borderTopWidth: i ? 1 : 0, borderTopColor: t.border }}
             >
-              <Avatar name={m.name} id={m.id} size={32} />
+              <Avatar name={m.name} id={m.id} userId={m.id} size={32} />
               <Text numberOfLines={1} style={{ flex: 1, color: t.text, fontSize: 15, marginLeft: 12 }}>{m.name}</Text>
               {so ? (
                 <>
@@ -78,7 +78,7 @@ export function StalePanel({ tasks, days, onOpen }: { tasks: Task[]; days: numbe
           >
             <View style={{ flex: 1 }}>
               <Text numberOfLines={2} style={{ color: t.text, fontSize: 14 }}>{x.title}</Text>
-              <Text style={{ color: t.subtext, fontSize: 12, marginTop: 2 }}>{x.assigneeName || 'Unassigned'}  ·  #{x.id}</Text>
+              <Text style={{ color: t.subtext, fontSize: 12, marginTop: 2 }}>{assigneeNamesOf(x).join(', ') || 'Unassigned'}  ·  #{x.id}</Text>
             </View>
             <View style={{ backgroundColor: OVERDUE_COLOR, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
               <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{x.ageDays ?? days} din</Text>

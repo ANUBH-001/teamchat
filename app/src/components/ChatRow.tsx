@@ -32,7 +32,9 @@ function ChatRowBase({ chat, t, meId, onPress, onLongPress }: { chat: Chat; t: T
         backgroundColor: t.card, borderBottomWidth: 1, borderBottomColor: t.border,
       }}
     >
-      <Avatar name={chat.name} id={chat.id} />
+      {chat.type === 'dm' && chat.otherUserId
+        ? <Avatar name={chat.name} id={chat.otherUserId} userId={chat.otherUserId} emoji={chat.otherUserEmoji} />
+        : <Avatar name={chat.name} id={chat.id} />}
       <View style={{ flex: 1, marginLeft: 12 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           <Text numberOfLines={1} style={{ flex: 1, color: t.text, fontSize: 16, fontWeight: '600' }}>

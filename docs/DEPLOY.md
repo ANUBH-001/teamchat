@@ -81,3 +81,14 @@ Note: code default `latestVersionCode` is 3, so set it in `app_settings` (or Set
 3. WARNING retention is ON by default (`retentionEnabled:true`): the first Sunday 23:00 after deploy HARD-deletes messages older than 7 days, and the
    daily job deletes tasks older than 14 days (both dump JSON to `server/backup/` first). Turn it off in Admin > Settings > Data retention if not wanted yet.
 4. APK 0.3.0 / versionCode 3 (no new native dep): rebuild release, upload as `TeamChat.apk`, then Settings: latest code `3`, name `0.3.0`; min `3` only when everyone updated.
+
+## Round 3 update (NOT deployed yet; app 0.4.0 / versionCode 4, migrate_009)
+Forced update: 0.3.0 clients will be blocked (426) once min = 4; announce to the team first. Order:
+1. Release APK 0.4.0 (no new native dep) -> upload FIRST as `server/public/download/TeamChat.apk` (keep the old one as a .bak). Check `curl -sI .../download/TeamChat.apk` -> 200.
+2. DB backup: `mysqldump ... team_chat_db > /root/team-chat-dbbackup/pre-009-<date>.sql`.
+3. BEFORE the new server starts: `mysql -u team_chat_user -p team_chat_db < /opt/node/team-chat/server/sql/migrate_009.sql`
+   (task_assignees + backfill, statuses in_progress->coding / review->testing, deleted tasks -> closed, message link columns + backfill, avatar_emoji, session_id, indexes).
+4. Code: git pull, `npm install --omit=dev`, `pm2 restart team-chat-backend --update-env`, health check. No new env keys. Reverse proxy must pass the `Authorization` header on the WebSocket upgrade (it does for REST).
+5. Admin > Settings > App update: latest code `4`, name `0.4.0`, then min `4`.
+Notes: nobody is logged out at deploy (session_id NULL until each user's next login). taskcleanup now deletes only done/closed tasks 14 days after finishing.
+Rollback: min `0`, restore the pre-009 dump, `git checkout <previous hash>`, restart (the old code cannot read multi-assignee data written after 009).

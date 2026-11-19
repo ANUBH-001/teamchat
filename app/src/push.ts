@@ -2,6 +2,8 @@ import * as Notifications from 'expo-notifications';
 import { AppState, Platform, Vibration } from 'react-native';
 import { emitEvent, onEvent } from './realtime';
 import { api } from './api';
+import { enqueue } from './outbox';
+import { showBanner } from './bannerStore';
 import { getPublicSettings } from './publicSettings';
 import { CheckinSettings } from './chatTypes';
 
@@ -21,9 +23,19 @@ export function setChatPrefs(chats: { id: number; muted?: boolean }[]) {
   for (const c of chats) if (c.muted) mutedChats.add(c.id);
 }
 
+// Open a chat from another tab (task detail "Chat mein dekho"): kept until ChatsScreen mounts or handles '_open_chat'.
+// messageId (optional): scroll to that message once the chat is open.
+let pendingMsgId: number | null = null;
+export function setPendingChat(id: number, messageId: number | null = null) { pendingChatId = id; pendingMsgId = messageId; }
+
 export function takePendingChat() {
   const id = pendingChatId;
   pendingChatId = null;
+  return id;
+}
+export function takePendingMessage() {
+  const id = pendingMsgId;
+  pendingMsgId = null;
   return id;
 }
 
@@ -31,11 +43,30 @@ export function setActiveChat(id: number | null) {
   activeChatId = id;
 }
 
+// Android "Reply" action (text input) on ask / mention notifications: the typed text is sent as a reply to that
+// message through the outbox. clientId comes from the notification id, so a repeated response never sends twice.
+const REPLY_CATEGORY = 'reply';
+const REPLY_ACTION = 'reply';
+function replied(r: Notifications.NotificationResponse) {
+  const data: any = r.notification.request.content.data || {};
+  const chatId = Number(data.chatId);
+  const text = String(r.userText || '').trim();
+  if (!chatId || !text) return;
+  const replyTo = data.messageId
+    ? { id: Number(data.messageId), senderName: String(data.senderName || ''), text: data.preview ? String(data.preview) : null, deleted: false }
+    : null;
+  enqueue(chatId, text, 'nr' + r.notification.request.identifier, new Date().toISOString(), replyTo).catch(() => {});
+  Notifications.dismissNotificationAsync(r.notification.request.identifier).catch(() => {});
+}
+
 function opened(r: Notifications.NotificationResponse | null) {
+  if (r && r.actionIdentifier === REPLY_ACTION) { replied(r); return; }
   const id = Number(r?.notification.request.content.data?.chatId);
   if (!id) return;
+  const mid = Number(r?.notification.request.content.data?.messageId) || null;
   pendingChatId = id; // read by ChatsScreen on mount (cold start / just logged in)
-  emitEvent({ type: '_open_chat', chatId: id }); // or handled live if already mounted
+  pendingMsgId = mid;
+  emitEvent({ type: '_open_chat', chatId: id, messageId: mid }); // or handled live if already mounted
 }
 
 // Call once after login: Android channel + notification permission. Failures are ignored.
@@ -54,6 +85,13 @@ export async function setupNotifications() {
         enableVibrate: false,
       });
     }
+    // "Reply" button with a text box on ask / mention notifications. Stays in the background.
+    await Notifications.setNotificationCategoryAsync(REPLY_CATEGORY, [{
+      identifier: REPLY_ACTION,
+      buttonTitle: 'Reply',
+      textInput: { submitButtonTitle: 'Bhejo', placeholder: 'Jawab likho...' },
+      options: { opensAppToForeground: false },
+    }]).catch(() => {});
     const { status } = await Notifications.getPermissionsAsync();
     if (status !== 'granted') await Notifications.requestPermissionsAsync();
   } catch (e) {}
@@ -64,9 +102,16 @@ const preview = (s: string) => {
   return t.length > 100 ? t.slice(0, 97) + '...' : t;
 };
 
-const notify = (title: string, body: string, chatId: number | null | undefined, channelId: 'messages' | 'tasks') => {
+// reply: the message the notification's "Reply" action answers
+type ReplyTarget = { messageId: number; senderName: string; preview: string };
+const notify = (title: string, body: string, chatId: number | null | undefined, channelId: 'messages' | 'tasks', reply?: ReplyTarget | null) => {
+  const withReply = !!(reply && chatId && reply.messageId);
   Notifications.scheduleNotificationAsync({
-    content: { title, body, data: chatId ? { chatId } : {} },
+    content: {
+      title, body,
+      data: chatId ? { chatId, ...(withReply ? reply : {}) } : {},
+      ...(withReply ? { categoryIdentifier: REPLY_CATEGORY } : {}),
+    },
     trigger: Platform.OS === 'android' ? { channelId } : null,
   }).catch(() => {});
 };
@@ -78,9 +123,11 @@ async function loadChatPrefs() {
 // Watches WebSocket events and raises LOCAL notifications while the app is in the background:
 // - 'message': not mine, not deleted; muted chats stay silent unless I am @mentioned; bot/system cards never notify
 //   (task changes come as 'task' events instead). Foreground in another chat -> short vibration.
-// - 'task' (ws {type:'task', task, event, actorId, actorName, notifyAdmin}): the assignee hears about new / reassigned
-//   tasks and praise; an admin gets a QUIET notification (channel 'tasks', no sound) when a task is completed or moved
-//   to Testing and the server says notifyAdmin. With the "quiet task notifications" setting off they use the loud channel.
+// - 'task' (ws {type:'task', task, event, actorId, actorName, notifyAdmin}): assignees hear about new / reassigned
+//   tasks and praise; an admin gets a QUIET notification (channel 'tasks') for completed / done / testing /
+//   change_merged when the server says notifyAdmin (loud channel when "quiet task notifications" is off); the asker
+//   hears 'answered'. @mentions and /ask cards: top banner (InAppBanner) in the foreground when that chat is not open;
+//   in the background a notification with an Android "Reply" text action.
 export function listenMessageAlerts(myId: number, role: string = 'member') {
   loadChatPrefs();
   const off = onEvent((e) => {
@@ -102,18 +149,28 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
         return; // the assignee hears it from the reminder card in their check-in chat
       }
       if (e.type === 'task') {
-        if (AppState.currentState === 'active' || !e.task || e.actorId === myId) return;
+        if (!e.task || e.actorId === myId) return;
         const task = e.task;
         const ev = String(e.event || '');
         const actor = String(e.actorName || 'Someone');
         const title = preview(String(task.title || ''));
-        if (task.assigneeId === myId && (ev === 'created' || ev === 'reassigned')) {
-          notify(ev === 'created' ? 'New task' : 'Task reassigned to you', title, task.chatId, 'messages');
-        } else if (task.assigneeId === myId && ev === 'praise') {
+        // an assignee answered my /ask: the server sends 'answered' to the asker
+        if (ev === 'answered') {
+          if (AppState.currentState === 'active') {
+            if (task.chatId && task.chatId !== activeChatId) showBanner({ chatId: task.chatId, title: actor + ' ne jawab diya', body: title });
+          } else notify(actor + ' ne jawab diya', title, task.chatId, 'messages');
+          return;
+        }
+        if (AppState.currentState === 'active') return;
+        const assignee = task.assigneeId === myId || (Array.isArray(task.assignees) && task.assignees.some((a: any) => a && a.id === myId));
+        if (assignee && (ev === 'created' || ev === 'reassigned')) {
+          notify(ev === 'created' ? 'New task' : 'Task aapko diya gaya', title, task.chatId, 'messages');
+        } else if (assignee && ev === 'praise') {
           notify('👏 ' + actor + ' praised your work', title, task.chatId, 'messages');
-        } else if (role === 'boss' && e.notifyAdmin && (ev === 'completed' || ev === 'review')) {
-          notify(actor + (ev === 'completed' ? ' completed a task' : ' moved a task to Testing'), title, task.chatId,
-            getPublicSettings().quietTaskNotifs ? 'tasks' : 'messages');
+        } else if (role === 'boss' && e.notifyAdmin && ['completed', 'done', 'testing', 'review', 'change_merged'].includes(ev)) {
+          const what = ev === 'completed' ? ' completed a task' : ev === 'done' ? ' ne apna part Done kiya'
+            : ev === 'change_merged' ? ': Change merged' : ' moved a task to Testing';
+          notify(actor + what, title, task.chatId, getPublicSettings().quietTaskNotifs ? 'tasks' : 'messages');
         }
         return;
       }
@@ -123,9 +180,14 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
       // bot cards that ask ME something: "/ask" status question, 6-day pending reminder
       const kind = m.type === 'bot' && m.payload ? m.payload.kind : null;
       if (mentioned && (kind === 'ask' || kind === 'reminder') && !m.deleted) {
-        if (AppState.currentState === 'active') { if (m.chatId !== activeChatId) Vibration.vibrate(150); return; }
-        notify(kind === 'ask' ? String(m.payload.actorName || 'Someone') + ' ne status poocha' : 'Task pending hai',
-          preview(String(m.payload.task?.title || m.text || '')), m.chatId, 'messages');
+        const head = kind === 'ask' ? String(m.payload.actorName || 'Someone') + ' ne status poocha' : 'Task pending hai';
+        const body = preview(String(m.payload.task?.title || m.text || ''));
+        if (AppState.currentState === 'active') {
+          if (m.chatId !== activeChatId) { Vibration.vibrate(150); showBanner({ chatId: m.chatId, title: head, body, messageId: m.id }); }
+          return;
+        }
+        notify(head, body, m.chatId, 'messages',
+          kind === 'ask' && m.id ? { messageId: m.id, senderName: String(m.senderName || 'Bot'), preview: body } : null);
         return;
       }
       if (m.deleted || m.senderId === myId || m.type === 'bot' || m.type === 'system') return;
@@ -133,10 +195,15 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
       // a slash command's own text ("/task anubhav ...", "/ask #12") is not news: the bot card / task event notifies
       if (/^\/[a-z]/i.test(String(m.text || '')) && !mentioned) return;
       if (AppState.currentState === 'active') {
-        if (m.chatId !== activeChatId) Vibration.vibrate(150);
+        if (m.chatId !== activeChatId) {
+          Vibration.vibrate(150);
+          if (mentioned) showBanner({ chatId: m.chatId, title: m.senderName + ' mentioned you', body: preview(String(m.text || '')), messageId: m.id });
+        }
         return;
       }
-      notify(mentioned ? m.senderName + ' mentioned you' : m.senderName, preview(String(m.text || '')), m.chatId, 'messages');
+      const body = preview(String(m.text || ''));
+      notify(mentioned ? m.senderName + ' mentioned you' : m.senderName, body, m.chatId, 'messages',
+        mentioned && m.id ? { messageId: m.id, senderName: String(m.senderName || ''), preview: body } : null);
     } catch (err) {}
   });
   return off;

@@ -3,23 +3,23 @@ import { Alert, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../useTheme';
 import { api } from '../api';
-import { ActivityEvent, OVERDUE_COLOR, STATUS_COLOR, STATUS_LABEL, Summary, Totals } from '../taskTypes';
+import { ActivityEvent, OVERDUE_COLOR, STATUS_COLOR, STEPS, Summary, Totals, UserCount, labelOf } from '../taskTypes';
 import { ago, describeEvent, EVENT_ICON } from '../taskEvents';
 import Avatar from './Avatar';
 
-export type TileKey = 'open' | 'in_progress' | 'review' | 'doneToday' | 'overdue';
+export type TileKey = 'open' | 'coding' | 'testing' | 'doneToday' | 'overdue';
 
 const TILES: { key: TileKey; label: string; color: string; value: (t: Totals) => number }[] = [
   { key: 'open', label: 'Open', color: STATUS_COLOR.todo, value: (t) => t.open },
-  { key: 'in_progress', label: 'Doing', color: STATUS_COLOR.in_progress, value: (t) => t.in_progress },
-  { key: 'review', label: 'Testing', color: STATUS_COLOR.review, value: (t) => t.review },
+  { key: 'coding', label: 'Coding', color: STATUS_COLOR.coding, value: (t) => t.coding },
+  { key: 'testing', label: 'Testing', color: STATUS_COLOR.testing, value: (t) => t.testing },
   { key: 'doneToday', label: 'Done today', color: STATUS_COLOR.done, value: (t) => t.doneToday },
   { key: 'overdue', label: 'Overdue', color: OVERDUE_COLOR, value: (t) => t.overdue },
 ];
 
-export default function TaskOverview({ sum, activity, canPraise, onTile, onTeam, onOpenTask }: {
+export default function TaskOverview({ sum, activity, canPraise, onTile, onTeam, onOpenTask, isBoss = true }: {
   sum: Summary | null; activity: ActivityEvent[]; canPraise: boolean;
-  onTile: (k: TileKey) => void; onTeam: (userId: number) => void; onOpenTask: (id: number) => void;
+  onTile: (k: TileKey) => void; onTeam: (userId: number) => void; onOpenTask: (id: number) => void; isBoss?: boolean;
 }) {
   const t = useTheme();
   const [praised, setPraised] = useState<Record<number, boolean>>({});
@@ -49,7 +49,7 @@ export default function TaskOverview({ sum, activity, canPraise, onTile, onTeam,
         })}
       </View>
 
-      <Text style={heading}>Team</Text>
+      <Text style={heading}>{isBoss ? 'Team' : 'Mera kaam'}</Text>
       <View style={{ backgroundColor: t.card, borderRadius: 16, marginHorizontal: 16, overflow: 'hidden' }}>
         {!team.length && <Text style={{ color: t.subtext, padding: 16 }}>No tasks yet.</Text>}
         {team.map((u, i) => (
@@ -58,7 +58,7 @@ export default function TaskOverview({ sum, activity, canPraise, onTile, onTeam,
             style={{ paddingHorizontal: 16, paddingVertical: 12, minHeight: 68, borderTopWidth: i ? 1 : 0, borderTopColor: t.border }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Avatar name={u.name} id={u.id} size={36} />
+              <Avatar name={u.name} id={u.id} userId={u.id} size={36} />
               <Text numberOfLines={1} style={{ flex: 1, color: t.text, fontSize: 15, fontWeight: '600', marginLeft: 12 }}>{u.name}</Text>
               {u.overdue > 0 && (
                 <View style={{ backgroundColor: OVERDUE_COLOR, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginRight: 8 }}>
@@ -68,11 +68,11 @@ export default function TaskOverview({ sum, activity, canPraise, onTile, onTeam,
               <Text style={{ color: t.subtext, fontSize: 12 }}>{u.done}/{u.total}</Text>
             </View>
             <View style={{ flexDirection: 'row', height: 8, borderRadius: 4, overflow: 'hidden', backgroundColor: t.soft, marginTop: 10 }}>
-              {([['todo', u.todo], ['in_progress', u.in_progress], ['review', u.review], ['done', u.done]] as const).map(([s, n]) =>
+              {STEPS.map((s) => [s, (u as UserCount)[s]] as const).map(([s, n]) =>
                 n > 0 ? <View key={s} style={{ flex: n, backgroundColor: STATUS_COLOR[s] }} /> : null)}
             </View>
             <Text style={{ color: t.subtext, fontSize: 11, marginTop: 6 }}>
-              {u.todo} {STATUS_LABEL.todo.toLowerCase()} · {u.in_progress} doing · {u.review} testing · {u.done} done
+              {STEPS.filter((s) => s !== 'done' && u[s] > 0).map((s) => u[s] + ' ' + labelOf(s).toLowerCase()).join(' · ')}{u.done ? ' · ' + u.done + ' done' : ''}
             </Text>
           </Pressable>
         ))}
@@ -82,7 +82,7 @@ export default function TaskOverview({ sum, activity, canPraise, onTile, onTeam,
       <View style={{ backgroundColor: t.card, borderRadius: 16, marginHorizontal: 16, overflow: 'hidden' }}>
         {!activity.length && <Text style={{ color: t.subtext, padding: 16 }}>No activity yet.</Text>}
         {activity.slice(0, 30).map((e, i) => {
-          const done = e.event === 'status' && (e.newValue === 'done' || e.newValue === 'review');
+          const done = e.event === 'status' && (e.newValue === 'done' || e.newValue === 'testing' || e.newValue === 'change_merged' || e.newValue === 'review');
           return (
             <Pressable
               key={e.id} onPress={() => onOpenTask(e.taskId)}

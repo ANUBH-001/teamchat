@@ -7,11 +7,14 @@ const settings = require('../settings');
 const router = express.Router();
 router.use(requireAuth);
 
-// People list for picking group members / starting a DM
+// People list for picking group members / starting a DM. ?includeSelf=1 adds me (task pickers, user store).
 router.get('/users', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT id, name, phone, role FROM users WHERE active = 1 AND is_bot = 0 AND id <> ? ORDER BY name', [req.user.id]);
-    res.json({ users: rows });
+    const self = req.query.includeSelf === '1' || req.query.includeSelf === 'true';
+    const [rows] = await pool.query(
+      'SELECT id, name, phone, role, avatar_emoji FROM users WHERE active = 1 AND is_bot = 0' + (self ? '' : ' AND id <> ?') + ' ORDER BY name',
+      self ? [] : [req.user.id]);
+    res.json({ users: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, role: r.role, avatarEmoji: r.avatar_emoji || null })) });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -46,6 +49,10 @@ router.delete('/messages/:id', async (req, res) => {
       await pool.query('UPDATE messages SET deleted_at = NOW() WHERE id = ?', [m.id]);
       const ev = { type: 'deleted', chatId: m.chat_id, messageId: Number(m.id) };
       if (m.visible_to) rt.sendToUser(m.visible_to, ev); else await rt.sendToChat(m.chat_id, ev);
+      // a note made from this message (reply chain / card reply / #N) is marked deleted on the task timeline
+      if (!myEphemeral) {
+        setImmediate(() => require('../ai/commands').onSourceDeleted(m, req.user).catch((e) => console.error('note delete:', e.message)));
+      }
     }
     res.json({ ok: true });
   } catch (e) {
@@ -76,6 +83,13 @@ router.patch('/messages/:id', async (req, res) => {
     message.reactions = (await reactionsFor([message.id])).get(message.id) || [];
     if (text !== m.body) await rt.sendToChat(m.chat_id, { type: 'edited', chatId: m.chat_id, message });
     res.json({ message });
+    // Edit propagation (inside the 10-min window, author only, both enforced above): task title/description/due made
+    // by this message, notes from it, and the cards attached to it. Status / assignees are never changed by an edit.
+    if (text !== m.body) {
+      const { tagged } = await resolveMentions(text, m.chat_id, req.body.mentionIds).catch(() => ({ tagged: [] }));
+      setImmediate(() => require('../ai/commands').onSourceEdited(message, req.user, { tagged, oldText: m.body })
+        .catch((e) => console.error('edit propagation:', e.message)));
+    }
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
