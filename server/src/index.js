@@ -39,6 +39,9 @@ app.get('/app/version', async (req, res) => {
 // APK download folder (server/public/download, *.apk git-ignored), e.g. /download/TeamChat.apk
 app.use('/download', express.static(path.join(__dirname, '..', 'public', 'download')));
 
+// Self-hosted OTA updates (expo-updates sends no X-App-Version, so mount before the 426 check below)
+app.use('/updates', require('./routes/updates'));
+
 // Every other route: header X-App-Version (missing = 0) below minVersionCode -> 426 UPDATE_REQUIRED.
 app.use(async (req, res, next) => {
   try {

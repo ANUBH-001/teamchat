@@ -10,3 +10,5 @@ firebase*.json
 app/android/
 app/ios/
 app/modules/*/android/build/
+server/updates/
+app/dist-update/

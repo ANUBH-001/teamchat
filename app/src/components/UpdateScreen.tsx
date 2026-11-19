@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../useTheme';
 import { checkVersion, dismissUpdateBanner, useUpdateState } from '../updateStore';
 import { VERSION_NAME } from '../version';
+import { applyNow, dismissOtaBanner, useOtaState } from '../otaUpdate';
 
 // Full-screen block: this app is older than the server's minimum version (or any call answered 426).
 export function UpdateScreen() {
@@ -63,6 +64,30 @@ export function UpdateBanner() {
         </Pressable>
       )}
       <Pressable onPress={dismissUpdateBanner} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name="close" size={20} color={t.subtext} />
+      </Pressable>
+    </View>
+  );
+}
+
+// Dismissible banner: an OTA update was downloaded, restart to use it.
+export function OtaBanner() {
+  const t = useTheme();
+  const insets = useSafeAreaInsets();
+  const ota = useOtaState();
+  if (ota.status !== 'ready' || ota.dismissed) return null;
+  return (
+    <View
+      style={{
+        position: 'absolute', left: 12, right: 12, top: insets.top + 8, zIndex: 49, elevation: 8, flexDirection: 'row', alignItems: 'center',
+        backgroundColor: t.card, borderRadius: 14, paddingLeft: 14, minHeight: 52, borderLeftWidth: 4, borderLeftColor: t.accent,
+      }}
+    >
+      <Text style={{ flex: 1, color: t.text, fontSize: 14, fontWeight: '600' }}>Naya update ready hai</Text>
+      <Pressable onPress={() => { applyNow(); }} style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 10 }}>
+        <Text style={{ color: t.accent, fontWeight: '700' }}>Restart</Text>
+      </Pressable>
+      <Pressable onPress={dismissOtaBanner} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <Ionicons name="close" size={20} color={t.subtext} />
       </Pressable>
     </View>

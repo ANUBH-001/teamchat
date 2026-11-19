@@ -92,3 +92,11 @@ Forced update: 0.3.0 clients will be blocked (426) once min = 4; announce to the
 5. Admin > Settings > App update: latest code `4`, name `0.4.0`, then min `4`.
 Notes: nobody is logged out at deploy (session_id NULL until each user's next login). taskcleanup now deletes only done/closed tasks 14 days after finishing.
 Rollback: min `0`, restore the pre-009 dump, `git checkout <previous hash>`, restart (the old code cannot read multi-assignee data written after 009).
+
+## OTA update bhejna (JS/UI change, bina nayi APK) - built, not yet deployed
+1. `powershell server\scripts\publish-update.ps1` (default runtime `1`; `T:` drive khud banta hai). Ye `expo export` + `expoConfig.json` + tar.gz banata hai aur upload ke exact `scp`/`ssh` commands print karta hai.
+2. Wo commands chalao: files `/opt/node/team-chat/server/updates/<runtime>/<yyyyMMddHHmmss>/` me extract hoti hain. Server restart nahi chahiye; sabse naya folder hi live hota hai.
+3. Phones: app start/foreground par update download hota hai, banner "Naya update ready hai" -> Restart; ya Account tab ka "Update app" button.
+4. Rollback: server par latest timestamp folder delete (app pichhla/embedded code le legi).
+5. Nayi APK tab bhi chahiye jab native dependency/plugin badle: `runtimeVersion` (app.json) badhao (jaise "2"), nayi APK build + upload, min version badhao. Purane runtime ke phones ko naye runtime ka update nahi milta.
+6. Optional env `PUBLIC_BASE_URL=https://apps.landauditors.com/team_chat` (Apache /team_chat prefix hatata hai, isliye asset URLs me prefix is se aata hai). `server/updates/` git-ignored hai.

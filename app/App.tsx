@@ -16,7 +16,8 @@ import { light, dark } from './src/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { checkVersion } from './src/updateStore';
-import { UpdateBanner, UpdateScreen } from './src/components/UpdateScreen';
+import { checkAndFetch } from './src/otaUpdate';
+import { OtaBanner, UpdateBanner, UpdateScreen } from './src/components/UpdateScreen';
 import InAppBanner from './src/components/InAppBanner';
 import { useUpdateState } from './src/updateStore';
 
@@ -41,7 +42,8 @@ function Root() {
   // force update: ask the server on start and whenever the app returns to the foreground (any 426 also blocks)
   useEffect(() => {
     checkVersion();
-    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') checkVersion(); });
+    checkAndFetch();
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') { checkVersion(); checkAndFetch(); } });
     return () => sub.remove();
   }, []);
   useEffect(() => {
@@ -75,6 +77,7 @@ function Root() {
     <NavigationContainer>
       <StatusBar style="light" />
       <UpdateBanner />
+      <OtaBanner />
       <Tab.Navigator
         screenOptions={({ route }) => ({
           tabBarIcon: ({ color, size }) => <Ionicons name={ICONS[route.name]} color={color} size={size} />,

@@ -43,6 +43,11 @@ Expo SDK 52 / React Native 0.76 + TypeScript, Android only, version 0.3.0 (versi
 ## Daily check-ins (members)
 Private "Daily Check-in" chat (`type 'checkin'`): `checkin_prompt` messages render as `CheckinCard`: `day` = pinned list of my open tasks with my own status (overdue / N+ din tags; tap = TaskActionSheet; "+ Naya task"; updated live by the server). The `/` and task buttons also show in this chat, `signoff` = MyDay form for today (read-only counts for old days), old `morning`/`evening` cards = plain history. State from `checkinStore` (GET /checkins/today), submit `POST /checkins/signoff`. Boss reads sign-offs + typed notes in Admin -> Reports (day list with Sign-off pill + counts, member detail 7/30 days) and sets times in Check-in settings.
 
+## OTA updates (expo-updates, self-hosted)
+- `src/otaUpdate.ts`: store + `useOtaState()` (idle/checking/downloading/ready/uptodate/error/disabled), `checkAndFetch()`, `applyNow()`; no-op in dev / when not enabled. App.tsx runs it on start + foreground; `OtaBanner` (UpdateScreen.tsx) "Naya update ready hai" + Restart.
+- `components/AppUpdateCard.tsx` (Account/Admin tab, above Logout, boss + member): version, last update, "Update app" button.
+- Rule: `runtimeVersion` in app.json ("1") must change whenever a native dependency/plugin changes; then a new APK is needed. Publish: see DEPLOY.md.
+
 ## How to collaborate
 - New screen: `src/screens/X.tsx`; tab in `App.tsx`, or a view in `ChatsScreen` / `AdminScreen` / `TasksScreen`. Colors only from `useTheme()` (light + dark), 8pt spacing, tap targets >= 44.
 - New API call: `api('GET', '/path')`; add types to `chatTypes.ts` / `taskTypes.ts`; document the endpoint in backend.md. New ws event: handle in `onEvent`.

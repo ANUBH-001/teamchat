@@ -10,6 +10,7 @@ import { useLiveRefresh, usePullRefresh } from '../useLive';
 import ReportsScreen, { CheckinSettingsScreen } from './ReportsScreen';
 import SettingsScreen from './SettingsScreen';
 import BackgroundCard from '../components/BackgroundCard';
+import AppUpdateCard from '../components/AppUpdateCard';
 import Avatar from '../components/Avatar';
 import ProfileSheet from '../components/ProfileSheet';
 
@@ -111,6 +112,7 @@ export default function AdminScreen() {
       <Text style={{ color: t.subtext }}>Only the boss can manage members.</Text>
       <BackgroundCard />
       {profileBtn}
+      <AppUpdateCard />
       {logoutBtn}
       {sheet}
     </View>;
@@ -203,7 +205,7 @@ export default function AdminScreen() {
             </View>
           </View>
         )}
-        ListFooterComponent={<View><BackgroundCard />{profileBtn}{logoutBtn}</View>}
+        ListFooterComponent={<View><BackgroundCard />{profileBtn}<AppUpdateCard />{logoutBtn}</View>}
       />
       {sheet}
     </View>
