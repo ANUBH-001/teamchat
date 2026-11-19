@@ -20,7 +20,8 @@ const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8').replace(/^ï»
 function latestDir(rv) {
   const base = path.join(ROOT, rv);
   if (!fs.existsSync(base)) return null;
-  const names = fs.readdirSync(base).filter((n) => fs.statSync(path.join(base, n)).isDirectory());
+  // only <timestamp> folders (digits): a half-copied or renamed folder is never served
+  const names = fs.readdirSync(base).filter((n) => /^\d+$/.test(n) && fs.statSync(path.join(base, n)).isDirectory());
   if (!names.length) return null;
   names.sort((a, b) => (a.length - b.length) || (a < b ? -1 : a > b ? 1 : 0)); // numeric-ish: longer/larger last
   return path.join(base, names[names.length - 1]);
@@ -50,7 +51,8 @@ router.get('/manifest', (req, res) => {
     if (!fm || !fm.bundle) return res.status(404).json({ error: 'android bundle nahi mila' });
     const rel = path.relative(ROOT, dir).split(path.sep).join('/'); // <rv>/<timestamp>
     const base = baseUrl(req);
-    const mk = (relPath, ext) => {
+    const mk = (rawPath, ext) => {
+      const relPath = String(rawPath).replace(/\\/g, '/'); // export on Windows writes "assets\\<hash>"
       const buf = fs.readFileSync(path.join(dir, relPath));
       return {
         hash: hashOf(buf, 'sha256', 'base64url'),
