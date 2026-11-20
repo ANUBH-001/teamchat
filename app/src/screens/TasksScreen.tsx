@@ -165,10 +165,13 @@ export default function TasksScreen() {
 
   const sheetTask = sheetId !== null ? tasks.find((x) => x.id === sheetId) || (doneAll || []).find((x) => x.id === sheetId) || null : null;
 
+  // with a search typed, "No tasks 🎉" / "No tasks done yet" read as if the list were empty: say nothing matched instead
   const empty = (txt: string) => (
     <View style={{ alignItems: 'center', padding: 36 }}>
-      <Text style={{ fontSize: 34 }}>🎉</Text>
-      <Text style={{ color: t.subtext, marginTop: 8, textAlign: 'center' }}>{txt}</Text>
+      <Text style={{ fontSize: 34 }}>{q.trim() ? '🔍' : '🎉'}</Text>
+      <Text style={{ color: t.subtext, marginTop: 8, textAlign: 'center' }}>
+        {q.trim() ? 'No open or done tasks match "' + q.trim() + '". Closed tasks are not listed here.' : txt}
+      </Text>
     </View>
   );
 
