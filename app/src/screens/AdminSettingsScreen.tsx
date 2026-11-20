@@ -31,11 +31,13 @@ const GROUPS: { title: string; rows: { key: BoolKey; label: string; sub: string 
     { key: 'commandsEnabled', label: 'Slash commands', sub: '/task, /done, /update ...' },
   ] },
   { title: 'Permissions', rows: [
-    { key: 'membersCanAssign', label: 'Members can create and assign tasks', sub: 'Otherwise only admin assigns' },
-    { key: 'praiseEnabled', label: 'Praise', sub: 'Allow the 👏 praise button' },
+    // R-01: members can always create tasks for themselves; this switch only decides assigning OTHER people
+    { key: 'membersCanAssign', label: 'Members can assign tasks to others', sub: 'Off: members can only create tasks for themselves' },
+    // Round 4 hid the Praise button everywhere (BotCard canPraise = false), so its switch did nothing: not shown
+    // { key: 'praiseEnabled', label: 'Praise', sub: 'Allow the 👏 praise button' },
   ] },
   { title: 'Notifications', rows: [
-    { key: 'notifyAdminOnMemberChanges', label: 'Notify admin of member changes', sub: 'Task done / testing / new' },
+    { key: 'notifyAdminOnMemberChanges', label: 'Notify admin of member changes', sub: 'Task done / new task' },
     { key: 'quietTaskNotifs', label: 'Quiet task notifications', sub: 'No sound for task updates' },
   ] },
 ];
