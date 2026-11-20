@@ -388,7 +388,32 @@ async function applyUpdate(id, f, actor, source = 'manual', messageId = null, op
   const fresh = await getTask(id);
   const name = opts.eventName || eventFor(changes, fresh, status);
   if (changes.size || opts.eventName) await notify(fresh, name, actor, source, [...remove, ...(opts.notifyIds || [])]);
+  if (source === 'manual' && changes.has('status') && status === 'done') await doneCard(fresh, actor);
   return { task: fresh, event: name, changed: changes.size > 0, before: task };
+}
+
+// R-04s: done ticked in the Tasks tab (source 'manual') leaves a public bot card so the other side is told in chat as well
+// as by the ws 'task' event. Card goes to the chat the task was made in (when the actor is still in it), else to the DM between
+// the actor and the other party (boss -> the assignees; member -> the creator, or the first boss for a self-task).
+// Private tasks post nothing. Never fails the update.
+async function doneCard(task, actor) {
+  try {
+    if (task.private) return;
+    if (task.chatId && (await rt.isChatMember(task.chatId, actor.id))) {
+      await bot.taskCard(task.chatId, 'completed', task, actor);
+      return;
+    }
+    let others;
+    if (isBoss(actor)) others = task.assignees.map((a) => a.id).filter((i) => i !== actor.id);
+    else {
+      const bosses = (await users.bossIds()).filter((i) => i !== actor.id);
+      others = [task.createdBy && task.createdBy !== actor.id ? task.createdBy : bosses[0]].filter(Boolean);
+    }
+    for (const other of [...new Set(others)].slice(0, 5)) {
+      const { chatId } = await bot.ensureDm(actor.id, other);
+      await bot.taskCard(chatId, 'completed', task, actor);
+    }
+  } catch (e) { console.error('done card:', e.message); }
 }
 
 const updateTask = async (id, f, actor, source = 'manual', messageId = null) =>

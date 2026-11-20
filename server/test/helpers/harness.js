@@ -82,15 +82,17 @@ async function startServer() {
   const wss = require('../../src/realtime').attach(server);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
-  return { server, port, url: 'ws://127.0.0.1:' + port, close: () => { wss.close(); server.closeAllConnections && server.closeAllConnections(); return new Promise((r) => server.close(r)); } };
+  return { server, port, url: 'ws://127.0.0.1:' + port, close: () => { for (const c of wss.clients) c.terminate(); wss.close(); server.closeAllConnections && server.closeAllConnections(); return new Promise((r) => server.close(r)); } };
 }
 
 // ws client: collects every JSON frame in .events; waitFor(pred) resolves with the first matching (incl. already received).
+const allClients = [];
 function wsClient(url, token, { header = true } = {}) {
   const ws = new WebSocket(header ? url : url + '/?token=' + token, header ? { headers: bearer(token) } : undefined);
   const events = [];
   const waiters = [];
   const c = { ws, events, closed: null };
+  allClients.push(ws);
   ws.on('message', (d) => {
     let m; try { m = JSON.parse(String(d)); } catch (e) { return; }
     events.push(m);
@@ -110,6 +112,7 @@ function wsClient(url, token, { header = true } = {}) {
   return c;
 }
 
-async function teardown() { await pool().end().catch(() => {}); }
+async function teardown() {
+  for (const w of allClients) { try { w.terminate(); } catch (e) { /* */ } } await pool().end().catch(() => {}); }
 
 module.exports = { cfg, resetDb, createUser, tokenFor, bearer, createChat, setSetting, sleep, waitFor, startServer, wsClient, teardown, pool };
