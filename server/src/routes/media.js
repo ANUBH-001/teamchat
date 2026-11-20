@@ -31,7 +31,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: AUD
 const mediaGate = (resource) => (req, res, next) => {
   if (req.query.s !== undefined || req.query.u !== undefined || req.query.e !== undefined) {
     const v = mediaAuth.verify(resource(req), req.query);
-    if (!v.ok) return res.status(403).json({ error: v.code === 'EXPIRED' ? 'Link expire ho gaya' : 'Galat link', code: v.code });
+    if (!v.ok) return res.status(403).json({ error: v.code === 'EXPIRED' ? 'Link expired' : 'Invalid link', code: v.code });
     req.signed = { uid: v.uid };
     return next();
   }
@@ -63,7 +63,7 @@ router.post('/', requireAuth, (req, res) => {
   upload.single('file')(req, res, async (err) => {
     if (err) {
       const big = err.code === 'LIMIT_FILE_SIZE';
-      return res.status(big ? 413 : 400).json({ error: big ? 'File bahut badi hai' : 'Upload nahi hua', code: big ? 'TOO_LARGE' : 'BAD_REQUEST' });
+      return res.status(big ? 413 : 400).json({ error: big ? 'File is too large' : 'Upload failed', code: big ? 'TOO_LARGE' : 'BAD_REQUEST' });
     }
     try {
       const f = req.file;
@@ -73,8 +73,8 @@ router.post('/', requireAuth, (req, res) => {
       if (kind !== 'image' && kind !== 'audio') kind = IMAGE_TYPES[mime] ? 'image' : 'audio';
       const ext = kind === 'image' ? IMAGE_TYPES[mime] : AUDIO_TYPES[mime];
       const max = kind === 'image' ? IMAGE_MAX : AUDIO_MAX;
-      if (!ext) return res.status(415).json({ error: 'File type allowed nahi hai', code: 'BAD_TYPE' });
-      if (f.size > max) return res.status(413).json({ error: 'File bahut badi hai', code: 'TOO_LARGE' });
+      if (!ext) return res.status(415).json({ error: 'This file type is not allowed', code: 'BAD_TYPE' });
+      if (f.size > max) return res.status(413).json({ error: 'File is too large', code: 'TOO_LARGE' });
       const now = new Date();
       const sub = now.getFullYear() + '/' + String(now.getMonth() + 1).padStart(2, '0');
       const name = crypto.randomUUID() + '.' + ext;
@@ -126,7 +126,7 @@ router.post('/sign', requireAuth, async (req, res) => {
 router.get('/f/*', mediaGate(fileResource), async (req, res) => {
   const rel = fileResource(req);
   const file = resolvePath(rel);
-  if (!file) return res.status(400).json({ error: 'galat path' });
+  if (!file) return res.status(400).json({ error: 'invalid path' });
   // B-03: header / ?t= requests are checked per file (a signed URL was checked when it was signed)
   if (!req.signed) {
     try {
@@ -134,8 +134,8 @@ router.get('/f/*', mediaGate(fileResource), async (req, res) => {
     } catch (e) { return res.status(500).json({ error: 'Server error' }); }
   }
   let st;
-  try { st = fs.statSync(file); } catch (e) { return res.status(404).json({ error: 'file nahi mili' }); }
-  if (!st.isFile()) return res.status(404).json({ error: 'file nahi mili' });
+  try { st = fs.statSync(file); } catch (e) { return res.status(404).json({ error: 'file not found' }); }
+  if (!st.isFile()) return res.status(404).json({ error: 'file not found' });
   // sendFile = Range (audio seek) + ETag; private cache only
   res.sendFile(file, {
     headers: { 'Content-Type': EXT_TYPE[path.extname(file).slice(1).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'private, max-age=86400' },
@@ -176,7 +176,7 @@ router.get('/staticmap', mediaGate((req) => mediaAuth.mapResource(req.query)), a
   const lat = parseFloat(req.query.lat);
   const lng = parseFloat(req.query.lng);
   let z = parseInt(req.query.z, 10);
-  if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 85 || Math.abs(lng) > 180) return res.status(400).json({ error: 'lat/lng galat hai' });
+  if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 85 || Math.abs(lng) > 180) return res.status(400).json({ error: 'invalid lat/lng' });
   if (!(z >= 3 && z <= 19)) z = 16;
   const key = lat.toFixed(4) + ',' + lng.toFixed(4) + ',' + z;
   let hit = mapCache.get(key);
@@ -191,7 +191,7 @@ router.get('/staticmap', mediaGate((req) => mediaAuth.mapResource(req.query)), a
       const t = osmTile(lat, lng, z);
       hit = await fetchBuf('https://tile.openstreetmap.org/' + z + '/' + t.x + '/' + t.y + '.png', { 'User-Agent': 'TeamChat/1.0' });
     }
-    if (!hit) return res.status(502).json({ error: 'Map abhi nahi mila' });
+    if (!hit) return res.status(502).json({ error: 'Map is not available right now' });
     remember(key, hit);
   }
   res.set({ 'Content-Type': hit.type, 'Cache-Control': 'private, max-age=86400' });

@@ -1,7 +1,6 @@
 // 'Team Assistant' system user + shared helpers that post bot / system messages.
 // The bot user is inactive (active = 0) with no PIN, so it can never log in and is left out of people lists,
 // summaries and task assignment. Created lazily (and by seed.js).
-const DT = require('./dueTime');
 const crypto = require('crypto');
 const pool = require('../db');
 const rt = require('../realtime');
@@ -49,9 +48,9 @@ const postSystem = (chatId, actor, body) => insertAndSend(chatId, actor.id, 'sys
 
 const EVENT_TEXT = {
   created: 'Task assigned', completed: 'Task done', review: 'Testing', updated: 'Task updated', reassigned: 'Task reassigned',
-  due: 'Due date changed', deleted: 'Task closed', closed: 'Task closed', reopened: 'Task reopened', note: 'Task note', praise: 'Praise',
-  planning: 'Planning', coding: 'Coding', testing: 'Testing', change_merged: 'Change merged', done: 'Done (apna part)',
-  answered: 'Jawab mila', edited: 'Task updated (edit)',
+  deleted: 'Task closed', closed: 'Task closed', reopened: 'Task reopened', note: 'Task note', praise: 'Praise',
+  planning: 'Planning', coding: 'Coding', testing: 'Testing', change_merged: 'Change merged', done: 'Done (own part)',
+  answered: 'Answered', edited: 'Task updated (edit)',
 };
 const namesOf = (task) => (task.assignees && task.assignees.length ? task.assignees.map((a) => a.name).join(', ') : task.assigneeName || '');
 
@@ -66,7 +65,6 @@ function taskCard(chatId, event, task, actor, extra = {}) {
   // Round 4: "Task 22" code (= tasks.id); a private (admin's own) task card is visible to its creator only
   let body = (EVENT_TEXT[event] || 'Task') + ': Task ' + task.id + ' - ' + task.title + (who ? ' (' + who + ')' : '');
   if (extra.note) body += '\n' + extra.note;
-  if (event === 'due') body += ' - ' + (task.dueDate ? DT.fmtDue(task.dueDate, task.dueAt) : 'no date');
   return postBot(chatId, body, payload, task.private ? actor.id : null);
 }
 

@@ -49,7 +49,7 @@ function createApp() {
     try {
       const s = await settings.all();
       if (s.minVersionCode > (parseInt(req.get('X-App-Version'), 10) || 0)) {
-        return res.status(426).json({ error: 'TeamChat ka naya version install karein (app update required)', code: 'UPDATE_REQUIRED', apkUrl: s.apkUrl });
+        return res.status(426).json({ error: 'Please install the new version of TeamChat (app update required)', code: 'UPDATE_REQUIRED', apkUrl: s.apkUrl });
       }
       next();
     } catch (e) {

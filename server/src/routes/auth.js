@@ -36,7 +36,7 @@ function rateLimit(req, res, next) {
   const now = Date.now();
   const list = (hits.get(ip) || []).filter((t) => t > now - 3600000);
   if (list.filter((t) => t > now - 60000).length >= 10 || list.length >= 50) {
-    return res.status(429).json({ error: 'Bahut zyada koshish. Thodi der baad try karein.', code: 'RATE_LIMITED' });
+    return res.status(429).json({ error: 'Too many attempts. Please try again in a while.', code: 'RATE_LIMITED' });
   }
   list.push(now);
   hits.set(ip, list);

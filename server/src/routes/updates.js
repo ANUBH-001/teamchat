@@ -64,13 +64,13 @@ const router = express.Router();
 router.get('/manifest', (req, res) => {
   const platform = req.get('expo-platform') || req.query.platform;
   const rv = req.get('expo-runtime-version') || req.query['runtime-version'];
-  if (platform !== 'android') return res.status(400).json({ error: 'platform android hona chahiye' });
-  if (!rv || !RV_RE.test(rv)) return res.status(400).json({ error: 'runtime version galat hai' });
+  if (platform !== 'android') return res.status(400).json({ error: 'platform must be android' });
+  if (!rv || !RV_RE.test(rv)) return res.status(400).json({ error: 'invalid runtime version' });
   try {
     const dir = latestDir(root, rv);
     if (!dir) {
       // nothing published for this runtime: tell the app "no update" (not an error), it keeps its current code
-      if (req.get('expo-protocol-version') !== '1') return res.status(404).json({ error: 'is runtime ka update nahi hai' });
+      if (req.get('expo-protocol-version') !== '1') return res.status(404).json({ error: 'no update for this runtime' });
       res.set({ 'expo-protocol-version': '1', 'expo-sfv-version': '0', 'cache-control': 'private, max-age=0' });
       const b = crypto.randomBytes(16).toString('hex');
       res.setHeader('content-type', `multipart/mixed; boundary=${b}`);
@@ -81,7 +81,7 @@ router.get('/manifest', (req, res) => {
     const h = hashOf(metaRaw, 'sha256', 'hex');
     const id = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
     const fm = meta.fileMetadata && meta.fileMetadata.android;
-    if (!fm || !fm.bundle) return res.status(404).json({ error: 'android bundle nahi mila' });
+    if (!fm || !fm.bundle) return res.status(404).json({ error: 'android bundle not found' });
     const rel = path.relative(root, dir).split(path.sep).join('/'); // <rv>/<timestamp>
     const base = baseUrl(req);
     const mk = (rawPath, ext) => {
@@ -118,14 +118,14 @@ router.get('/manifest', (req, res) => {
     res.end(Buffer.from(body + `--${boundary}--\r\n`, 'utf8'));
   } catch (e) {
     console.error('updates manifest', e.message);
-    res.status(500).json({ error: 'update manifest nahi ban paya' });
+    res.status(500).json({ error: 'could not build the update manifest' });
   }
 });
 
 router.get('/assets', (req, res) => {
   const file = safeAssetPath(root, req.query.runtimeVersion, req.query.asset);
-  if (!file) return res.status(400).json({ error: 'galat request' });
-  if (!fs.statSync(file).isFile()) return res.status(404).json({ error: 'file nahi mili' });
+  if (!file) return res.status(400).json({ error: 'invalid request' });
+  if (!fs.statSync(file).isFile()) return res.status(404).json({ error: 'file not found' });
   res.set({ 'content-type': typeOf(path.extname(file)), 'cache-control': 'public, max-age=31536000, immutable' });
   fs.createReadStream(file).pipe(res);
 });
