@@ -94,4 +94,24 @@ async function publicSettings() {
   return out;
 }
 
-module.exports = { DEFAULTS, CHAT_DEFAULTS, SettingsError, all, get, update, forChat, updateChat, publicSettings };
+// "Show 'Admin' label in chats" opt-out: app_settings row `adminLabelHiddenIds` = JSON array of user ids. Only affects what
+// the UI shows (role stays 'boss' with all its permissions). Read straight from the DB, no cache: tiny table, rare writes.
+const HIDDEN_ADMIN_KEY = 'adminLabelHiddenIds';
+
+async function hiddenAdminIds() {
+  const [[row]] = await pool.query('SELECT value FROM app_settings WHERE name = ?', [HIDDEN_ADMIN_KEY]);
+  const v = row ? parse(row.value) : [];
+  return new Set(Array.isArray(v) ? v.filter((x) => Number.isInteger(x)) : []);
+}
+
+async function setAdminLabelHidden(userId, hidden) {
+  const ids = await hiddenAdminIds();
+  if (hidden) ids.add(userId); else ids.delete(userId);
+  const j = JSON.stringify([...ids].sort((a, b) => a - b));
+  await pool.query('INSERT INTO app_settings (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = ?', [HIDDEN_ADMIN_KEY, j, j]);
+}
+
+// Effective "show as admin" flag for a user row/object: true only for a boss who is not in the hidden list.
+const showAdminLabel = (role, id, hiddenSet) => role === 'boss' && !hiddenSet.has(id);
+
+module.exports = { hiddenAdminIds, setAdminLabelHidden, showAdminLabel, DEFAULTS, CHAT_DEFAULTS, SettingsError, all, get, update, forChat, updateChat, publicSettings };

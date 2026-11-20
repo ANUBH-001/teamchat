@@ -13,9 +13,10 @@ import Avatar from '../components/Avatar';
 import TaskActionSheet from '../components/TaskActionSheet';
 import { AnyTask, isBrief, labelOf, colorOf, assigneeNamesOf } from '../taskTypes';
 import { useUser } from '../userStore';
+import { showsAdminLabel } from '../adminLabel';
 import NewChatScreen from './NewChatScreen';
 
-type Member = { id: number; name: string; role: 'boss' | 'member'; isCreator: boolean; phone?: string; avatarEmoji?: string | null };
+type Member = { id: number; name: string; role: 'boss' | 'member'; showAdminLabel?: boolean; isCreator: boolean; phone?: string; avatarEmoji?: string | null };
 type ChatSettings = { botEnabled: boolean; aiDetect: boolean; notifyAdmin: boolean };
 
 const Badge = ({ label, t }: { label: string; t: Theme }) => (
@@ -78,7 +79,7 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
     api<{ settings: ChatSettings }>('GET', '/admin/chats/' + chat.id + '/settings').then((r) => setCs(r.settings)).catch(() => {});
   }, [chat.id, isBoss]);
 
-  const rank = (m: Member) => (m.id === me.id ? 0 : m.isCreator || m.role === 'boss' ? 1 : 2);
+  const rank = (m: Member) => (m.id === me.id ? 0 : m.isCreator || showsAdminLabel(m) ? 1 : 2);
   const sortedMembers = [...members].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   const canManage = isGroup && (isBoss || members.some((m) => m.id === me.id && m.isCreator) || chat.createdBy === me.id);
   const fail = (e: any) => Alert.alert('Error', e.message);
@@ -167,7 +168,7 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
           {isDm ? (
             <>
               {!!other?.phone && <Text style={{ color: t.subtext, fontSize: 14 }}>{other.phone}</Text>}
-              {!!other && <Text style={{ color: t.subtext, fontSize: 13 }}>{other.role === 'boss' ? 'Admin' : 'Member'}</Text>}
+              {!!other && (showsAdminLabel(other) || other.role !== 'boss') && <Text style={{ color: t.subtext, fontSize: 13 }}>{showsAdminLabel(other) ? 'Admin' : 'Member'}</Text>}
             </>
           ) : (
             <>
@@ -245,7 +246,7 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
                 <Avatar name={m.name} id={m.id} userId={m.id} emoji={m.avatarEmoji} size={42} />
                 <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 12 }}>
                   <Text numberOfLines={1} style={{ color: t.text, fontSize: 16, flexShrink: 1 }}>{m.name}{m.id === me.id ? ' (You)' : ''}</Text>
-                  {m.role === 'boss' && <Badge label="Admin" t={t} />}
+                  {showsAdminLabel(m) && <Badge label="Admin" t={t} />}
                   {m.isCreator && <Badge label="Creator" t={t} />}
                 </View>
                 {canManage && m.id !== me.id && !m.isCreator && (

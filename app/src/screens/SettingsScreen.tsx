@@ -12,6 +12,7 @@ import ProfileSheet from '../components/ProfileSheet';
 import BackgroundCard from '../components/BackgroundCard';
 import AppUpdateCard from '../components/AppUpdateCard';
 import { useUser } from '../userStore';
+import { showsAdminLabel } from '../adminLabel';
 import { useMediaSrc } from '../media';
 
 const THEMES: { k: ThemeChoice; label: string }[] = [{ k: 'system', label: 'System' }, { k: 'light', label: 'Light' }, { k: 'dark', label: 'Dark' }];
@@ -73,7 +74,7 @@ export default function SettingsScreen({ onBack, onOpenAdmin }: { onBack: () => 
             : <Avatar name={me?.name || user.name} id={user.id} userId={user.id} emoji={user.avatarEmoji} size={72} />}
           <View style={{ flex: 1, marginLeft: 16 }}>
             <Text numberOfLines={1} style={{ color: t.text, fontSize: 20, fontWeight: '700' }}>{me?.name || user.name}</Text>
-            <Text style={{ color: t.subtext, fontSize: 14, marginTop: 2 }}>{user.phone}{user.role === 'boss' ? ' · Admin' : ''}</Text>
+            <Text style={{ color: t.subtext, fontSize: 14, marginTop: 2 }}>{user.phone}{showsAdminLabel(user) ? ' · Admin' : ''}</Text>
           </View>
           <Ionicons name="create-outline" size={22} color={t.accent} />
         </Pressable>

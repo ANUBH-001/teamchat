@@ -46,7 +46,7 @@ export const WARN_MS = 30 * 1000; // countdown hint in the last 30 s
 export const START_TIMEOUT_MS = 3000;
 export const TICK_MS = 100;
 export const MSG = {
-  denied: 'No microphone permission. Allow Microphone in Settings > Apps > TeamChat > Permissions',
+  denied: 'No microphone permission. Allow Microphone in Settings > Apps > KlapChat > Permissions',
   granted: 'Mic ready. Now hold the mic and speak',
   busy: 'The mic is busy (a call or another app). Try again in a moment',
   watchdog: 'The mic did not start. Try again',

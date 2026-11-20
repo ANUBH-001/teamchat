@@ -6,7 +6,7 @@ import { startRealtime, stopRealtime } from './realtime';
 import { listenMessageAlerts, clearCheckinReminders, dismissMessageAlerts } from './push';
 
 // Background alerts without Firebase: the local module modules/teamchat-service runs an Android
-// foreground service ("TeamChat connected") that keeps this JS process + the WebSocket alive when the
+// foreground service ("KlapChat connected") that keeps this JS process + the WebSocket alive when the
 // app is in the background or swiped from recents. The session (socket + alert listener) lives here,
 // not in a React effect, so it survives the UI unmounting. Expo Go has no module: same code, no service.
 type NativeService = {

@@ -11,10 +11,11 @@ router.use(requireAuth);
 router.get('/users', async (req, res) => {
   try {
     const self = req.query.includeSelf === '1' || req.query.includeSelf === 'true';
+    const hidden = await settings.hiddenAdminIds();
     const [rows] = await pool.query(
       'SELECT id, name, phone, role, avatar_emoji, avatar_url, profile_done FROM users WHERE active = 1 AND is_bot = 0' + (self ? '' : ' AND id <> ?') + ' ORDER BY name',
       self ? [] : [req.user.id]);
-    res.json({ users: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, role: r.role, avatarEmoji: r.avatar_emoji || null, avatarUrl: r.avatar_url || null, profileDone: !!r.profile_done })) });
+    res.json({ users: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, role: r.role, showAdminLabel: settings.showAdminLabel(r.role, r.id, hidden), avatarEmoji: r.avatar_emoji || null, avatarUrl: r.avatar_url || null, profileDone: !!r.profile_done })) });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }

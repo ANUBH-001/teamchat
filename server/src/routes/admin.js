@@ -61,7 +61,8 @@ router.get('/users', async (req, res) => {
   try {
     const [rows] = await pool.query(
       'SELECT id, phone, name, role, active, avatar_emoji, (pin_hash IS NOT NULL) AS activated, created_at FROM users WHERE is_bot = 0 ORDER BY name');
-    res.json({ users: rows.map(({ avatar_emoji: e, ...r }) => ({ ...r, avatarEmoji: e || null, active: !!r.active, activated: !!r.activated })) });
+    const hidden = await settings.hiddenAdminIds();
+    res.json({ users: rows.map(({ avatar_emoji: e, ...r }) => ({ ...r, avatarEmoji: e || null, active: !!r.active, activated: !!r.activated, showAdminLabel: settings.showAdminLabel(r.role, r.id, hidden) })) });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -113,6 +114,23 @@ router.post('/users/:id/logout', async (req, res) => {
     if (!u) return res.status(404).json({ error: 'User not found' });
     await killSession(id);
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /admin/users/:id/admin-label {show: boolean}: whether the "Admin" label is shown for this admin in chats (UI only, the
+// role and permissions are unchanged). Only for admins (role boss). ws {type:'users'} so every app reloads its people list.
+router.put('/users/:id/admin-label', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (typeof (req.body || {}).show !== 'boolean') return res.status(400).json({ error: 'show must be true or false', code: 'BAD_REQUEST' });
+    const [[target]] = await pool.query('SELECT id, role FROM users WHERE id = ? AND is_bot = 0', [id || 0]);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (target.role !== 'boss') return res.status(400).json({ error: 'Only admins have an Admin label', code: 'BAD_REQUEST' });
+    await settings.setAdminLabelHidden(id, !req.body.show);
+    rt.sendToAll({ type: 'users' });
+    res.json({ ok: true, showAdminLabel: !!req.body.show });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
