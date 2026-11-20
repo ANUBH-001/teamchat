@@ -219,3 +219,22 @@ test('AI: a bare answer to "Anything new?" in the check-in chat reaches the mode
     assert.equal(seen.length, n, 'no model call for a DM message without an intent word');
   } finally { provider.decide = orig; }
 });
+
+test('AI pre-filter: Hinglish future / plural verb forms and "need to" reach the model (were silently dropped)', async () => {
+  const provider = require('../src/ai/provider');
+  const orig = provider.decide;
+  const seen = [];
+  provider.decide = async (input) => { seen.push(JSON.stringify(input)); return { action: 'none', confidence: 0.9 }; };
+  try {
+    const dm = await request(app).post('/chats/dm').set(H.bearer(tok2)).send({ userId: boss.id });
+    const dmId = dm.body.chat.id;
+    const lines = ['Main aaj login page fix kar dunga', 'Rishit tumhe server logs check karne hain', 'Kal main report bana lunga',
+      'I need to call the vendor', 'Ye main karunga'];
+    for (const [i, text] of lines.entries()) {
+      const n = seen.length;
+      await request(app).post('/chats/' + dmId + '/messages').set(H.bearer(tok2)).send({ text, clientId: 'pf-' + i });
+      await H.waitFor(async () => seen.length > n || null);
+      assert.ok(seen[seen.length - 1].includes(text.slice(0, 12)), 'model saw: ' + text);
+    }
+  } finally { provider.decide = orig; }
+});
