@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, AppState, ActivityIndicator, ScrollView, Modal,
+  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, AppState, Keyboard, ActivityIndicator, ScrollView, Modal,
   NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -158,6 +158,12 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const [person, setPerson] = useState<PickPerson | null>(null);
   const [personTasks, setPersonTasks] = useState<Task[] | null>(null);
   const [focused, setFocused] = useState(false);
+  const [kbVisible, setKbVisible] = useState(false); // Android Back closes the keyboard without blurring, so track it separately
+  useEffect(() => {
+    const a = Keyboard.addListener('keyboardDidShow', () => setKbVisible(true));
+    const b = Keyboard.addListener('keyboardDidHide', () => setKbVisible(false));
+    return () => { a.remove(); b.remove(); };
+  }, []);
   const [editing, setEditing] = useState<Msg | null>(null);
   const refs = useRef<MentionRef[]>(drafts.get(chat.id)?.refs || []);
   const [askTasks, setAskTasks] = useState<AnyTask[] | null>(null);
@@ -886,7 +892,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   // check-in chat too: "/" and the task button (typed check-in text logic is unchanged)
   const helpers = ps.commandsEnabled;
   // Round 4: composer helpers live in the chip row (the row itself is the WhatsApp pill)
-  const showChips = helpers && !editing && !text && !suggestions.length;
+  const showChips = helpers && !editing && !text && !suggestions.length && focused && kbVisible; // only when about to type
   const quick = QUICK.map((q) => COMMANDS.find((c) => c.cmd === q)!).filter(Boolean);
   const chipBtn = (label: string, onPress: () => void, icon?: keyof typeof Ionicons.glyphMap, key?: string) => (
     <Pressable
