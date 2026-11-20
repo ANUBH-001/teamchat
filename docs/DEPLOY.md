@@ -109,3 +109,11 @@ Needs the new APK (runtime 2) first; Phase 1 server is backward-compatible for o
 3. `git pull`, `npm install --omit=dev` (adds multer), set `.env`: `AI_PROVIDER=gemini`, `AI_API_KEY`, `AI_MODEL` (Gemini Flash), optional `GOOGLE_MAPS_API_KEY` (Static Maps; without it OpenStreetMap tiles are used). Never paste keys in chat.
 4. `pm2 restart team-chat-backend --update-env`, health check. Then upload APK 0.6.0, Admin > Settings latest/min version.
 Rollback: restore the pre-010 dump, `git checkout <previous hash>`, restart (uploads/ can stay).
+
+
+## Check-in upgrade + voice playback fix (branch hardening/checkin-playback, 2026-11-20) - not deployed
+- **No migration** for this branch (picks reuse `checkins.payload`, the summary reuses `checkin_prompts` kind `summary`; `summaryTime` is a new `app_settings` key with a code default). The earlier plan of a `migrate_012` was dropped: nothing in the schema changes. Deploy together with / after hardening/english-nodue and hardening/media-auth (their own notes: migrate_011 before that server).
+- Server: `git pull`, `pm2 restart team-chat-backend --update-env`, health check. No new env keys. On the first minute after start the scheduler sends today's admin summary if it is already past `summaryTime` (catch-up, once per admin per day).
+- App: JS only (OTA). No new native module or permission.
+- Optional: Admin > Reports > Check-in settings: admin summary time (default 20:30). Morning / evening stay as set there (prod: 10:00 / 18:00).
+- Rollback: previous hash + restart. Rows written meanwhile stay readable by the old code (it ignores `picks` / kind `summary`).

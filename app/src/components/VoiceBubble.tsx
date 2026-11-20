@@ -34,7 +34,7 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
   const wave = useMemo(() => resample(msg.media?.waveform?.length ? msg.media.waveform : Array(BARS).fill(0.35)), [msg.media?.waveform]);
   const [speed, setSpeed] = useState(1);
   const [open, setOpen] = useState<boolean | null>(null);
-  // V-05: playback lives in voicePlayer (one note at a time, errors visible, re-sign + retry once); this is only the view
+  // R-09: playback lives in voicePlayer (one note at a time, errors visible, re-sign + retry once); this is only the view
   const player = voicePlayer();
   const [snap, setSnap] = useState(() => player.get(key));
   useEffect(() => {

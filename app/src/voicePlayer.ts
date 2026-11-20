@@ -1,4 +1,4 @@
-// Voice-note player state machine (hardening V-05, "recording play nahi ho rahi"). Plain TypeScript, no React: VoiceBubble
+// Voice-note player state machine (hardening R-09, "recording play nahi ho rahi"). Plain TypeScript, no React: VoiceBubble
 // subscribes with useVoicePlayer(key). Why it exists - the old bubble kept one expo-av Sound per bubble and swallowed every error:
 // - expo-av (Android) loads the file, then tries to take audio focus. If that fails (app seen as "in the background", a call,
 //   another app holding focus) createAsync still RESOLVES with a loaded-but-silent sound, and every later playAsync rejects.

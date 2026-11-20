@@ -96,7 +96,7 @@ test('clearMediaCache forgets signed URLs and clears the expo-image caches', asy
   expect(ExpoImage.clearMemoryCache).toHaveBeenCalled();
 });
 
-test('V-05: force re-signs even while the cached URL still looks fresh (player got a 403 with it)', async () => {
+test('R-09: force re-signs even while the cached URL still looks fresh (player got a 403 with it)', async () => {
   apiMod.api.mockImplementation(answer(now + 30 * 60e3));
   const u1 = await signedMediaUrl(P2);
   now += 1000;

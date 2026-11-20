@@ -107,7 +107,7 @@ export function mediaSrc(url?: string | null): string | null {
 }
 
 // A fresh URL right now (download, audio play): signs when needed.
-// force (V-05): sign again even if a cached URL looks fresh (the player got a 403 / stream error with it).
+// force (R-09): sign again even if a cached URL looks fresh (the player got a 403 / stream error with it).
 export async function signedMediaUrl(url?: string | null, force = false): Promise<string | null> {
   if (!url) return null;
   if (needsSign(url) && (force || !fresh(signedUrls.get(url)))) await requestSign(url);
