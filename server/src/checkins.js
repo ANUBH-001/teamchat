@@ -1,11 +1,13 @@
-// Daily check-ins (round 2): morning "today's tasks" card + evening sign-off.
-// - Every active member (not the boss, not the bot) has ONE private chat type 'checkin' ("Daily Check-in")
-//   whose only members are that member and the Team Assistant bot (chats.owner_id = member).
+// Daily check-ins (round 2, upgraded 2026-11-20: picks, tick rows, admins' summary).
+// - Every active member (not the bot) has ONE private chat type 'checkin' ("Daily Check-in") whose only members are that
+//   member and the Team Assistant bot (chats.owner_id = member). An admin gets one too, made on the first summary card.
 // - Scheduler (1-minute tick, local time in TZ, default Asia/Kolkata), on check-in days:
-//   morningTime (10:00): 'day' card = all open tasks of the member (overdue / 6+ day marked), PINNED in that chat and kept
-//   live: every task change of that member rewrites the card's payload (ws 'edited'). eveningTime (18:00): 'signoff'
-//   card (tasks of today = open + done today, 3-state toggles, Submit). One nudge card nudgeMinutes later if not signed off.
-//   A checkin_prompts row per user/date/kind (day | signoff | signoff_nudge) is claimed first: never double-posted.
+//   morningTime (10:00): 'day' card = all open tasks of the member + `picks` ("Today" toggles, POST /checkins/picks),
+//   PINNED in that chat and kept live: every task change / pick rewrites the payload (ws 'edited'). Only sent inside the
+//   morning window (before eveningTime). eveningTime (18:00): 'signoff' card (open + done today; the app ticks rows through
+//   the normal PATCH /tasks/:id). One nudge card nudgeMinutes later if not signed off. summaryTime (20:30): one 'summary'
+//   card per admin (replies, picks, done today), kept live.
+//   A checkin_prompts row per user/date/kind (day | signoff | signoff_nudge | summary) is claimed first: never double-posted.
 // - Sign-off (POST /checkins/signoff) updates task statuses (tasks.js, source 'checkin'), stores a `signoffs` row and
 //   sends bosses a quiet ws {type:'signoff'}; Reports read it via /admin/checkins.
 // - Typed/voice text in the check-in chat is still stored as today's check-in text (`checkins`, Reports history).
@@ -51,6 +53,7 @@ const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) &&
 const addDays = (ymd, n) => { const d = new Date(ymd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const dowOf = (ymd) => new Date(ymd + 'T00:00:00Z').getUTCDay();
 const toMin = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+const fromMin = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 const parse = (s) => { if (!s) return null; try { return JSON.parse(s); } catch (e) { return null; } };
 const toId = (v) => {
   const ok = (typeof v === 'number' && Number.isInteger(v)) || (typeof v === 'string' && /^\d{1,10}$/.test(v));
@@ -59,7 +62,7 @@ const toId = (v) => {
 };
 
 // ---------- settings (app_settings, keys 'checkin.*', JSON values) ----------
-const DEFAULTS = { enabled: true, morningTime: '10:00', eveningTime: '18:00', days: [1, 2, 3, 4, 5, 6], nudgeMinutes: 120 };
+const DEFAULTS = { enabled: true, morningTime: '10:00', eveningTime: '18:00', days: [1, 2, 3, 4, 5, 6], nudgeMinutes: 120, summaryTime: '20:30' };
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const CHECK = {
   enabled: (v) => typeof v === 'boolean',
@@ -67,6 +70,7 @@ const CHECK = {
   eveningTime: (v) => typeof v === 'string' && TIME_RE.test(v),
   days: (v) => Array.isArray(v) && v.length <= 7 && v.every((n) => Number.isInteger(n) && n >= 0 && n <= 6),
   nudgeMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 720,
+  summaryTime: (v) => typeof v === 'string' && TIME_RE.test(v),
 };
 const BAD = {
   enabled: 'enabled must be true or false',
@@ -74,6 +78,7 @@ const BAD = {
   eveningTime: 'Invalid eveningTime (HH:MM)',
   days: 'Invalid days (list of 0-6, 0 = Sunday)',
   nudgeMinutes: 'Invalid nudgeMinutes (0-720, 0 = no nudge)',
+  summaryTime: 'Invalid summaryTime (HH:MM)',
 };
 const sortDays = (d) => [...new Set(d)].sort((a, b) => a - b);
 
@@ -86,12 +91,15 @@ async function getSettings() {
     if (CHECK[k] && CHECK[k](v)) s[k] = v;
   }
   if (toMin(s.morningTime) >= toMin(s.eveningTime)) { s.morningTime = DEFAULTS.morningTime; s.eveningTime = DEFAULTS.eveningTime; }
+  // the admins' summary comes after the evening card; a bad combination falls back to evening + 2 h (max 23:59)
+  if (toMin(s.summaryTime) <= toMin(s.eveningTime)) s.summaryTime = fromMin(Math.min(toMin(s.eveningTime) + 120, 23 * 60 + 59));
   s.days = sortDays(s.days);
   return s;
 }
 
 const publicSettings = (s) => ({
-  enabled: s.enabled, morningTime: s.morningTime, eveningTime: s.eveningTime, days: s.days, nudgeMinutes: s.nudgeMinutes, timezone: TZ,
+  enabled: s.enabled, morningTime: s.morningTime, eveningTime: s.eveningTime, days: s.days, nudgeMinutes: s.nudgeMinutes,
+  summaryTime: s.summaryTime, timezone: TZ,
 });
 
 async function updateSettings(body) {
@@ -104,6 +112,9 @@ async function updateSettings(body) {
     next[k] = k === 'days' ? sortDays(body[k]) : body[k];
   }
   if (toMin(next.morningTime) >= toMin(next.eveningTime)) throw new CheckinError(400, 'Morning time must be before evening time');
+  if (keys.includes('summaryTime') && toMin(next.summaryTime) <= toMin(next.eveningTime)) {
+    throw new CheckinError(400, 'Summary time must be after evening time');
+  }
   for (const k of keys) {
     await pool.query('INSERT INTO app_settings (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = ?',
       ['checkin.' + k, JSON.stringify(next[k]), JSON.stringify(next[k])]);
@@ -113,9 +124,10 @@ async function updateSettings(body) {
 
 // ---------- the private chat ----------
 // Returns the member's check-in chat id (creating it if missing), or null for boss / bot / unknown users.
-async function ensureChat(userId) {
+// allowBoss (check-in summary): an admin gets the same kind of private chat with the bot, made on the first summary.
+async function ensureChat(userId, { allowBoss = false } = {}) {
   const [[u]] = await pool.query('SELECT id, role, is_bot FROM users WHERE id = ?', [userId]);
-  if (!u || u.is_bot || u.role !== 'member') return null;
+  if (!u || u.is_bot || !(u.role === 'member' || (allowBoss && u.role === 'boss'))) return null;
   const find = async () => (await pool.query("SELECT id FROM chats WHERE type = 'checkin' AND owner_id = ?", [u.id]))[0][0];
   let chat = await find();
   let created = false;
@@ -210,8 +222,10 @@ function cardBody(kind, name, d, nudge) {
     'Mark each task Done or Not done, then tap "Submit sign-off".'].join('\n'); // Round 4: was Todo / Planning / Coding / Testing / Change merged / Done
 }
 
-const cardPayload = (kind, date, d, nudge) => ({
+// 'day' (morning) = open tasks + picks (task ids the member will work on today); 'signoff' (evening) = open + done today.
+const cardPayload = (kind, date, d, nudge, picks = []) => ({
   kind, date, tasks: kind === 'day' ? d.open : [...d.open, ...d.doneToday], counts: d.counts, ...(nudge ? { nudge: true } : {}),
+  ...(kind === 'day' ? { picks } : {}),
 });
 
 async function marker(userId, date, kind) {
@@ -230,7 +244,7 @@ async function sendCard(m, date, kind, nudge = false) {
     if (!chatId) throw new Error('no check-in chat');
     const d = await dayTasks(m.id);
     message = await insertMessage(chatId, await botUserId(), cardBody(kind, m.name, d, nudge), 'checkin_prompt',
-      cardPayload(kind, date, d, nudge), 'bot-');
+      cardPayload(kind, date, d, nudge, kind === 'day' ? await picksOf(m.id, date) : []), 'bot-');
     await pool.query('UPDATE checkin_prompts SET message_id = ? WHERE user_id = ? AND date = ? AND kind = ?', [message.id, m.id, date, markKind]);
     await deliver(message);
     if (kind === 'day') {
@@ -248,17 +262,19 @@ async function sendCard(m, date, kind, nudge = false) {
 // Rewrite today's 'day' (and 'signoff') cards of a member with the current task list; ws {type:'edited', chatId, message}.
 async function refreshDay(userId) {
   const date = localNow().date;
+  refreshSummarySoon(); // the admins' summary shows ticks and picks too
   const [marks] = await pool.query(
     "SELECT kind, message_id FROM checkin_prompts WHERE user_id = ? AND date = ? AND kind IN ('day', 'signoff', 'signoff_nudge') AND message_id IS NOT NULL",
     [userId, date]);
   if (!marks.length) return;
   const [[u]] = await pool.query('SELECT name FROM users WHERE id = ?', [userId]);
   const d = await dayTasks(userId);
+  const picks = await picksOf(userId, date);
   for (const mk of marks) {
     const kind = mk.kind === 'day' ? 'day' : 'signoff';
     const nudge = mk.kind === 'signoff_nudge';
     await pool.query('UPDATE messages SET body = ?, payload = ? WHERE id = ? AND deleted_at IS NULL',
-      [cardBody(kind, u ? u.name : '', d, nudge), JSON.stringify(cardPayload(kind, date, d, nudge)), mk.message_id]);
+      [cardBody(kind, u ? u.name : '', d, nudge), JSON.stringify(cardPayload(kind, date, d, nudge, picks)), mk.message_id]);
     const message = await readMessage(mk.message_id);
     if (message && !message.deleted) await deliver(message, 'edited');
   }
@@ -376,7 +392,10 @@ function basicSummary(text) {
 
 // Append the owner's typed/voice message to today's check-in text (evening after eveningTime, else morning);
 // AI summary refines it. Called after the reply by routes/chats.js (not for commands).
-async function onChatMessage(message, user) {
+function onChatMessage(message, user) {
+  return serial(user.id, () => saveChatText(message, user));
+}
+async function saveChatText(message, user) {
   if (!message || !message.text || user.role !== 'member') return;
   const [[chat]] = await pool.query("SELECT owner_id FROM chats WHERE id = ? AND type = 'checkin'", [message.chatId]);
   if (!chat || chat.owner_id !== user.id) return;
@@ -398,8 +417,148 @@ async function onChatMessage(message, user) {
      ON DUPLICATE KEY UPDATE text = ?, summary = ?, payload = ?, message_id = ?`,
     [user.id, now.date, kind, text, sum, pj, mid, text, sum, pj, mid]);
   const row = await getRow(user.id, now.date, kind);
+  refreshSummarySoon();
   const ai = await provider.summarize({ kind, text, tasks: [] });
   if (ai) await pool.query('UPDATE checkins SET summary = ? WHERE id = ? AND text = ?', [JSON.stringify(ai), row.id, text]);
+}
+
+// ---------- morning picks: "I'll work on this today" ----------
+// Kept in today's morning `checkins` row, payload.selectedTaskIds (+ tasks [{id,title}] for history): the field the round-1
+// morning form used, so Reports / history already carry it. No new table. Writes per user are serialized (the picks and the
+// typed check-in text share that row).
+const chains = new Map();
+function serial(userId, fn) {
+  const prev = chains.get(userId) || Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  chains.set(userId, next);
+  next.catch(() => {}).finally(() => { if (chains.get(userId) === next) chains.delete(userId); });
+  return next;
+}
+
+async function picksOf(userId, date) {
+  const r = await getRow(userId, date, 'morning');
+  const p = r ? parse(r.payload) || {} : {};
+  return Array.isArray(p.selectedTaskIds) ? p.selectedTaskIds.map(Number).filter((n) => n > 0) : [];
+}
+
+// POST /checkins/picks {taskId, today: true|false} -> {date, picks}. Members, own open assigned tasks only (un-picking is
+// always allowed). Refreshes the morning card (ws 'edited') and the admins' summary.
+async function setPick(user, body) {
+  if (user.role !== 'member') throw new CheckinError(403, 'Not allowed');
+  body = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  const taskId = toId(body.taskId);
+  if (!taskId || typeof body.today !== 'boolean') throw new CheckinError(400, 'taskId and today (true or false) are required');
+  const date = localNow().date;
+  const out = await serial(user.id, async () => {
+    let title = null;
+    if (body.today) {
+      const [[t]] = await pool.query(
+        `SELECT t.id, t.title FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id AND ta.user_id = ? AND ta.removed_at IS NULL
+         WHERE t.id = ? AND t.deleted_at IS NULL AND t.status <> 'closed' AND ta.status <> 'done'`, [user.id, taskId]);
+      if (!t) throw new CheckinError(400, 'Invalid task (use your own open tasks only)');
+      title = t.title;
+    }
+    const existing = await getRow(user.id, date, 'morning');
+    const p = existing ? parse(existing.payload) || {} : {};
+    let ids = (Array.isArray(p.selectedTaskIds) ? p.selectedTaskIds : []).map(Number).filter((n) => n > 0 && n !== taskId);
+    let tasks = (Array.isArray(p.tasks) ? p.tasks : []).filter((x) => x && Number(x.id) !== taskId);
+    if (body.today) { ids = [...ids, taskId].slice(-MAX_TASKS); tasks = [...tasks, { id: taskId, title }].slice(-MAX_TASKS); }
+    const payload = JSON.stringify({ selectedTaskIds: ids, taskStatuses: p.taskStatuses || {}, tasks });
+    await pool.query(
+      `INSERT INTO checkins (user_id, date, kind, text, summary, payload) VALUES (?, ?, 'morning', NULL, NULL, ?)
+       ON DUPLICATE KEY UPDATE payload = VALUES(payload)`, [user.id, date, payload]);
+    return { date, picks: ids };
+  });
+  await refreshDay(user.id);
+  return out;
+}
+
+// ---------- admins' evening summary ----------
+// One card per admin per day (checkin_prompts kind 'summary') in the admin's own private check-in chat with the bot, from
+// summaryTime. Kept live like the member cards: every reply / pick / task change rewrites its payload (ws 'edited').
+// Per active member: replied? (typed or voice text in their check-in chat today), today's picks, tasks done today, the morning
+// note and the evening report (first 300 chars; the full text stays in Admin -> Reports).
+const clip = (t) => (t ? String(t).slice(0, 300) : null);
+async function summaryData(date) {
+  const [members] = await pool.query("SELECT id, name FROM users WHERE role = 'member' AND is_bot = 0 AND active = 1 ORDER BY name");
+  const [rows] = await pool.query(ROW_SELECT + 'WHERE c.date = ?', [date]);
+  const byUser = new Map(rows.map((r) => [r.user_id + ':' + r.kind, r]));
+  const out = [];
+  const totals = { members: members.length, replied: 0, done: 0, picked: 0 };
+  for (const m of members) {
+    const mo = byUser.get(m.id + ':morning');
+    const ev = byUser.get(m.id + ':evening');
+    const pickIds = mo ? (parse(mo.payload) || {}).selectedTaskIds || [] : [];
+    const d = await dayTasks(m.id);
+    const known = new Map([...d.open, ...d.doneToday].map((t) => [t.id, t]));
+    const picks = pickIds.map(Number).filter((id) => known.has(id))
+      .map((id) => ({ id, title: known.get(id).title, status: known.get(id).status }));
+    const done = d.doneToday.map((t) => ({ id: t.id, title: t.title }));
+    const morning = mo && mo.text ? clip(mo.text) : null;
+    const report = ev && ev.text ? clip(ev.text) : null;
+    const replied = !!(morning || report);
+    if (replied) totals.replied++;
+    totals.done += done.length;
+    totals.picked += picks.length;
+    out.push({ id: m.id, name: m.name, replied, picks, done, morning, report, open: d.open.length });
+  }
+  return { kind: 'summary', date, members: out, totals };
+}
+const summaryBody = (p) => 'Check-in summary ' + p.date + ': ' + p.totals.replied + ' of ' + p.totals.members + ' replied · ' +
+  p.totals.done + ' tasks done today · ' + p.totals.picked + ' picked for today';
+
+const activeBosses = async () =>
+  (await pool.query("SELECT id, name FROM users WHERE role = 'boss' AND is_bot = 0 AND active = 1 ORDER BY id"))[0];
+
+async function sendSummary(boss, date, data) {
+  const [claim] = await pool.query('INSERT IGNORE INTO checkin_prompts (user_id, date, kind) VALUES (?, ?, ?)', [boss.id, date, 'summary']);
+  if (!claim.affectedRows) return null;
+  let message = null;
+  try {
+    const chatId = await ensureChat(boss.id, { allowBoss: true });
+    if (!chatId) throw new Error('no check-in chat');
+    message = await insertMessage(chatId, await botUserId(), summaryBody(data), 'checkin_prompt', data, 'bot-');
+    await pool.query("UPDATE checkin_prompts SET message_id = ? WHERE user_id = ? AND date = ? AND kind = 'summary'", [message.id, boss.id, date]);
+    await deliver(message);
+    return message;
+  } catch (e) {
+    if (!message) await pool.query("DELETE FROM checkin_prompts WHERE user_id = ? AND date = ? AND kind = 'summary'", [boss.id, date]).catch(() => {});
+    throw e;
+  }
+}
+
+async function refreshSummary(date = localNow().date) {
+  const [marks] = await pool.query(
+    "SELECT message_id FROM checkin_prompts WHERE date = ? AND kind = 'summary' AND message_id IS NOT NULL", [date]);
+  if (!marks.length) return 0;
+  const data = await summaryData(date);
+  for (const mk of marks) {
+    await pool.query('UPDATE messages SET body = ?, payload = ? WHERE id = ? AND deleted_at IS NULL',
+      [summaryBody(data), JSON.stringify(data), mk.message_id]);
+    const message = await readMessage(mk.message_id);
+    if (message && !message.deleted) await deliver(message, 'edited');
+  }
+  return marks.length;
+}
+let summaryTimer = null;
+function refreshSummarySoon() {
+  if (summaryTimer) clearTimeout(summaryTimer);
+  summaryTimer = setTimeout(() => {
+    summaryTimer = null;
+    refreshSummary().catch((e) => console.error('checkin summary refresh:', e.message));
+  }, 1500);
+  if (summaryTimer.unref) summaryTimer.unref();
+}
+
+// Summary now (POST /admin/jobs/run {job:'summary'}): post missing ones, refresh existing ones.
+async function runSummary() {
+  const date = localNow().date;
+  const data = await summaryData(date);
+  let posted = 0;
+  for (const b of await activeBosses()) {
+    try { if (await sendSummary(b, date, data)) posted++; } catch (e) { console.error('checkin summary (user ' + b.id + '):', e.message); }
+  }
+  return { posted, refreshed: await refreshSummary(date) };
 }
 
 // ---------- reads ----------
@@ -436,7 +595,7 @@ async function today(user) {
     eveningOpen: now.minutes >= toMin(s.eveningTime),
     day: { prompted: !!mark('day'), messageId: mark('day') && mark('day').message_id ? Number(mark('day').message_id) : null },
     signoff: { prompted: !!mark('signoff'), submitted: !!so, signoff: so ? shapeSignoff(so) : null },
-    tasks: d.open, doneToday: d.doneToday, counts: d.counts,
+    tasks: d.open, doneToday: d.doneToday, counts: d.counts, picks: await picksOf(user.id, now.date),
   };
 }
 
@@ -510,12 +669,26 @@ async function runEvening() {
 
 // From morningTime: 'day' card; from eveningTime: 'signoff' card; nudge once nudgeMinutes after it if not signed off.
 // Only on check-in days; a late start catches up the same day.
-async function tick() {
+// Catch-up after downtime stays inside the slot's window: the morning card only before eveningTime (never a "good morning"
+// at night), the evening card and the summary until the end of the local day. `at` = the instant to evaluate (tests).
+async function tick(at = new Date()) {
   await ensureAllChats();
   const s = await getSettings();
-  const now = localNow();
+  const now = localNow(at);
   if (!s.enabled || !s.days.includes(now.dow) || now.minutes < toMin(s.morningTime)) return;
   const evening = now.minutes >= toMin(s.eveningTime);
+  if (now.minutes >= toMin(s.summaryTime)) {
+    const bosses = await activeBosses();
+    const [have] = await pool.query("SELECT user_id FROM checkin_prompts WHERE date = ? AND kind = 'summary'", [now.date]);
+    const got = new Set(have.map((r) => r.user_id));
+    const todo = bosses.filter((b) => !got.has(b.id));
+    if (todo.length) {
+      const data = await summaryData(now.date);
+      for (const b of todo) {
+        try { await sendSummary(b, now.date, data); } catch (e) { console.error('checkin summary (user ' + b.id + '):', e.message); }
+      }
+    }
+  }
   const members = await activeMembers();
   if (!members.length) return;
   const [marks] = await pool.query(
@@ -525,7 +698,7 @@ async function tick() {
   const signed = new Set(subs.map((r) => r.user_id));
   for (const m of members) {
     try {
-      if (!age.has(m.id + ':day')) await sendCard(m, now.date, 'day');
+      if (!evening && !age.has(m.id + ':day')) await sendCard(m, now.date, 'day');
       if (!evening || signed.has(m.id)) continue;
       const k = m.id + ':signoff';
       if (!age.has(k)) await sendCard(m, now.date, 'signoff');
@@ -552,5 +725,5 @@ function start() {
 module.exports = {
   CheckinError, start, ensureChat, ensureAllChats, botSeen, onChatMessage, signoff, today, history, dayReport, userHistory,
   getSettings: async () => publicSettings(await getSettings()), updateSettings, localNow, TZ, refreshDay, refreshDaySoon,
-  runMorning, runEvening, postBotCard: insertMessage, deliver,
+  runMorning, runEvening, runSummary, refreshSummary, summaryData, setPick, tick, postBotCard: insertMessage, deliver,
 };

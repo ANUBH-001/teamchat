@@ -13,7 +13,8 @@ const bot = require('./bot');
 
 const MIN_CONFIDENCE = 0.6;
 const MAX_OPEN_TASKS = 60;
-const TASK_RE = /(task|kaam|karna|karni|karo|kar do|kar dena|kar diya|kar di|bhej|bana|dekh|chahiye|assign|deadline|\bdue\b|\btak\b|ho gaya|ho gayi|ho gya|ho gyi|ho gai|hogaya|hogayi|complete|\bdone\b|finish|khatam|shuru|start|working on|kar raha|kar rahi|pending|status|baaki|baki|testing|merge|planning|coding|काम|टास्क|करना|करनी|करो|कर दो|कर दिया|हो गया|हो गई|हो गयी|पूरा|खत्म|शुरू|बाकी|भेज|बना|तक)/i;
+// English intent too (UI is English now): "I'll also do X", "I need to ...", "I'm going to ...", "will work on ..."
+const TASK_RE = /(\bi['’]?ll\b|\bi will\b|\bi need to\b|\bi have to\b|\bgoing to\b|\bwork on\b|task|kaam|karna|karni|karo|kar do|kar dena|kar diya|kar di|bhej|bana|dekh|chahiye|assign|deadline|\bdue\b|\btak\b|ho gaya|ho gayi|ho gya|ho gyi|ho gai|hogaya|hogayi|complete|\bdone\b|finish|khatam|shuru|start|working on|kar raha|kar rahi|pending|status|baaki|baki|testing|merge|planning|coding|काम|टास्क|करना|करनी|करो|कर दो|कर दिया|हो गया|हो गई|हो गयी|पूरा|खत्म|शुरू|बाकी|भेज|बना|तक)/i;
 const S = require('../status');
 const LABEL = S.LABEL;
 const TZ = (() => { try { new Intl.DateTimeFormat('en-US', { timeZone: process.env.TZ }); return process.env.TZ || 'Asia/Kolkata'; } catch (e) { return 'Asia/Kolkata'; } })();
@@ -127,6 +128,8 @@ async function onMessage(message, user) {
         let who = resolvePerson(it.assignee_name, it.assignee_id, members);
         // DM with no name given: the other person
         if (!who && !it.assignee_name && chatType === 'dm') who = members.find((m) => m.id !== user.id) || null;
+        // own Daily Check-in chat ("I'll also do X") with no name: a task for the writer (same self-task rule as everywhere)
+        if (!who && !it.assignee_name && chatType === 'checkin') who = members.find((m) => m.id === user.id) || null;
         if (!who) {
           await clarify(chatId, user.id, replyTo, 'Who should get this task' + (it.title ? ' ("' + it.title + '")' : '') +
             '? Members of this chat: ' + members.map((m) => m.name).join(', ') + '. Or type: /task <name> <work>');

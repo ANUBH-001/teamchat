@@ -10,7 +10,7 @@
 // - taskcleanup (daily >= 01:00, needs retentionEnabled): HARD-deletes ONLY done or closed tasks (+ assignees, events)
 //   whose completed_at / closed_at is >= taskDeleteDays (14) days ago; open tasks are never deleted. Dump to
 //   server/backup/tasks-YYYY-MM-DD.json first; ws {type:'tasks_purged', taskIds}.
-// - morning / evening: the check-in cards (checkins.js runs them on its own tick; here only for POST /admin/jobs/run).
+// - morning / evening / summary: the check-in cards (checkins.js runs them on its own tick; here only for POST /admin/jobs/run).
 // resetAll(): admin "Reset app data" (POST /admin/reset).
 const fs = require('fs');
 const path = require('path');
@@ -185,7 +185,7 @@ async function resetAll(actor) {
 // ---------- scheduler ----------
 const JOBS = {
   purge: runPurge, reminders: runReminders, taskcleanup: runTaskCleanup,
-  morning: () => checkins.runMorning(), evening: () => checkins.runEvening(),
+  morning: () => checkins.runMorning(), evening: () => checkins.runEvening(), summary: () => checkins.runSummary(),
 };
 
 async function lastRun(name) {

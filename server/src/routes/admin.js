@@ -216,7 +216,7 @@ router.post('/reset', async (req, res) => {
   }
 });
 
-// POST /admin/jobs/run {job:'purge'|'reminders'|'taskcleanup'|'morning'|'evening'} -> {ok, job, result} (runs now, for testing)
+// POST /admin/jobs/run {job:'purge'|'reminders'|'taskcleanup'|'morning'|'evening'|'summary'} -> {ok, job, result} (runs now, for testing)
 router.post('/jobs/run', async (req, res) => {
   try {
     const job = String((req.body || {}).job || '');
