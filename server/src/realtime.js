@@ -124,13 +124,16 @@ function attach(server) {
     });
   });
   // drop dead connections
-  setInterval(() => {
+  const beat = setInterval(() => {
     for (const ws of wss.clients) {
       if (!ws.isAlive) { ws.terminate(); continue; }
       ws.isAlive = false;
       ws.ping();
     }
   }, 30000);
+  beat.unref();
+  wss.on('close', () => clearInterval(beat));
+  return wss;
 }
 
 module.exports = {
