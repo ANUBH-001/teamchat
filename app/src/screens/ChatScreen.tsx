@@ -30,7 +30,8 @@ import { MediaGridModal } from '../components/MediaGrid';
 import SendToSheet from '../components/SendToSheet';
 import GeoCameraScreen from './GeoCameraScreen';
 import { VoiceResult } from '../components/VoiceRecorder';
-import { sendImageToChat, uploadMedia } from '../media';
+import { sendImageToChat } from '../media';
+import { deleteVoice, dropDeliveredVoice, isQueuedVoice, onVoiceRemoved, onVoiceSent, queueVoice, sendQueuedVoice, voiceMsg, voicePendingFor } from '../voiceOutbox';
 import { setPendingQuote, takePendingQuote, toggleStar, useStars } from '../starStore';
 import { copyText } from '../dates';
 import TaskActionSheet from '../components/TaskActionSheet';
@@ -500,6 +501,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       setUploading((n) => n - 1);
     }
   };
+  // A-12: a voice note is persisted (voiceOutbox) before the upload and shown right away; a failure leaves a failed
+  // bubble with Retry / Delete (same clientId on every retry, the server dedupes), also after an app restart.
   const sendVoice = async (r: VoiceResult) => {
     const commandMode = /^\/(task|re|reassign|done)\b/i.test(text.trim());
     // typed "/task @Anubhav" goes along as the caption; the server joins it with the transcript ("<typed> <spoken>")
@@ -507,19 +510,29 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     const typedIds = typed ? mentionIdsFor(typed, refs.current) : [];
     const reply = replyTo && replyTo.id ? replyTo.id : undefined;
     setReplyTo(null);
+    const item = await queueVoice({
+      clientId: newClientId(), chatId: chat.id, uri: r.uri, durationMs: r.durationMs, waveform: r.waveform, createdAt: new Date().toISOString(),
+      replyToId: reply, ...(typed ? { text: typed, mentionIds: typedIds } : {}),
+    });
+    sentHere.current.add(item.clientId);
+    setMsgs((cur) => merge(cur, [voiceMsg(item, me.id, me.name)]));
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    if (commandMode) { setText(''); refs.current = []; } // kept with the voice note; the server runs the spoken command
     setUploading((n) => n + 1);
-    try {
-      const { url } = await uploadMedia(r.uri, 'audio', 'audio/mp4');
-      const res = await api<{ message: Msg }>('POST', '/chats/' + chat.id + '/messages', {
-        type: 'audio', mediaUrl: url, clientId: newClientId(), replyToId: reply,
-        ...(typed ? { text: typed, mentionIds: typedIds } : {}),
-        media: { kind: 'audio', durationMs: r.durationMs, waveform: r.waveform },
-      });
-      afterMedia(res.message);
-      if (commandMode) { setText(''); refs.current = []; } // the server runs the spoken command from the transcript
-    } catch (e: any) { Alert.alert('Voice note nahi gaya', e?.message || 'Dobara try karo'); }
+    try { afterMedia(await sendQueuedVoice(item.clientId)); }
+    catch (e: any) { toast('Voice note nahi gaya. Retry dabao'); }
     setUploading((n) => n - 1);
   };
+  useEffect(() => {
+    let live = true;
+    voicePendingFor(chat.id, me.id, me.name).then((list) => { if (live && list.length) setMsgs((cur) => merge(cur, list)); });
+    const offSent = onVoiceSent((_, m) => { if (m.chatId === chat.id) setMsgs((cur) => merge(cur, [m])); }); // Retry from the bubble
+    const offRemoved = onVoiceRemoved((cid) => setMsgs((cur) => cur.filter((x) => !!x.id || x.clientId !== cid)));
+    return () => { live = false; offSent(); offRemoved(); };
+  }, [chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { // the server already has it (ws / reload): drop the local copy
+    for (const m of msgs) if (m.id && isQueuedVoice(m.clientId)) dropDeliveredVoice(m.clientId);
+  }, [msgs]);
 
   const onChange = (v: string) => {
     // Round 4: typing "/task " opens the person picker by itself
@@ -541,6 +554,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
 
   const doDelete = async (m: Msg) => {
     if (!m.id) {
+      if (m.type === 'audio') { await deleteVoice(m.clientId); return; } // A-12: unsent voice note
       await removeFromOutbox(m.clientId);
       setMsgs((cur) => cur.filter((x) => x.clientId !== m.clientId));
       return;

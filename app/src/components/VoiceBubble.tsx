@@ -10,6 +10,7 @@ import { useMediaSrc } from '../media';
 import { usePrefs } from '../prefs';
 import Avatar from './Avatar';
 import { fmtMs } from './VoiceRecorder';
+import { deleteVoice, sendQueuedVoice, useVoiceState } from '../voiceOutbox';
 
 let current: { key: string; stop: () => Promise<void> } | null = null;
 const SPEEDS = [1, 1.5, 2];
@@ -112,6 +113,8 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
   const m = msg.media;
   const tr = m?.transcript;
   const expanded = open ?? prefs.autoTranscripts;
+  // A-12: my unsent voice note (voiceOutbox): sending / failed with Retry + Delete
+  const outbox = useVoiceState(msg.id ? null : msg.clientId);
 
   return (
     <View style={{ width: 250 }}>
@@ -138,6 +141,28 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
           <Text style={{ color: main, fontSize: 12, fontWeight: '700' }}>{speed === 1 ? '1x' : speed + 'x'}</Text>
         </Pressable>
       </View>
+      {outbox === 'sending' && (
+        <Text style={{ color: sub, fontSize: 12, fontStyle: 'italic', marginTop: 4 }}>Bhej rahe hain…</Text>
+      )}
+      {outbox === 'failed' && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+          <Ionicons name="alert-circle" size={16} color={mine ? t.onAccent : t.danger} />
+          <Text style={{ color: main, fontSize: 12, fontWeight: '700', marginLeft: 4, flex: 1 }}>Nahi gaya</Text>
+          <Pressable
+            onPress={() => { sendQueuedVoice(msg.clientId).catch(() => {}); }} hitSlop={6} accessibilityLabel="Retry voice note"
+            style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.18)' }}
+          >
+            <Ionicons name="refresh" size={14} color={main} />
+            <Text style={{ color: main, fontSize: 12, fontWeight: '700', marginLeft: 4 }}>Retry</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => { unload(); deleteVoice(msg.clientId); }} hitSlop={6} accessibilityLabel="Delete voice note"
+            style={{ marginLeft: 6, width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.18)' }}
+          >
+            <Ionicons name="trash-outline" size={15} color={main} />
+          </Pressable>
+        </View>
+      )}
       {m?.transcriptStatus === 'pending' && !tr ? (
         <Text style={{ color: sub, fontSize: 12, fontStyle: 'italic', marginTop: 4 }}>Transcribing…</Text>
       ) : m?.transcriptStatus === 'failed' && !tr ? (
