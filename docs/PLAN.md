@@ -72,7 +72,7 @@ Each agent gets a narrow task + file list from the plan section it needs, not th
 ## 8. Project CLAUDE.md (create at d:\r&D\team-app\CLAUDE.md after approval)
 ```
 # Team Chat + AI Task Tracker (Android, WhatsApp-style)
-Plan: C:\Users\Manish\.claude\plans\pasted-content-id-0595-joyful-frost.md (read only the section you need)
+Plan: ~/.claude/plans\pasted-content-id-0595-joyful-frost.md (read only the section you need)
 
 ## Rules
 - ZERO TESTING: never write/run/set up tests unless Manish says so. Agent only BUILDS. Tell every sub-agent "no tests".
@@ -90,7 +90,7 @@ Plan: C:\Users\Manish\.claude\plans\pasted-content-id-0595-joyful-frost.md (read
 ```
 
 ## 9. First actions after approval
-1. Edit `C:\Users\Manish\.claude\CLAUDE.md`: add Critical tier -> Fable (Agent `model: "fable"`) for prod deploy plan, security review, final AI design, hard debugging. Fable only when truly needed.
+1. Edit `~/.claude/CLAUDE.md`: add Critical tier -> Fable (Agent `model: "fable"`) for prod deploy plan, security review, final AI design, hard debugging. Fable only when truly needed.
 2. Create project folder + the CLAUDE.md above, then start Phase 0.
 
 ## 11. NEW FEATURE: Daily check-ins (morning plan + evening work report), admin sees silently
