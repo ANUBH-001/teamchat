@@ -6,7 +6,7 @@ import { Image } from 'expo-image';
 import * as FileSystem from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { mediaSrc, saveToGallery, useMediaSrc } from '../media';
+import { mediaCacheKey, saveToGallery, signedMediaUrl, useMediaSrc } from '../media';
 
 const MAX_SCALE = 5;
 const dist = (t: any[]) => Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
@@ -65,8 +65,9 @@ export default function ImageViewer({ visible, url, caption, title, onClose }: {
 
   const close = () => { reset(); setNote(''); onClose(); };
   const save = async () => {
-    const full = mediaSrc(url);
-    if (!full || saving) return;
+    if (saving) return;
+    const full = await signedMediaUrl(url); // fresh signed URL (A-07)
+    if (!full) return;
     setSaving(true);
     try {
       const f = await FileSystem.downloadAsync(full, (FileSystem.cacheDirectory || '') + 'tc_' + Date.now() + '.jpg');
@@ -81,7 +82,7 @@ export default function ImageViewer({ visible, url, caption, title, onClose }: {
         <View {...pan.panHandlers} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           {!!src && (
             <Animated.View style={{ width: '100%', height: '100%', transform: [{ translateX: tx }, { translateY: ty }, { scale }] }}>
-              <Image source={{ uri: src }} style={{ width: '100%', height: '100%' }} contentFit="contain" />
+              <Image source={{ uri: src, cacheKey: mediaCacheKey(url) }} style={{ width: '100%', height: '100%' }} contentFit="contain" />
             </Animated.View>
           )}
         </View>

@@ -4,7 +4,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { Image } from 'react-native';
-import { api, apiUpload, getToken } from './api';
+import { Image as ExpoImage } from 'expo-image';
+import { api, apiUpload } from './api';
 import { SERVER_URL } from './config';
 import { newClientId } from './outbox';
 
@@ -30,32 +31,100 @@ export async function compressImage(uri: string): Promise<{ uri: string; width: 
   return { uri: r.uri, width: r.width, height: r.height };
 }
 
-// Image / Audio source URLs need the token in the query (media files are auth-protected).
-let tokenCache: string | null = null;
-let warming: Promise<void> | null = null;
-export function warmMediaToken(): Promise<void> {
-  warming = getToken().then((t) => { tokenCache = t; }).catch(() => {});
-  return warming;
-}
-warmMediaToken();
-export const clearMediaToken = () => { tokenCache = null; };
+// A-07 / B-02: protected media (/media/f/..., /media/staticmap?...) is loaded through short-lived signed URLs from
+// POST /media/sign (JWT in the header only, never in a URL). Paths are signed in batches and cached until 5 min before they
+// expire (server TTL 30 min); useMediaSrc re-renders when a URL is (re)signed. Offline / not allowed: the plain path is
+// returned (expo-image still finds it in its cache via mediaCacheKey; the server answers 401/403) and signing is retried later.
+type Signed = { url: string; refreshAt: number };
+const REFRESH_BEFORE_MS = 5 * 60 * 1000;
+const RETRY_MS = 30 * 1000; // network error
+const DENIED_MS = 5 * 60 * 1000; // no access / no such file
+const BATCH_MS = 30;
+const MAX_BATCH = 100; // server limit
+const signedUrls = new Map<string, Signed>();
+let queue = new Set<string>();
+let batch: Promise<void> | null = null;
+let generation = 0; // bumped by clearMediaCache: answers for the previous user are dropped
 
+const isLocal = (url: string) => /^(file|content|data|blob):/i.test(url);
+const needsSign = (url: string) => url.startsWith('/media/f/') || url.startsWith('/media/staticmap?');
+const fresh = (e?: Signed) => !!e && e.refreshAt > Date.now();
+
+async function flushSign() {
+  const paths = Array.from(queue);
+  queue = new Set();
+  batch = null;
+  const gen = generation;
+  for (let i = 0; i < paths.length; i += MAX_BATCH) {
+    const chunk = paths.slice(i, i + MAX_BATCH);
+    try {
+      const r = await api<{ urls: Record<string, string | null>; expiresAt: number }>('POST', '/media/sign', { paths: chunk });
+      if (gen !== generation) return;
+      for (const p of chunk) {
+        const u = r.urls && r.urls[p];
+        signedUrls.set(p, u ? { url: SERVER_URL + u, refreshAt: r.expiresAt - REFRESH_BEFORE_MS } : { url: SERVER_URL + p, refreshAt: Date.now() + DENIED_MS });
+      }
+    } catch (e) {
+      if (gen !== generation) return;
+      // keep a still-valid signed URL; else the plain path (cache hit only)
+      for (const p of chunk) {
+        const old = signedUrls.get(p);
+        signedUrls.set(p, { url: old ? old.url : SERVER_URL + p, refreshAt: Date.now() + RETRY_MS });
+      }
+    }
+  }
+}
+function requestSign(path: string): Promise<void> {
+  queue.add(path);
+  if (!batch) batch = new Promise<void>((r) => setTimeout(r, BATCH_MS)).then(flushSign);
+  return batch;
+}
+
+// Logout (A-06): forget every signed URL and empty the expo-image memory + disk caches (photos of the previous user).
+export async function clearMediaCache(): Promise<void> {
+  generation++;
+  signedUrls.clear();
+  queue = new Set();
+  batch = null;
+  try { await Promise.all([ExpoImage.clearMemoryCache(), ExpoImage.clearDiskCache()]); } catch (e) {}
+}
+
+// A-22: expo-image cache key = the URL without the signature, so a re-signed URL is still a cache hit.
+export function mediaCacheKey(url?: string | null): string | undefined {
+  if (!url || isLocal(url)) return undefined;
+  if (/^https?:/i.test(url)) return url;
+  return SERVER_URL + (url.startsWith('/media/f/') ? url.split('?')[0] : url);
+}
+
+// Current loadable URL (sync): null while a protected path is not signed yet.
 export function mediaSrc(url?: string | null): string | null {
   if (!url) return null;
-  if (/^(file|content):/i.test(url)) return url; // A-12: unsent voice note plays from the local file
-  const full = /^https?:/i.test(url) ? url : SERVER_URL + url;
-  return tokenCache ? full + (full.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(tokenCache) : full;
+  if (isLocal(url)) return url; // A-12: unsent voice note plays from the local file
+  if (/^https?:/i.test(url)) return url;
+  if (!needsSign(url)) return SERVER_URL + url;
+  const e = signedUrls.get(url);
+  return e ? e.url : null;
 }
 
-// Hook for components: re-renders once the token is known.
+// A fresh URL right now (download, audio play): signs when needed.
+export async function signedMediaUrl(url?: string | null): Promise<string | null> {
+  if (!url) return null;
+  if (needsSign(url) && !fresh(signedUrls.get(url))) await requestSign(url);
+  return mediaSrc(url);
+}
+
+// Hook for components: re-renders once the URL is signed, and again when it is due for re-signing.
 export function useMediaSrc(url?: string | null): string | null {
-  const [, force] = useState(0);
+  const [tick, force] = useState(0);
   useEffect(() => {
-    if (tokenCache || !url) return;
+    if (!url || !needsSign(url)) return;
     let live = true;
-    (warming || warmMediaToken()).then(() => { if (live) force((n) => n + 1); });
-    return () => { live = false; };
-  }, [url]);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const e = signedUrls.get(url);
+    if (!fresh(e)) requestSign(url).then(() => { if (live) force((n) => n + 1); });
+    else timer = setTimeout(() => { if (live) force((n) => n + 1); }, Math.min(e!.refreshAt - Date.now() + 50, 2147483647));
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, [url, tick]);
   return mediaSrc(url);
 }
 

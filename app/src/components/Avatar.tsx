@@ -3,7 +3,7 @@ import { View, Text } from 'react-native';
 import { colorFor } from '../theme';
 import { Image } from 'expo-image';
 import { useUser } from '../userStore';
-import { useMediaSrc } from '../media';
+import { mediaCacheKey, useMediaSrc } from '../media';
 
 export function initials(name: string) {
   const first = (w?: string) => Array.from(w ?? '').find((c) => /[\p{L}\p{N}]/u.test(c)) ?? '';
@@ -26,7 +26,7 @@ function AvatarBase({ name, id, size = 48, userId, emoji }: { name: string; id: 
       }}
     >
       {photo
-        ? <Image source={{ uri: photo }} style={{ width: size, height: size, borderRadius: size / 2 }} contentFit="cover" />
+        ? <Image source={{ uri: photo, cacheKey: mediaCacheKey(u && u.avatarUrl) }} style={{ width: size, height: size, borderRadius: size / 2 }} contentFit="cover" />
         : e
         ? <Text style={{ fontSize: size * 0.55 }}>{e}</Text>
         : <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: size * 0.38 }}>{initials(label)}</Text>}

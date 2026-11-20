@@ -6,7 +6,7 @@ import { Audio, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Theme } from '../theme';
 import { Msg } from '../chatTypes';
-import { useMediaSrc } from '../media';
+import { signedMediaUrl, useMediaSrc } from '../media';
 import { usePrefs } from '../prefs';
 import Avatar from './Avatar';
 import { fmtMs } from './VoiceRecorder';
@@ -67,10 +67,11 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
   const play = async (from = 0) => {
     if (!url) return;
     try {
+      const fresh = (await signedMediaUrl(msg.mediaUrl || null)) || url; // the screen may have been open past the URL's expiry
       if (current && current.key !== key) await current.stop();
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
       const { sound: s } = await Audio.Sound.createAsync(
-        { uri: url },
+        { uri: fresh },
         { shouldPlay: true, positionMillis: from, rate: speedRef.current, shouldCorrectPitch: true, progressUpdateIntervalMillis: 120 },
         onStatus,
       );
