@@ -378,8 +378,10 @@ router.get('/:id/messages', async (req, res) => {
     let rows;
     let hasMore = false;
     if (after) {
-      [rows] = await pool.query(MSG_SELECT + 'WHERE m.chat_id = ? AND m.id > ? ' + kind + 'AND ' + VISIBLE + 'ORDER BY m.id ASC LIMIT 500',
+      [rows] = await pool.query(MSG_SELECT + 'WHERE m.chat_id = ? AND m.id > ? ' + kind + 'AND ' + VISIBLE + 'ORDER BY m.id ASC LIMIT 501',
         [chatId, after, me]);
+      hasMore = rows.length > 500; // page size 500: the client asks again with after = last id
+      rows = rows.slice(0, 500);
     } else {
       [rows] = await pool.query(
         MSG_SELECT + 'WHERE m.chat_id = ? ' + (before ? 'AND m.id < ? ' : '') + kind + 'AND ' + VISIBLE + 'ORDER BY m.id DESC LIMIT ?',
