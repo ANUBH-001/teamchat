@@ -39,6 +39,7 @@ import TaskActionSheet from '../components/TaskActionSheet';
 import TaskModal from '../components/TaskModal';
 import DmTasksSheet from '../components/DmTasksSheet';
 import InAppBanner from '../components/InAppBanner';
+import { ChatRevealContext, revealDelta } from '../keepVisible';
 import { toast } from '../useVoiceInput'; // Round 4: useVoiceInput is no longer used (voice notes use expo-av)
 
 type Item =
@@ -577,10 +578,18 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       setMsgs((cur) => cur.filter((x) => x.clientId !== m.clientId));
       return;
     }
-    try {
-      await api('DELETE', '/messages/' + m.id);
-      markDeleted(m.id);
-    } catch (e: any) { Alert.alert('Could not delete', e.message); }
+    // a sent message is deleted for everyone and cannot be brought back: confirm first (one stray tap in the sheet did it)
+    Alert.alert('Delete message?', 'It will be deleted for everyone in this chat.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          try {
+            await api('DELETE', '/messages/' + m.id);
+            markDeleted(m.id!);
+          } catch (e: any) { Alert.alert('Could not delete', e.message); }
+        },
+      },
+    ]);
   };
 
   const react = useCallback(async (m: Msg, emoji: string) => {
@@ -784,7 +793,18 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     setTimeout(() => jumpTo(focusId), 400);
   }, [loaded, items, focusId, jumpTo]);
 
+  // a text box inside a message (check-in card) asks to stay above the keyboard: scroll the inverted list towards the
+  // newest messages (smaller offset) until the box's bottom edge is inside the list's visible area
+  const listOffset = useRef(0);
+  const listBoxRef = useRef<View>(null);
+  const reveal = useCallback((itemBottom: number) => {
+    listBoxRef.current?.measureInWindow((_x, y, _w, h) => {
+      const d = revealDelta(itemBottom, y + h);
+      if (d) listRef.current?.scrollToOffset({ offset: Math.max(0, listOffset.current - d), animated: true });
+    });
+  }, []);
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    listOffset.current = e.nativeEvent.contentOffset.y;
     const away = e.nativeEvent.contentOffset.y > 120; // inverted list: 0 = newest
     atBottom.current = !away;
     setShowJump((v) => (v === away ? v : away));
@@ -1032,7 +1052,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
           </View>
         </Pressable>
       )}
-      <View style={{ flex: 1, backgroundColor: t.wallpaper }}>
+      <View ref={listBoxRef} collapsable={false} style={{ flex: 1, backgroundColor: t.wallpaper }}>
+        <ChatRevealContext.Provider value={reveal}>
         <FlatList
           ref={listRef}
           inverted
@@ -1059,6 +1080,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
           }
           renderItem={renderItem}
         />
+        </ChatRevealContext.Provider>
         {showJump && (
           <Pressable
             onPress={jumpBottom}

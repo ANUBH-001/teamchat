@@ -1,7 +1,7 @@
 // Round 4 Phase 3: WhatsApp-style composer row.  [ (emoji | input | attach | geo camera) ] (mic) (send | cancel while recording)
 // Presentational: ChatScreen owns the text, mentions, sheets and sending. Voice recording lives in VoiceRecorder.tsx.
-import React, { useState } from 'react';
-import { Animated, Keyboard, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Animated, BackHandler, Keyboard, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Theme } from '../theme';
 import { LockedBar, LockHint, RecordingBar, useMicGesture, useVoiceRecorder, VoiceResult } from './VoiceRecorder';
@@ -45,6 +45,13 @@ export default function Composer({
   const locked = r.state === 'locked';
   const recording = r.state !== 'idle';
 
+  // Back with the emoji panel open closes the panel (like the keyboard), not the whole chat. Registered last, so it runs
+  // before the chat list's Back handler.
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setEmojiOpen(false); return true; });
+    return () => sub.remove();
+  }, [emojiOpen]);
   const toggleEmoji = () => {
     if (emojiOpen) { setEmojiOpen(false); inputRef.current?.focus(); }
     else { Keyboard.dismiss(); setEmojiOpen(true); }

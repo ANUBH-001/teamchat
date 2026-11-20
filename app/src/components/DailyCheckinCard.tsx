@@ -7,14 +7,15 @@
 // - The box posts a normal message in this chat (the server stores it as today's check-in text and runs the usual
 //   AI task detection on it).
 // - Old days are read-only. The server keeps the payload live (ws 'edited'); local state is only an optimistic overlay.
-import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Keyboard, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Theme } from '../theme';
 import { CheckinPromptPayload, CheckinSummaryPayload, DayTask, Msg } from '../chatTypes';
 import { api } from '../api';
 import { newClientId } from '../outbox';
 import { toast } from '../useVoiceInput';
+import { ChatRevealContext } from '../keepVisible';
 
 export const PILL = {
   done: { label: 'DONE', color: '#2E9E6B' },
@@ -193,6 +194,19 @@ function TaskBody({ p, t, time, live, msg, meId, meName, onOpenTask }: {
 function ReplyBox({ t, chatId, placeholder }: { t: Theme; chatId: number; placeholder: string }) {
   const [text, setText] = useState('');
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  // keep the box above the keyboard while typing: once the keyboard is up (and the window resized), measure the box and
+  // let the chat list scroll it into view
+  const reveal = useContext(ChatRevealContext);
+  const boxRef = useRef<View>(null);
+  const kbSub = useRef<{ remove: () => void } | null>(null);
+  useEffect(() => () => kbSub.current?.remove(), []);
+  const showBox = () => {
+    if (!reveal) return;
+    const measure = () => setTimeout(() => boxRef.current?.measureInWindow((_x, y, _w, h) => reveal(y + h)), 150);
+    kbSub.current?.remove();
+    if (Keyboard.isVisible()) { measure(); return; }
+    kbSub.current = Keyboard.addListener('keyboardDidShow', () => { kbSub.current?.remove(); kbSub.current = null; measure(); });
+  };
   const send = async () => {
     const body = text.trim();
     if (!body || state === 'sending') return;
@@ -207,9 +221,9 @@ function ReplyBox({ t, chatId, placeholder }: { t: Theme; chatId: number; placeh
     }
   };
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12, borderTopWidth: 1, borderTopColor: t.border }}>
+    <View ref={boxRef} collapsable={false} style={{ flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12, borderTopWidth: 1, borderTopColor: t.border }}>
       <TextInput
-        testID="checkin-reply" value={text} onChangeText={(v) => { setText(v); if (state === 'sent') setState('idle'); }}
+        testID="checkin-reply" onFocus={showBox} value={text} onChangeText={(v) => { setText(v); if (state === 'sent') setState('idle'); }}
         placeholder={state === 'sent' ? TEXT.sent + ' ✓' : placeholder} placeholderTextColor={t.subtext} multiline maxLength={2000}
         style={{ flex: 1, color: t.text, backgroundColor: t.surface, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, maxHeight: 120 }}
       />
