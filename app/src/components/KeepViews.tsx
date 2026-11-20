@@ -150,3 +150,36 @@ export function DoneList({ lines, onOpen }: { lines: Line[]; onOpen: (l: Line) =
     </View>
   );
 }
+
+// Google Keep checklist note: one card per person, title "<Name> tasks", then a vertical list of square checkboxes + task
+// title (wraps up to 3 lines, then an ellipsis). Tick = onTick (checkbox only); text tap = onOpen. `done` renders checked
+// boxes with a strikethrough (Done tab); otherwise only open lines are shown (ticked ones leave the card).
+export const CHECKLIST_LINES = 3;
+export function ChecklistCard({ title, lines, me, isBoss, onTick, onOpen, done, onTitle }: {
+  title: string; lines: Line[]; me: number; isBoss: boolean; onTick: (l: Line) => void; onOpen: (l: Line) => void; done?: boolean; onTitle?: () => void;
+}) {
+  const t = useTheme();
+  const shown = lines.filter((l) => (done ? l.done : !l.done)).sort(done ? byDoneDesc : byDue);
+  return (
+    <View testID="checklist-card" style={{ backgroundColor: t.card, borderRadius: 12, borderWidth: 1, borderColor: t.border, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, marginBottom: 10 }}>
+      <Pressable onPress={onTitle} disabled={!onTitle}>
+        <Text style={{ color: t.text, fontSize: 20, fontWeight: '400', marginBottom: 8 }}>{title}</Text>
+      </Pressable>
+      {shown.map((l) => {
+        const canTick = isBoss || l.userId === me;
+        return (
+          <View key={l.task.id + '-' + l.userId} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 5 }}>
+            <Pressable accessibilityRole="checkbox" accessibilityLabel={'Task ' + l.task.id} testID={'tick-' + l.task.id} onPress={() => canTick && onTick(l)} hitSlop={8} disabled={!canTick} style={{ paddingTop: 2, paddingRight: 10, opacity: canTick ? 1 : 0.45 }}>
+              <Ionicons name={l.done ? 'checkbox' : 'square-outline'} size={20} color={l.done ? t.accent : t.subtext} />
+            </Pressable>
+            <Pressable onPress={() => onOpen(l)} style={{ flex: 1 }}>
+              <Text testID={'title-' + l.task.id} numberOfLines={CHECKLIST_LINES} ellipsizeMode="tail" style={{ color: l.done ? t.subtext : t.text, fontSize: 15, lineHeight: 22, textDecorationLine: l.done ? 'line-through' : 'none' }}>
+                {l.task.title}
+              </Text>
+            </Pressable>
+          </View>
+        );
+      })}
+    </View>
+  );
+}

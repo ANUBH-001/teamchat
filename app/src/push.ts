@@ -173,6 +173,8 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
         const assignee = task.assigneeId === myId || (Array.isArray(task.assignees) && task.assignees.some((a: any) => a && a.id === myId));
         if (assignee && (ev === 'created' || ev === 'reassigned')) {
           notify(ev === 'created' ? 'New task' : 'Task aapko diya gaya', title, task.chatId, 'messages');
+        } else if (assignee && (ev === 'completed' || ev === 'done')) {
+          notify(actor + ' ne task Done kiya', title, task.chatId, 'messages'); // someone else (e.g. admin) ticked my task
         } else if (assignee && ev === 'praise') {
           notify('👏 ' + actor + ' praised your work', title, task.chatId, 'messages');
         } else if (role === 'boss' && e.notifyAdmin && ['completed', 'done', 'testing', 'review', 'change_merged'].includes(ev)) {
