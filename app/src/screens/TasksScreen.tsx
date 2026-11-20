@@ -164,6 +164,9 @@ export default function TasksScreen() {
   }, [allLines, ql]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sheetTask = sheetId !== null ? tasks.find((x) => x.id === sheetId) || (doneAll || []).find((x) => x.id === sheetId) || null : null;
+  // the task left the lists (closed from the sheet, or elsewhere): forget it, or the sheet popped up again over any
+  // screen the moment the task was reopened (acceptance test 2026-11-20)
+  useEffect(() => { if (sheetId !== null && !sheetTask) setSheetId(null); }, [sheetId, sheetTask]);
 
   // with a search typed, "No tasks 🎉" / "No tasks done yet" read as if the list were empty: say nothing matched instead
   const empty = (txt: string) => (
