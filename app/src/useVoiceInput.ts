@@ -76,7 +76,7 @@ export function useVoiceInput() {
   };
 
   const askSettings = () =>
-    Alert.alert('Microphone', 'Voice typing needs microphone permission. Allow it in Settings > TeamChat > Permissions > Microphone.', [
+    Alert.alert('Microphone', 'Voice typing needs microphone permission. Allow it in Settings > KlapChat > Permissions > Microphone.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Open settings', onPress: () => Linking.openSettings() },
     ]);

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { useTheme } from '../useTheme';
 import { useAuth } from '../auth';
+
+const BRAND_GOLD = '#E3BE6A';
 
 export default function LoginScreen() {
   const t = useTheme();
@@ -34,8 +36,13 @@ export default function LoginScreen() {
     // maxWidth: on a 10" tablet the fields stretched edge to edge (acceptance test 2026-11-20); phones are unchanged
     <View style={{ flex: 1, backgroundColor: t.background }}>
     <View style={{ flex: 1, justifyContent: 'center', padding: 24, width: '100%', maxWidth: 520, alignSelf: 'center' }}>
-      <Text style={{ fontSize: 28, fontWeight: '700', color: t.accent, textAlign: 'center', marginBottom: 4 }}>
-        Team Chat
+      <Image source={require('../../assets/logo-icon.png')} accessibilityLabel="KlapChat logo"
+        style={{ width: 96, height: 96, borderRadius: 22, alignSelf: 'center', marginBottom: 12 }} />
+      <Text style={{ fontSize: 30, fontWeight: '800', color: t.text, textAlign: 'center' }}>
+        Klap<Text style={{ color: BRAND_GOLD }}>Chat</Text>
+      </Text>
+      <Text style={{ fontSize: 12, letterSpacing: 2, color: BRAND_GOLD, textAlign: 'center', marginBottom: 20 }}>
+        BY KLAP REALTY
       </Text>
       <Text style={{ color: t.subtext, textAlign: 'center', marginBottom: 24 }}>
         {mode === 'login' ? 'Log in with your phone and PIN' : 'First time? Enter your invite code and choose a PIN'}

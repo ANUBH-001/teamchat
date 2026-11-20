@@ -187,7 +187,7 @@ export default function ChatsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: t.background }}>
       <View style={{ paddingTop: insets.top + 10, paddingBottom: 6, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center' }}>
-        <Text style={{ flex: 1, color: t.accent, fontSize: 24, fontWeight: '800' }}>TeamChat</Text>
+        <Text style={{ flex: 1, color: t.accent, fontSize: 24, fontWeight: '800' }}>KlapChat</Text>
         <Pressable onPress={openCamera} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
           <Ionicons name="camera-outline" size={26} color={t.text} />
         </Pressable>

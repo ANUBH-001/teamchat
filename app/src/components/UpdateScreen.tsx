@@ -19,7 +19,7 @@ export function UpdateScreen() {
       </View>
       <Text style={{ color: t.text, fontSize: 22, fontWeight: '700', marginTop: 24 }}>Update required</Text>
       <Text style={{ color: t.subtext, fontSize: 15, textAlign: 'center', marginTop: 8, maxWidth: 320 }}>
-        {info?.message || 'Please install the new version of TeamChat. The old version will no longer work.'}
+        {info?.message || 'Please install the new version of KlapChat. The old version will no longer work.'}
       </Text>
       <Text style={{ color: t.subtext, fontSize: 12, marginTop: 12 }}>
         Installed {VERSION_NAME}{info?.latestVersionName ? '  ·  Latest ' + info.latestVersionName : ''}

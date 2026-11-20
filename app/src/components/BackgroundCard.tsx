@@ -33,7 +33,7 @@ export default function BackgroundCard() {
         <Text style={{ color: t.subtext }}>This app build has no background service (Expo Go). Alerts only arrive while the app is open.</Text>
       )}
       <Text style={{ color: t.subtext, marginTop: 8, lineHeight: 19 }}>
-        To keep getting message alerts when the app is closed, tap the button below and set TeamChat to "Allow" / Battery
+        To keep getting message alerts when the app is closed, tap the button below and set KlapChat to "Allow" / Battery
         "Unrestricted". OnePlus/Oppo/Realme (required, otherwise alerts stop as soon as the screen turns off): App info {'>'}
         Battery usage {'>'} "Allow background activity" (not "Smart mode").
         Xiaomi/Redmi: App info {'>'} Autostart ON and Battery saver {'>'} No restrictions. You can also lock the app in Recents.

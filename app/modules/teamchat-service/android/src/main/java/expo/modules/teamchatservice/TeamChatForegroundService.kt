@@ -112,7 +112,7 @@ class TeamChatForegroundService : Service(), HeadlessJsTaskEventListener {
     val builder: Notification.Builder
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       val channel = NotificationChannel(CHANNEL_ID, "Background connection", NotificationManager.IMPORTANCE_LOW)
-      channel.description = "Keeps TeamChat connected so message alerts arrive"
+      channel.description = "Keeps KlapChat connected so message alerts arrive"
       channel.setSound(null, null)
       channel.enableVibration(false)
       channel.setShowBadge(false)
@@ -129,7 +129,7 @@ class TeamChatForegroundService : Service(), HeadlessJsTaskEventListener {
       builder.setContentIntent(PendingIntent.getActivity(this, 0, launch, flags))
     }
     val notification = builder
-      .setContentTitle("TeamChat connected")
+      .setContentTitle("KlapChat connected")
       .setContentText("New message alerts are on")
       .setSmallIcon(android.R.drawable.stat_notify_chat)
       .setOngoing(true)
