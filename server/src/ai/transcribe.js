@@ -1,5 +1,5 @@
 // Voice note -> text (Round 4). Gemini generateContent with the audio as inlineData; transcript in Hinglish Roman script.
-// transcribe(mediaUrl) -> {text} | {error}. Only AI_PROVIDER=gemini with AI_API_KEY (+ aiEnabled) transcribes; anything else
+// transcribe(mediaUrl) -> {text} | {error: off|no_file|too_large|type|api|empty} (a reason code, never a message with secrets). Only AI_PROVIDER=gemini with AI_API_KEY (+ aiEnabled) transcribes; anything else
 // (other provider, no key, AI off, too large, any failure) -> {error} quietly (the caller marks transcriptStatus 'failed').
 // The key / audio are never logged.
 const fs = require('fs');
@@ -28,8 +28,8 @@ async function transcribe(mediaUrl) {
     await settings.all();
     if (provider.providerName() !== 'gemini' || !provider.active()) return { error: 'off' };
     const file = require('../routes/media').resolvePath(mediaUrl);
-    if (!file || !fs.existsSync(file)) return { error: 'no file' };
-    if (fs.statSync(file).size > MAX_BYTES) return { error: 'too large' };
+    if (!file || !fs.existsSync(file)) return { error: 'no_file' };
+    if (fs.statSync(file).size > MAX_BYTES) return { error: 'too_large' };
     const mime = MIME[path.extname(file).slice(1).toLowerCase()];
     if (!mime) return { error: 'type' };
     const data = fs.readFileSync(file).toString('base64');
@@ -43,7 +43,7 @@ async function transcribe(mediaUrl) {
     return text ? { text: normalizeSpoken(text).slice(0, 4000) } : { error: 'empty' };
   } catch (e) {
     console.error('transcribe failed:', e && e.code ? e.code : 'error');
-    return { error: 'failed' };
+    return { error: 'api' };
   }
 }
 

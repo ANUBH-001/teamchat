@@ -77,9 +77,11 @@ router.post('/activate', rateLimit, async (req, res) => {
     const [[inv]] = await pool.query(
       'SELECT id FROM invites WHERE user_id = ? AND code = ? AND used_at IS NULL', [u.id, hashCode(inviteCode)]);
     if (!inv) { await failAttempt(u); return fail(); }
+    // B-15: claim the invite atomically BEFORE touching the user; only the request that flips used_at may set the PIN
+    const [claim] = await pool.query('UPDATE invites SET used_at = NOW() WHERE id = ? AND used_at IS NULL', [inv.id]);
+    if (!claim.affectedRows) return fail();
     const pinHash = await bcrypt.hash(String(pin), 10);
     await pool.query('UPDATE users SET pin_hash = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?', [pinHash, u.id]);
-    await pool.query('UPDATE invites SET used_at = NOW() WHERE id = ?', [inv.id]);
     require('../realtime').sendToBosses({ type: 'users' }).catch(() => {});
     await require('../checkins').ensureChat(u.id).catch((e) => console.error('checkin chat:', e.message)); // members: private 'Daily Check-in' chat (no-op for boss)
     res.json({ token: await startSession(u), user: publicUser(u) });

@@ -95,11 +95,9 @@ async function getTask(id) {
 const isAssignee = (task, u) => !!u && (task.assignees || []).some((a) => a.id === u.id);
 // Round 4: a private task (admin's own) is visible to its creator only.
 const canView = (task, u) => (task.private ? task.createdBy === u.id : isBoss(u) || isAssignee(task, u) || task.createdBy === u.id);
-// Round 4: create / assign / reassign = admin only (the old members-can-assign setting is kept in settings.js, not read here).
-// Round 4: disabled (admin only): const canAssign = (actor) => isBoss(actor) || settings.get().membersCanAssign;
-const canAssign = (actor) => isBoss(actor);
-// Round 4: disabled (admin only): const canCreate = (actor, ids) => canAssign(actor) || (ids.length === 1 && ids[0] === actor.id);
-const canCreate = (actor) => isBoss(actor);
+// Assigning others = boss OR settings.membersCanAssign (owner decision, R-01). Anyone may always create a task for THEMSELVES only.
+const canAssign = (actor) => isBoss(actor) || !!settings.get().membersCanAssign;
+const canCreate = (actor, ids) => canAssign(actor) || (ids.length === 1 && ids[0] === actor.id);
 // done / undo-done = admin (all assignees) + each assignee (own)
 const canSetAll = (task, actor) => isBoss(actor);
 const canWork = (task, actor) => isAssignee(task, actor) || canSetAll(task, actor);
@@ -238,7 +236,7 @@ async function createTask({ title, description, assigneeIds, assigneeId, dueDate
   await settings.all();
   const ids = cleanIds(assigneeIds !== undefined && assigneeIds !== null ? assigneeIds : [assigneeId]);
   if (!ids.length) throw new TaskError(400, 'Invalid assignee');
-  if (!canCreate(actor, ids)) throw new TaskError(403, 'Sirf admin task bana sakta hai', 'NOT_ALLOWED');
+  if (!canCreate(actor, ids)) throw new TaskError(403, 'Sirf admin dusron ko task de sakta hai (aap apne liye bana sakte hain)', 'NOT_ALLOWED');
   title = String(title || '').trim();
   if (!title) throw new TaskError(400, 'Title is required');
   if (title.length > 255) throw new TaskError(400, 'Title too long');
@@ -249,7 +247,7 @@ async function createTask({ title, description, assigneeIds, assigneeId, dueDate
   let chat = parseInt(chatId, 10) || null;
   if (chat && !(await rt.isChatMember(chat, actor.id))) chat = null;
   const src = await msgInfo(messageId);
-  const priv = ids.length === 1 && ids[0] === actor.id ? 1 : 0; // admin assigns only himself -> private
+  const priv = isBoss(actor) && ids.length === 1 && ids[0] === actor.id ? 1 : 0; // admin assigns only himself -> private (a member self-task stays visible to admin)
   const id = await tx(async (conn) => {
     const [r] = await conn.query(
       'INSERT INTO tasks (title, description, project, assignee_id, created_by, due_at, source_message_id, chat_id, private) VALUES (?,?,?,?,?,?,?,?,?)',
@@ -390,7 +388,32 @@ async function applyUpdate(id, f, actor, source = 'manual', messageId = null, op
   const fresh = await getTask(id);
   const name = opts.eventName || eventFor(changes, fresh, status);
   if (changes.size || opts.eventName) await notify(fresh, name, actor, source, [...remove, ...(opts.notifyIds || [])]);
+  if (source === 'manual' && changes.has('status') && status === 'done') await doneCard(fresh, actor);
   return { task: fresh, event: name, changed: changes.size > 0, before: task };
+}
+
+// R-04s: done ticked in the Tasks tab (source 'manual') leaves a public bot card so the other side is told in chat as well
+// as by the ws 'task' event. Card goes to the chat the task was made in (when the actor is still in it), else to the DM between
+// the actor and the other party (boss -> the assignees; member -> the creator, or the first boss for a self-task).
+// Private tasks post nothing. Never fails the update.
+async function doneCard(task, actor) {
+  try {
+    if (task.private) return;
+    if (task.chatId && (await rt.isChatMember(task.chatId, actor.id))) {
+      await bot.taskCard(task.chatId, 'completed', task, actor);
+      return;
+    }
+    let others;
+    if (isBoss(actor)) others = task.assignees.map((a) => a.id).filter((i) => i !== actor.id);
+    else {
+      const bosses = (await users.bossIds()).filter((i) => i !== actor.id);
+      others = [task.createdBy && task.createdBy !== actor.id ? task.createdBy : bosses[0]].filter(Boolean);
+    }
+    for (const other of [...new Set(others)].slice(0, 5)) {
+      const { chatId } = await bot.ensureDm(actor.id, other);
+      await bot.taskCard(chatId, 'completed', task, actor);
+    }
+  } catch (e) { console.error('done card:', e.message); }
 }
 
 const updateTask = async (id, f, actor, source = 'manual', messageId = null) =>

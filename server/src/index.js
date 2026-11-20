@@ -3,70 +3,13 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'change-me') {
   console.error('Set a real JWT_SECRET in server/.env');
   process.exit(1);
 }
+// B-21: log instead of dying silently or with a bare stack; an uncaught exception leaves unknown state, so exit and let pm2 restart
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e && e.stack ? e.stack : e));
+process.on('uncaughtException', (e) => { console.error('uncaughtException:', e && e.stack ? e.stack : e); process.exit(1); });
 const http = require('http');
-const express = require('express');
-const path = require('path');
-const pool = require('./db');
-const settings = require('./settings');
+const { createApp } = require('./app');
 
-const app = express();
-app.disable('x-powered-by');
-app.set('trust proxy', 'loopback'); // behind the local reverse proxy: req.ip = real client (rate limits)
-app.use((req, res, next) => {
-  res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' });
-  next();
-});
-app.use(express.json({ limit: '256kb' })); // media JSON (waveform) + payload.quote
-app.get('/health', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ ok: true, db: true });
-  } catch (e) {
-    res.status(500).json({ ok: false, db: false });
-  }
-});
-
-// Force update info (public). apkUrl etc. come from Admin -> Settings.
-app.get('/app/version', async (req, res) => {
-  try {
-    const s = await settings.all();
-    res.json({ minVersionCode: s.minVersionCode, latestVersionCode: s.latestVersionCode, latestVersionName: s.latestVersionName,
-      apkUrl: s.apkUrl, message: s.updateMessage });
-  } catch (e) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-// APK download folder (server/public/download, *.apk git-ignored), e.g. /download/TeamChat.apk
-app.use('/download', express.static(path.join(__dirname, '..', 'public', 'download')));
-
-// Self-hosted OTA updates (expo-updates sends no X-App-Version, so mount before the 426 check below)
-app.use('/updates', require('./routes/updates'));
-
-// Round 4: media (login required inside; mounted before the 426 check: RN Image/Audio cannot send X-App-Version, they use ?t=)
-app.use('/media', require('./routes/media'));
-
-// Every other route: header X-App-Version (missing = 0) below minVersionCode -> 426 UPDATE_REQUIRED.
-app.use(async (req, res, next) => {
-  try {
-    const s = await settings.all();
-    if (s.minVersionCode > (parseInt(req.get('X-App-Version'), 10) || 0)) {
-      return res.status(426).json({ error: 'TeamChat ka naya version install karein (app update required)', code: 'UPDATE_REQUIRED', apkUrl: s.apkUrl });
-    }
-    next();
-  } catch (e) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.use('/auth', require('./routes/auth'));
-app.use('/admin/checkins', require('./routes/checkins').admin); // boss-only Reports (before /admin)
-app.use('/admin', require('./routes/admin'));
-app.use('/checkins', require('./routes/checkins').member);
-app.use('/chats', require('./routes/chats'));
-app.use('/tasks', require('./routes/tasks'));
-app.use('/', require('./routes/misc'));
-
-const server = http.createServer(app);
+const server = http.createServer(createApp());
 require('./realtime').attach(server);
 
 const port = process.env.PORT || 3000;
@@ -74,3 +17,5 @@ server.listen(port, () => console.log('Server on :' + port));
 require('./backup').start();
 require('./checkins').start(); // daily check-in cards: morning tasks + evening sign-off (1-minute tick, TZ)
 require('./jobs').start(); // retention purge, 6-day reminders, 14-day task cleanup
+// B-07: voice notes left 'pending' by a restart (older than 2 min, max 20) are transcribed again
+require('./routes/chats').requeueVoiceNotes().catch((e) => console.error('voice requeue:', e.message));

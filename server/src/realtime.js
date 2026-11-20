@@ -83,8 +83,9 @@ function closeUser(userId, code = 4401, reason = 'Not authenticated') {
 }
 
 function attach(server) {
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 }) // clients only send tiny typing / ping frames; bigger = closed 1009;
   wss.on('connection', async (ws, req) => {
+    ws.on('error', () => {}); // e.g. oversize frame (1009): ws closes the socket itself; an unhandled 'error' would crash the process
     let user;
     try {
       const params = new url.URL(req.url, 'http://x').searchParams;
@@ -113,6 +114,8 @@ function attach(server) {
     ws.on('message', async (raw) => {
       try {
         const m = JSON.parse(String(raw));
+        // A-03 app heartbeat: the client pings, we answer this socket only (lets the app detect half-dead connections)
+        if (m.type === 'ping') { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'pong', t: Date.now() })); return; }
         if (m.type !== 'typing') return;
         const chatId = parseInt(m.chatId, 10);
         if (await isChatMember(chatId, user.id)) await sendToChat(chatId, { type: 'typing', chatId, userId: user.id, name: user.name }, user.id);
@@ -124,13 +127,16 @@ function attach(server) {
     });
   });
   // drop dead connections
-  setInterval(() => {
+  const beat = setInterval(() => {
     for (const ws of wss.clients) {
       if (!ws.isAlive) { ws.terminate(); continue; }
       ws.isAlive = false;
       ws.ping();
     }
   }, 30000);
+  beat.unref();
+  wss.on('close', () => clearInterval(beat));
+  return wss;
 }
 
 module.exports = {
