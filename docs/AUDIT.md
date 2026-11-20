@@ -40,7 +40,7 @@ flowchart LR
 
 ## 3. Requirements status (code reading plus owner reports)
 ✅ Working: login/activation, single session, onboarding, chats list and filters, DMs and groups, history paging, reply/quote, edit/delete (10 min), mentions, links, photos, @AI, bot task cards, admin panel, force update, OTA, theme.
-⚠️ Partial: realtime (no client heartbeat, A-03); offline text queue (A-01, A-02, A-04); logout (A-05, A-06); background alerts (A-03, A-08); in-chat search (loaded messages only).
+⚠️ Partial: realtime (no client heartbeat, A-03); offline text queue (A-01, A-02, A-04); logout (A-05, A-06: fixed on hardening/media-auth); background alerts (A-03, A-08); in-chat search (loaded messages only).
 ❌ Broken (owner): task self-assign (R-01); voice recording (R-02, R-05).
 🚫 Not implemented: change PIN, calls, offline media queue, admin view of deleted messages.
 
@@ -61,17 +61,17 @@ Priority: P0 → **R-xx (owner)** → P1 → P2 → P3. "OTA" means a JS-only ch
 | R-03 | Chat UI | Command chips are always shown; the owner wants them only while typing | P3 | `ChatScreen.tsx:876` | Fixed (focused + keyboard) (branch hardening/integration, not deployed) |
 | A-01 | Outbox | Concurrent read-modify-write in AsyncStorage can lose a queued message (stuck "pending") | P1 | `outbox.ts:30-53` | Fixed (mutex queue, tests) (branch hardening/integration, not deployed) |
 | A-03 | Realtime | No client heartbeat: dead socket after a network change, no reconnect | P1 | `realtime.ts:45-79` | Fixed (ping/pong both sides, tests) (branch hardening/integration, not deployed) |
-| A-07 / B-02 | Auth | 30-day JWT sent in media URLs (`?t=`) and the WS fallback (`?token=`), so it lands in proxy logs and the image cache | P1 | `media.ts:43-47`, `routes/media.js:26-29` | Open: needs short-lived signed media URLs (server + app) |
+| A-07 / B-02 | Auth | 30-day JWT sent in media URLs (`?t=`) and the WS fallback (`?token=`), so it lands in proxy logs and the image cache | P1 | `media.ts:43-47`, `routes/media.js:26-29` | Fixed for media: `POST /media/sign` HMAC URLs (30 min, user + path bound), app never puts the JWT in a URL; `?t=` kept behind `MEDIA_ALLOW_TOKEN_QUERY` (default on) until old APKs are gone. WS `?token=` fallback still open (branch hardening/media-auth, not deployed; needs migrate_011) |
 | A-02 | Outbox | A message queued during a flush waits up to 15 s | P2 | `outbox.ts:42-46` | Fixed (branch hardening/integration, not deployed) |
 | A-04 | Outbox | Drops items on any 4xx (including 426) with no feedback | P2 | `outbox.ts:55-57` | Fixed (failed bubble + Retry/Delete) (branch hardening/integration, not deployed) |
-| A-05 | Auth | Logout does not revoke the token on the server | P2 | `auth.tsx:29-34` | Open |
-| A-06 | Privacy | Logout leaves the outbox, stars and task cache for the next user | P2 | `background.ts`, `outbox.ts`, `taskCache.ts` | Open |
+| A-05 | Auth | Logout does not revoke the token on the server | P2 | `auth.tsx:29-34` | Fixed: `POST /auth/logout` rotates session_id (old JWT 401 / ws refused, live sockets 4401); app calls it after stopping the socket (branch hardening/media-auth, not deployed; needs migrate_011) |
+| A-06 | Privacy | Logout leaves the outbox, stars and task cache for the next user | P2 | `background.ts`, `outbox.ts`, `taskCache.ts` | Fixed: `userData.clearUserData()` on logout / kick (outboxes + voice files, stars, caches, people, bgUserId/bgRole, signed URLs, expo-image cache) (branch hardening/media-auth, not deployed) |
 | A-08 / B-06 | Sync | Edits, deletes, reactions and pins missed while offline are never caught up | P2 | `chats.js:381` | Open |
 | A-09 | Realtime | A stop/start race can open two sockets (duplicate notifications) | P2 | `realtime.ts:45-93` | Fixed (generation counter) (branch hardening/integration, not deployed) |
 | A-10 | Composer | A double tap on Send sends the same text twice | P2 | `ChatScreen.tsx:127,348` | Fixed (send guard) (branch hardening/integration, not deployed) |
 | A-12 | Voice | A failed upload loses the recording | P2 | `ChatScreen.tsx:503-521` | Fixed (voice outbox, persisted) (branch hardening/integration, not deployed) |
 | A-21 | Config | `app.json` defaults to the production URL in every build | P2 | `app.json:9,77`, `config.ts` | Open |
-| B-03 | Media | Any logged-in user can fetch any media file (no membership check) | P2 | `routes/media.js:77-87` | Open (with A-07) |
+| B-03 | Media | Any logged-in user can fetch any media file (no membership check) | P2 | `routes/media.js:77-87` | Fixed: uploader (`media_files`), any profile photo, or a reader of a message carrying it (member, not deleted unless boss; boss non-check-in chats); checked at sign time and on header / `?t=` GETs; messages / avatars can only reference files the sender may see (branch hardening/media-auth, not deployed; needs migrate_011) |
 | B-04 | Privacy | Purged data survives in `backup/purge-*.json` etc. forever | P2 | `jobs.js:29-36` | Open (server; on hold) |
 | B-05 | Sync | Catch-up `?after=` capped at 500 with no `hasMore` | P2 | `chats.js:380-382` | Fixed (hasMore) (branch hardening/integration, not deployed) |
 | B-07 | Ops | No graceful shutdown; voice transcripts stay "pending" forever after a restart | P2 | `index.js` | Open |
