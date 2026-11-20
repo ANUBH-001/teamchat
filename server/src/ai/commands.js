@@ -450,16 +450,16 @@ async function cmdTask(ctx, args) {
   if (pp.problem) return pickFor(ctx, 'task', pp, again(), '');
   // Round 4: no person recognised = NOT a self task (only me / khud / mujhe ... make one): ask who, with "(Me)" first
   if (!pp.people.length) {
-    if (!T.canCreate(ctx.user, [ctx.user.id])) return err(ctx, 'NOT_ALLOWED', 'Task sirf admin bana sakta hai. Aap apne tasks ko /done kar sakte hain.');
+    if (!T.canCreate(ctx.user, [ctx.user.id])) return err(ctx, 'NOT_ALLOWED', 'Dusron ko task sirf admin de sakta hai. Apne liye: /task khud <kaam>.');
     return userPicker(ctx, 'task', cleanToken(words[0] || ''), await everyoneFor(ctx, true), again(), '', true);
   }
   const assignees = pp.people;
   const body = pp.rest.join(' ').trim();
   if (!body) return err(ctx, 'BAD_COMMAND', 'Kaam bhi likhiye. Jaise: /task ' + (pp.people.length ? firstName(pp.people[0].name).toLowerCase() : 'anubhav') + ' login page fix karna hai');
   const ids = assignees.map((p) => p.id);
-  // Round 4: only the admin creates / assigns tasks (members: /done on their own tasks)
+  // Assigning others = admin or settings.membersCanAssign; a self-task is always allowed (R-01)
   if (!T.canCreate(ctx.user, ids)) {
-    return err(ctx, 'NOT_ALLOWED', 'Task sirf admin bana sakta hai. Aap apne tasks ko /done kar sakte hain.');
+    return err(ctx, 'NOT_ALLOWED', 'Dusron ko task sirf admin de sakta hai. Apne liye: /task khud <kaam>.');
   }
   const tt = await provider.taskTitle(body);
   const task = await T.createTask({
