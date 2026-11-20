@@ -53,6 +53,15 @@ export function ensureTask(id: number) {
   if (!timer) timer = setTimeout(flush, 80);
 }
 
+// A-06 logout: forget every task of the previous user.
+export function clearTaskCache() {
+  cache.clear();
+  fetchedAt.clear();
+  pending = new Set();
+  if (timer) { clearTimeout(timer); timer = null; }
+  bump();
+}
+
 onEvent((e) => {
   if (e && e.type === 'task' && e.task) putTask(e.task as AnyTask);
 });

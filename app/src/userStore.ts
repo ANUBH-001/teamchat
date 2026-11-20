@@ -33,6 +33,12 @@ export function loadUsers(): Promise<void> {
   return loading;
 }
 
+// A-06 logout: forget the people list (phones included).
+export function clearUsers() {
+  map = new Map();
+  emit();
+}
+
 export const getUser = (id: number | null | undefined) => (id ? map.get(id) || null : null);
 export const allUsers = () => list;
 

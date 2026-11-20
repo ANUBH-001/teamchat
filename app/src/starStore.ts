@@ -26,6 +26,13 @@ export function toggleStar(s: Omit<Star, 'ts'>): boolean {
   save();
   return !on;
 }
+// A-06 logout: stars are per user.
+export async function clearStars() {
+  stars = [];
+  pendingQuotes.clear();
+  emit();
+  await AsyncStorage.removeItem(KEY).catch(() => {});
+}
 export function useStars(): Star[] {
   return useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, () => stars);
 }
