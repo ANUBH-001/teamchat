@@ -107,6 +107,20 @@ router.post('/login', rateLimit, async (req, res) => {
   }
 });
 
+// A-05: POST /auth/logout revokes this login server-side: session_id is rotated, so the JWT fails on the next request
+// (401 SESSION_REPLACED) and ws connect (4409); live sockets of the user are closed now with 4401. The app calls it after
+// stopping its own socket (else it would treat the 4401 as 'logged out by admin'). Signed media URLs already handed out
+// stay valid until they expire (MEDIA_URL_TTL_SEC, 30 min).
+router.post('/logout', requireAuth, async (req, res) => {
+  try {
+    await pool.query('UPDATE users SET session_id = ? WHERE id = ?', [crypto.randomBytes(16).toString('hex'), req.user.id]);
+    require('../realtime').closeUser(req.user.id, 4401, 'LOGGED_OUT');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.get('/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
