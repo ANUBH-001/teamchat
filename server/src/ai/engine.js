@@ -93,8 +93,14 @@ async function chatContext(chatId) {
 async function onMessage(message, user) {
   if (!message || (message.type && message.type !== 'text') || !message.text) return; // bot / system / prompts never trigger
   const text = message.text.slice(0, 1000);
-  if (text.length < 3 || !TASK_RE.test(text)) return;
+  if (text.length < 3) return;
   const chatId = message.chatId;
+  // The pre-filter skips small talk. A reply in a member's own check-in chat is the answer to "Anything new you'll work
+  // on?" / "Today's report", so a bare "Prepare the release notes" (no intent word) still goes to the model, which decides.
+  if (!TASK_RE.test(text)) {
+    const [[c]] = await pool.query('SELECT type FROM chats WHERE id = ?', [chatId]);
+    if (!c || c.type !== 'checkin') return;
+  }
   if (!(await settings.all()).aiDetect) return;
   const cs = await settings.forChat(chatId);
   if (!cs.botEnabled || !cs.aiDetect) return;

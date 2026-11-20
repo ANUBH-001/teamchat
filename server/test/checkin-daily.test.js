@@ -196,3 +196,26 @@ test('AI: "I\'ll also do X" in my own check-in chat becomes MY task; the bot nev
     assert.equal(after - before, 2, 'the member message + one bot task card, nothing more (no loop)');
   } finally { provider.decide = orig; }
 });
+
+test('AI: a bare answer to "Anything new?" in the check-in chat reaches the model; the same text in a DM does not', async () => {
+  const provider = require('../src/ai/provider');
+  const orig = provider.decide;
+  const seen = [];
+  provider.decide = async (input) => { seen.push(JSON.stringify(input)); return { action: 'create_task', tasks: [{ title: 'Prepare the release notes', assignee_name: null }], confidence: 0.9 }; };
+  try {
+    const chat = (await pool.query("SELECT id FROM chats WHERE type = 'checkin' AND owner_id = ?", [m2.id]))[0][0].id;
+    await request(app).post('/chats/' + chat + '/messages').set(H.bearer(tok2)).send({ text: 'Also prepare the release notes', clientId: 'ai-bare-1' });
+    const task = await H.waitFor(async () => (await pool.query(
+      "SELECT t.id, ta.user_id FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id WHERE t.title = 'Prepare the release notes'"))[0][0]);
+    assert.equal(task.user_id, m2.id);
+    // small talk outside the check-in chat is still filtered before any model call
+    const n = seen.length;
+    const dm = await request(app).post('/chats/dm').set(H.bearer(tok2)).send({ userId: boss.id });
+    const dmId = dm.body.chat ? dm.body.chat.id : dm.body.chatId || dm.body.id;
+    assert.ok(dmId, 'dm created: ' + JSON.stringify(dm.body));
+    const r = await request(app).post('/chats/' + dmId + '/messages').set(H.bearer(tok2)).send({ text: 'Also prepare the release notes', clientId: 'ai-bare-2' });
+    assert.equal(r.status, 201);
+    await H.sleep(700);
+    assert.equal(seen.length, n, 'no model call for a DM message without an intent word');
+  } finally { provider.decide = orig; }
+});
