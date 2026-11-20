@@ -25,6 +25,9 @@ before(async () => {
   audioFile = path.join(dir, 'v.m4a');
   fs.writeFileSync(audioFile, 'fake-audio');
   audioUrl = '/media/f/test-voice/v.m4a';
+  // B-03: a sender may only post media they can see. The fixture file was never uploaded through POST /media, so give the
+  // chat one earlier message carrying it: every member can then (re)send it, like a forward.
+  await H.pool().query("INSERT INTO messages (chat_id, sender_id, body, type, media_url) VALUES (?, ?, '', 'audio', ?)", [chat, boss.id, audioUrl]);
   transcribeMod.transcribe = async () => nextResult;
 });
 after(async () => {

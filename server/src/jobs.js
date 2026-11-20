@@ -66,7 +66,10 @@ async function runPurge() {
   // newer message (a forward shares the file) or a profile photo still uses the same file
   for (const url of new Set(data.messages.map((m) => m.media_url).filter(Boolean))) {
     const [[used]] = await pool.query('SELECT (SELECT COUNT(*) FROM messages WHERE media_url = ?) + (SELECT COUNT(*) FROM users WHERE avatar_url = ?) n', [url, url]);
-    if (!Number(used.n)) require('./routes/media').removeFile(url);
+    if (!Number(used.n)) {
+      require('./routes/media').removeFile(url);
+      await pool.query('DELETE FROM media_files WHERE path = ?', [url]); // B-03 uploader record goes with the file
+    }
   }
   rt.sendToAll({ type: 'purged' });
   return { deleted: all.length, file: path.basename(file) };
