@@ -28,3 +28,4 @@ local.properties
 uploads/
 # owner screenshots contain real names/photos (repo is public)
 docs/issues/screenshots/
+docs/private/
