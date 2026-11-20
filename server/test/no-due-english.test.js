@@ -1,4 +1,4 @@
-// R-03 (no task due date) and R-04 (all user-facing text is English).
+// R-07 (no task due date) and R-08 (all user-facing text is English).
 const H = require('./helpers/harness');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
@@ -16,7 +16,7 @@ before(async () => {
 });
 after(async () => { await H.teardown(); });
 
-test('R-03: create ignores dueDate (even an invalid one); the task has no due fields', async () => {
+test('R-07: create ignores dueDate (even an invalid one); the task has no due fields', async () => {
   for (const dueDate of ['2030-01-05', 'garbage', '2030-01-05 17:30']) {
     const r = await request(app).post('/tasks').set(H.bearer(tokBoss)).send({ title: 'No due', assigneeIds: [m1.id], dueDate });
     assert.equal(r.status, 201, JSON.stringify(r.body));
@@ -26,7 +26,7 @@ test('R-03: create ignores dueDate (even an invalid one); the task has no due fi
   }
 });
 
-test('R-03: PATCH with only dueDate (old app) is a harmless no-op, not an error; with other fields they still apply', async () => {
+test('R-07: PATCH with only dueDate (old app) is a harmless no-op, not an error; with other fields they still apply', async () => {
   const c = await request(app).post('/tasks').set(H.bearer(tokBoss)).send({ title: 'Old app', assigneeIds: [m1.id] });
   const id = c.body.task.id;
   const only = await request(app).patch('/tasks/' + id).set(H.bearer(tokBoss)).send({ dueDate: '2030-02-02' });
@@ -42,7 +42,7 @@ test('R-03: PATCH with only dueDate (old app) is a harmless no-op, not an error;
   assert.equal(none.status, 400);
 });
 
-test('R-03: list / summary responses carry no due data', async () => {
+test('R-07: list / summary responses carry no due data', async () => {
   const l = await request(app).get('/tasks').set(H.bearer(tokBoss));
   for (const t of l.body.tasks) assert.ok(!('dueDate' in t) && !('overdue' in t));
   const s = await request(app).get('/tasks/mine/summary').set(H.bearer(tok1));
@@ -50,7 +50,7 @@ test('R-03: list / summary responses carry no due data', async () => {
   for (const k of Object.keys(s.body)) for (const t of s.body[k]) assert.ok(!('dueDate' in t));
 });
 
-test('R-04: no Hindi/Hinglish user-facing phrases left in server code', () => {
+test('R-08: no Hindi/Hinglish user-facing phrases left in server code', () => {
   const banned = /(\bnahi (hai|mila|hua|bana)|dobara try|kisko|likhiye|pehle se|\bkarein\b|ho paya|chuniye|\bjawab\b|\bpooch|\bbaaki\b|Aaj diye|din se pending|galat hai)/i;
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
   const bad = [];
@@ -65,7 +65,7 @@ test('R-04: no Hindi/Hinglish user-facing phrases left in server code', () => {
   assert.deepEqual(bad, []);
 });
 
-test('R-04: AI prompts ask for English output and no due date', () => {
+test('R-08: AI prompts ask for English output and no due date', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ai', 'provider.js'), 'utf8');
   assert.match(src, /ENGLISH/);
   assert.doesNotMatch(src, /due_date/);

@@ -1,4 +1,4 @@
-// R-02: only the assignee or an admin may change a task's status; only an admin may delete (close) a task.
+// R-06: only the assignee or an admin may change a task's status; only an admin may delete (close) a task.
 const H = require('./helpers/harness');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');

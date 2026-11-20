@@ -5,8 +5,8 @@
 // Round 3 model: task_assignees = one row per person with their OWN status; tasks.status = aggregate (lowest step of the
 // active assignees, 'done' only when all are done) or 'closed' (close replaces delete). tasks.assignee_id = primary.
 // Permissions: view = boss, an active assignee or the creator. Status (done/undo/any step) = that assignee for their own
-// step, or the boss for anyone's; nobody else, not even the creator (R-02). Title/project/assignees = boss, or (membersCanAssign) creator/assignee.
-// Description/note = boss, assignee or creator. Create = boss / membersCanAssign / a self-task. Close/reopen/delete = boss only (R-02).
+// step, or the boss for anyone's; nobody else, not even the creator (R-06). Title/project/assignees = boss, or (membersCanAssign) creator/assignee.
+// Description/note = boss, assignee or creator. Create = boss / membersCanAssign / a self-task. Close/reopen/delete = boss only (R-06).
 const pool = require('./db');
 const rt = require('./realtime');
 const settings = require('./settings');
@@ -95,7 +95,7 @@ const canSetAll = (task, actor) => isBoss(actor);
 const canWork = (task, actor) => isAssignee(task, actor) || canSetAll(task, actor);
 const canDescribe = (task, actor) => isBoss(actor) || isAssignee(task, actor) || task.createdBy === actor.id;
 const canManage = (task, actor) => isBoss(actor) || (canAssign(actor) && (task.createdBy === actor.id || isAssignee(task, actor)));
-// R-02: delete (= close) and reopen are admin only; the creator no longer may.
+// R-06: delete (= close) and reopen are admin only; the creator no longer may.
 const canClose = (task, actor) => isBoss(actor);
 
 // What a member sees of a task they cannot open (Tasks "Everyone", chat info, DM sheet).
@@ -211,7 +211,7 @@ async function checkUsers(ids) {
 const closedError = () => new TaskError(400, 'This task is closed. Reopen it first.', 'TASK_CLOSED');
 
 // ---------- create ----------
-// {title, description?, assigneeIds:[..] | assigneeId, project?, chatId?} (a dueDate sent by an old app is ignored, R-03)
+// {title, description?, assigneeIds:[..] | assigneeId, project?, chatId?} (a dueDate sent by an old app is ignored, R-07)
 async function createTask({ title, description, assigneeIds, assigneeId, project, chatId }, actor, source = 'manual', messageId = null) {
   await settings.all();
   const ids = cleanIds(assigneeIds !== undefined && assigneeIds !== null ? assigneeIds : [assigneeId]);
@@ -261,7 +261,7 @@ async function applyUpdate(id, f, actor, source = 'manual', messageId = null, op
   if (!keys.length && f.dueDate === undefined) throw new TaskError(400, 'Nothing to update');
   const task = await getTask(id);
   if (task.private && task.createdBy !== actor.id) throw new TaskError(403, 'Not allowed'); // Round 4: private = creator only
-  if (!keys.length) { // R-03: an old app sent only a due date; due dates no longer exist, so it is a no-op (not an error)
+  if (!keys.length) { // R-07: an old app sent only a due date; due dates no longer exist, so it is a no-op (not an error)
     if (!canView(task, actor)) throw new TaskError(403, 'Not allowed');
     return { task, event: 'updated', changed: false, before: task };
   }
@@ -629,7 +629,7 @@ async function summary(actor) {
      LEFT JOIN tasks t ON t.id = ta.task_id
      WHERE u.active = 1 AND u.is_bot = 0 GROUP BY u.id, u.name, u.avatar_emoji ORDER BY u.name`, [startOfToday(), actor ? actor.id : 0]);
   let list = rows.map((r) => {
-    const o = { id: r.id, name: r.name, avatarEmoji: r.avatar_emoji || null, total: Number(r.total), overdue: 0, // overdue: always 0, kept so old apps that read it still work (R-03)
+    const o = { id: r.id, name: r.name, avatarEmoji: r.avatar_emoji || null, total: Number(r.total), overdue: 0, // overdue: always 0, kept so old apps that read it still work (R-07)
       doneToday: Number(r.done_today) };
     for (const s of STATUSES) o[s] = Number(r[s]);
     return o;
