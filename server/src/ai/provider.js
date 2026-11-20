@@ -58,7 +58,7 @@ function systemPrompt() {
   return `You turn team chat messages into task actions for a small Indian team. Messages may be English, Hindi (Devanagari) or Hinglish. Names may be written in either script (e.g. "अनुभव" = "Anubhav"). Today is ${ymd(new Date())}.
 Reply ONLY with the JSON object of the schema. Tasks are called "Task N" (N = task_id); the sender may say "Task 22", "#22" or "task 22".
 Actions:
-- create_task: the boss gives work to people ("Anubhav ko report bhejni hai kal tak", "Tushar fix login by Friday"). Put each task in "tasks": title (short work phrase in the sender's words and word order, without "hai"/"karna hai" filler, e.g. "Report bhejni", "Landing page banana", "Fix login"), assignee_name (as written), assignee_id (from members, if sure), due_date YYYY-MM-DD if a day/date is given; add the time as 'YYYY-MM-DD HH:mm' (24h) only if a time is said ("kal 5 baje" = 17:00, "subah 10" = 10:00).
+- create_task: the sender gives work to people, or to themselves ("Anubhav ko report bhejni hai kal tak", "Tushar fix login by Friday", "mujhe kal tak report banani hai" = assignee is the sender). Voice-note transcripts count like typed text. Put each task in "tasks": title (short work phrase in the sender's words and word order, without "hai"/"karna hai" filler, e.g. "Report bhejni", "Landing page banana", "Fix login"), assignee_name (as written), assignee_id (from members, if sure), due_date YYYY-MM-DD if a day/date is given; add the time as 'YYYY-MM-DD HH:mm' (24h) only if a time is said ("kal 5 baje" = 17:00, "subah 10" = 10:00).
 - complete_task: the sender says a task is finished ("ho gaya", "ho gayi", "done", "complete", "kar diya", "Task 22 done"). Set task_id.
 - reassign_task: the boss moves a task to another person ("Anubhav ka task 22 Uzair ko reassign karo", "Task 22 Uzair ko do"). Set task_id, assignee_name (the NEW person) and from_name (the person it is taken from, if said).
 - list_tasks: the sender asks for their tasks or what is pending ("mere task", "my tasks"). If the boss asks about one person, set assignee_name.
@@ -262,7 +262,13 @@ function pickTask(action, message, openTasks, extra) {
 }
 
 function mock({ message, sender, members, openTasks }) {
-  if (sender.role === 'boss' && CREATE_VERB.test(message)) {
+  // permissions are enforced by the engine / tasks.js, not here
+  const self = message.match(/(?:^|\s)(?:mujhe|mujhko|mujko|mereko)\s+(.+)$/iu);
+  if (self && CREATE_VERB.test(message)) {
+    const title = self[1].replace(DUE_WORDS, ' ').replace(TAIL, '').replace(/\s+/g, ' ').trim();
+    if (title) return { action: 'create_task', tasks: [{ assignee_name: sender.name, assignee_id: sender.id, title, due_date: dueFrom(message) }], confidence: 0.9 };
+  }
+  if (CREATE_VERB.test(message)) {
     const tasks = [];
     for (const part of message.split(/\n|,|;|\s+aur\s+|\s+और\s+/i)) {
       const m = part.match(/([\p{L}\p{M}\p{N}]+)\s+(?:ko|को)\s+(.+)$/iu);
@@ -273,7 +279,7 @@ function mock({ message, sender, members, openTasks }) {
     if (tasks.length) return { action: 'create_task', tasks, confidence: 0.9 };
   }
   const assign = message.match(/^assign\s+(.+?)\s+to\s+([\p{L}\p{M}\p{N}]+)/iu);
-  if (sender.role === 'boss' && assign) {
+  if (assign) {
     return { action: 'create_task', tasks: [{ title: assign[1], assignee_name: assign[2], due_date: dueFrom(message) }], confidence: 0.9 };
   }
   // "shuru kar diya" = started, not done

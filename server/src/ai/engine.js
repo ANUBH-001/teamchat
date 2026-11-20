@@ -120,8 +120,10 @@ async function onMessage(message, user) {
 
   try {
     if (d.action === 'create_task') {
-      // only the boss assigns by plain chat (members use /task); low confidence = stay quiet
-      if (!boss || d.confidence < MIN_CONFIDENCE || !d.tasks.length) return;
+      // Same rules as REST and /task (V-01): a self-task is always allowed; assigning others = boss or membersCanAssign.
+      // Low confidence = stay quiet. A refused member gets one ephemeral note instead of silence.
+      if (d.confidence < MIN_CONFIDENCE || !d.tasks.length) return;
+      let refused = false;
       for (const it of d.tasks) {
         let who = resolvePerson(it.assignee_name, it.assignee_id, members);
         // DM with no name given: the other person
@@ -132,6 +134,11 @@ async function onMessage(message, user) {
           continue;
         }
         if (!it.title) continue;
+        if (!T.canCreate(user, [who.id])) {
+          if (!refused) await bot.infoCard(chatId, user.id, 'Task sirf admin assign kar sakta hai. Apne liye likhiye: "mujhe ... karna hai" ya /task khud <kaam>.');
+          refused = true;
+          continue;
+        }
         try {
           const task = await T.createTask({ title: it.title, assigneeId: who.id, dueDate: it.due_date, chatId }, user, 'ai', message.id);
           await bot.taskCard(chatId, 'created', task, user, { byAi: true, replyTo, undo: 'delete' });

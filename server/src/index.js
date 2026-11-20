@@ -14,3 +14,5 @@ server.listen(port, () => console.log('Server on :' + port));
 require('./backup').start();
 require('./checkins').start(); // daily check-in cards: morning tasks + evening sign-off (1-minute tick, TZ)
 require('./jobs').start(); // retention purge, 6-day reminders, 14-day task cleanup
+// B-07: voice notes left 'pending' by a restart (older than 2 min, max 20) are transcribed again
+require('./routes/chats').requeueVoiceNotes().catch((e) => console.error('voice requeue:', e.message));

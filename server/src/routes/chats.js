@@ -471,12 +471,16 @@ async function runPipeline(message, user, tagged) {
 }
 
 // Audio message: transcribe in the background, store + broadcast the transcript (ws 'edited', same as edits), then treat the
-// transcript like typed text (commands, @AI, task engine, check-in text).
+// transcript like typed text (commands, @AI, task engine, check-in text). A failure stores media.transcriptError (a reason code:
+// off | no_file | too_large | type | api | empty) and can be retried (POST .../transcribe). The text pipeline runs at most once per
+// message (media.pipelineDone, claimed atomically) so a retry or restart never creates the same task twice.
 async function voiceNote(message, user, chatId, checkinChat) {
   try {
     const r = await require('../ai/transcribe').transcribe(message.mediaUrl);
     const media = { ...(message.media || {}), kind: 'audio' };
-    if (r.text) { media.transcript = r.text; media.transcriptStatus = 'done'; } else media.transcriptStatus = 'failed';
+    delete media.transcribeStartedAt;
+    if (r.text) { media.transcript = r.text; media.transcriptStatus = 'done'; delete media.transcriptError; }
+    else { media.transcriptStatus = 'failed'; media.transcriptError = r.error || 'api'; }
     await pool.query('UPDATE messages SET media = ? WHERE id = ?', [JSON.stringify(media), message.id]);
     const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [message.id]);
     const fresh = formatMessage(row, user);
@@ -486,6 +490,9 @@ async function voiceNote(message, user, chatId, checkinChat) {
     // A forwarded voice note is never run again as the forwarder's command / task text.
     const cap = String(message.text || '').trim();
     if (cap.startsWith('↪ Forwarded')) return;
+    const [claim] = await pool.query(
+      "UPDATE messages SET media = JSON_SET(media, '$.pipelineDone', true) WHERE id = ? AND JSON_EXTRACT(media, '$.pipelineDone') IS NULL", [message.id]);
+    if (!claim.affectedRows) return; // already processed
     // Typed command + spoken rest: caption "/task @Anubhav" + transcript "site visit roster" -> one command.
     const spoken = cap.startsWith('/') && !r.text.startsWith('/') ? cap + ' ' + r.text : r.text;
     const { tagged } = await resolveMentions(spoken, chatId, message.mentions || []).catch(() => ({ tagged: [] }));
@@ -494,6 +501,60 @@ async function voiceNote(message, user, chatId, checkinChat) {
     if (checkinChat && !spoken.startsWith('/')) await checkins.onChatMessage(asText, user);
   } catch (e) { console.error('voice note:', e.message); }
 }
+
+// A voice note may be (re)transcribed when it failed, or is still pending after 2 minutes (server restart / lost request).
+const STALE_MS = 2 * 60 * 1000;
+function retryable(row) {
+  const media = parsePayload(row.media) || {};
+  if (row.type !== 'audio') return false;
+  if (media.transcriptStatus === 'failed') return true;
+  if (media.transcriptStatus !== 'pending') return false;
+  const since = Number(media.transcribeStartedAt) || new Date(row.created_at).getTime();
+  return Date.now() - since > STALE_MS;
+}
+
+// Mark pending (with a start time so a second tap does not double-run) and run voiceNote as the message's sender.
+async function startVoiceNote(row) {
+  const media = { ...(parsePayload(row.media) || {}), transcriptStatus: 'pending', transcribeStartedAt: Date.now() };
+  delete media.transcriptError;
+  await pool.query('UPDATE messages SET media = ? WHERE id = ?', [JSON.stringify(media), row.id]);
+  const [[sender]] = await pool.query('SELECT id, name, role FROM users WHERE id = ?', [row.sender_id]);
+  const [[chat]] = await pool.query('SELECT type FROM chats WHERE id = ?', [row.chat_id]);
+  const message = formatMessage({ ...row, media: JSON.stringify(media) }, sender);
+  return voiceNote(message, sender, row.chat_id, !!chat && chat.type === 'checkin');
+}
+
+// On server start: pick up audio messages left 'pending' for over 2 minutes (max 20). -> number started.
+async function requeueVoiceNotes() {
+  const [rows] = await pool.query(MSG_SELECT + "WHERE m.type = 'audio' AND m.deleted_at IS NULL AND m.media LIKE '%\"pending\"%' " +
+    'AND m.created_at < (NOW() - INTERVAL 2 MINUTE) ORDER BY m.id DESC LIMIT 20');
+  const todo = rows.filter(retryable);
+  for (const row of todo) setImmediate(() => startVoiceNote(row).catch((e) => console.error('voice requeue:', e.message)));
+  return todo.length;
+}
+
+// Retry a failed / stuck transcription. Chat member, and only the sender or the boss.
+router.post('/:id/messages/:messageId/transcribe', async (req, res) => {
+  try {
+    const chatId = parseInt(req.params.id, 10);
+    if (!(await isMember(chatId, req.user.id))) return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
+    const mid = /^\d{1,18}$/.test(req.params.messageId) ? req.params.messageId : '0';
+    const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ? AND m.chat_id = ? AND m.deleted_at IS NULL', [mid, chatId]);
+    if (!row) return res.status(404).json({ error: 'Message not found', code: 'NOT_FOUND' });
+    if (row.sender_id !== req.user.id && req.user.role !== 'boss') return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
+    if (row.type !== 'audio') return res.status(400).json({ error: 'Not a voice note', code: 'BAD_REQUEST' });
+    if (!retryable(row)) return res.status(409).json({ error: 'Transcript retry not needed', code: 'NOT_RETRYABLE' });
+    // claim: only one concurrent retry wins
+    const [c] = await pool.query('UPDATE messages SET media = ? WHERE id = ? AND media = ?', [
+      JSON.stringify({ ...(parsePayload(row.media) || {}), transcriptStatus: 'pending', transcribeStartedAt: Date.now() }), row.id, row.media]);
+    if (!c.affectedRows) return res.status(409).json({ error: 'Transcript retry not needed', code: 'NOT_RETRYABLE' });
+    const [[again]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [row.id]);
+    res.status(202).json({ ok: true });
+    setImmediate(() => startVoiceNote(again).catch((e) => console.error('voice retry:', e.message)));
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 router.post('/:id/messages', async (req, res) => {
   try {
@@ -604,6 +665,7 @@ router.post('/:id/read', async (req, res) => {
 
 module.exports = router;
 module.exports.formatMessage = formatMessage;
+module.exports.requeueVoiceNotes = requeueVoiceNotes;
 module.exports.MSG_SELECT = MSG_SELECT;
 module.exports.VISIBLE = VISIBLE;
 module.exports.reactionsFor = reactionsFor;
