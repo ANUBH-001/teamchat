@@ -114,3 +114,75 @@ test('if moving the file fails the original uri is kept (never lose the recordin
   const item = await vo.queueVoice(input('c6'));
   expect(item.uri).toBe('file:///cache/Audio/rec.m4a');
 });
+
+// Device test 2026-11-20: a voice note recorded offline stayed "Nahi gaya" after the network came back until Retry was
+// tapped (text messages flush by themselves). retryVoiceOutbox() runs on reconnect / app active / chat open.
+test('retryVoiceOutbox sends every queued voice note in order and stops at the first failure', async () => {
+  const vo = load();
+  media.uploadMedia.mockRejectedValue(new Error('Network request failed'));
+  await vo.queueVoice(input('a'));
+  await vo.queueVoice({ ...input('b'), chatId: 8 });
+  await expect(vo.sendQueuedVoice('a')).rejects.toThrow();
+
+  // still offline: one upload attempt, then stop (no hammering), both kept
+  media.uploadMedia.mockClear();
+  await vo.retryVoiceOutbox();
+  expect(media.uploadMedia).toHaveBeenCalledTimes(1);
+  expect(JSON.parse((await AsyncStorage.getItem('voiceOutbox'))!)).toHaveLength(2);
+
+  // back online: both go, oldest first, each with its own clientId
+  media.uploadMedia.mockReset();
+  media.uploadMedia.mockResolvedValueOnce({ url: '/media/f/a.m4a' }).mockResolvedValueOnce({ url: '/media/f/b.m4a' });
+  apiMod.api
+    .mockResolvedValueOnce({ message: { id: 1, clientId: 'a', chatId: 7 } })
+    .mockResolvedValueOnce({ message: { id: 2, clientId: 'b', chatId: 8 } });
+  const sent = jest.fn();
+  vo.onVoiceSent(sent);
+  await vo.retryVoiceOutbox();
+  expect(sent.mock.calls.map((c) => c[0])).toEqual(['a', 'b']);
+  expect(JSON.parse((await AsyncStorage.getItem('voiceOutbox'))!)).toHaveLength(0);
+});
+
+test('retryVoiceOutbox joins a send already in flight instead of starting a second one', async () => {
+  const vo = load();
+  let release: (v: any) => void = () => {};
+  media.uploadMedia.mockReturnValueOnce(new Promise((r) => { release = r; }));
+  apiMod.api.mockResolvedValueOnce({ message: { id: 5, clientId: 'c1', chatId: 7 } });
+  await vo.queueVoice(input());
+  const first = vo.sendQueuedVoice('c1');
+  const again = vo.retryVoiceOutbox();
+  release({ url: '/media/f/x.m4a' });
+  await first; await again;
+  expect(media.uploadMedia).toHaveBeenCalledTimes(1);
+  expect(apiMod.api).toHaveBeenCalledTimes(1);
+});
+
+// Device test: the socket can stay up while HTTP fails (no '_open' when the link comes back), so ChatScreen also calls
+// retryVoiceOutbox({ periodic: true }) from its 15 s timer. That one is rate-limited to a round per minute so a voice
+// note that keeps failing is not re-uploaded every 15 s.
+test('periodic retry runs at most once a minute; an explicit retry is never gated', async () => {
+  const vo = load();
+  let now = 1_000_000;
+  const spy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+  try {
+    media.uploadMedia.mockRejectedValue(new Error('Network request failed'));
+    await vo.queueVoice(input('p'));
+    media.uploadMedia.mockClear();
+    await vo.retryVoiceOutbox({ periodic: true });
+    expect(media.uploadMedia).toHaveBeenCalledTimes(1);
+    now += 15_000;
+    await vo.retryVoiceOutbox({ periodic: true });
+    expect(media.uploadMedia).toHaveBeenCalledTimes(1); // gated
+    await vo.retryVoiceOutbox(); // reconnect / app active: not gated
+    expect(media.uploadMedia).toHaveBeenCalledTimes(2);
+    now += 61_000;
+    await vo.retryVoiceOutbox({ periodic: true });
+    expect(media.uploadMedia).toHaveBeenCalledTimes(3);
+  } finally { spy.mockRestore(); }
+});
+
+test('periodic retry with nothing queued does no work', async () => {
+  const vo = load();
+  await vo.retryVoiceOutbox({ periodic: true });
+  expect(media.uploadMedia).not.toHaveBeenCalled();
+});

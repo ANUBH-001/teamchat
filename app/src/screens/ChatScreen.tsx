@@ -32,7 +32,7 @@ import SendToSheet from '../components/SendToSheet';
 import GeoCameraScreen from './GeoCameraScreen';
 import { VoiceResult } from '../components/VoiceRecorder';
 import { sendImageToChat } from '../media';
-import { deleteVoice, dropDeliveredVoice, isQueuedVoice, onVoiceRemoved, onVoiceSent, queueVoice, sendQueuedVoice, voiceMsg, voicePendingFor } from '../voiceOutbox';
+import { deleteVoice, dropDeliveredVoice, isQueuedVoice, onVoiceRemoved, onVoiceSent, queueVoice, retryVoiceOutbox, sendQueuedVoice, voiceMsg, voicePendingFor } from '../voiceOutbox';
 import { setPendingQuote, takePendingQuote, toggleStar, useStars } from '../starStore';
 import { copyText } from '../dates';
 import TaskActionSheet from '../components/TaskActionSheet';
@@ -279,7 +279,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     });
     const offFailed = onFailed((clientId) => setMsgs((cur) => cur.map((m) => (m.clientId === clientId && !m.id ? { ...m, pending: false, failed: true } : m))));
     const off = onEvent((e) => {
-      if (e.type === '_open') { loadMissed(); flushOutbox(); }
+      if (e.type === '_open') { loadMissed(); flushOutbox(); retryVoiceOutbox(); }
       else if (e.type === 'message' && e.message.chatId === chat.id) {
         synced([e.message]);
         setMsgs((cur) => merge(cur, [e.message]));
@@ -314,8 +314,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
         typingTimer.current = setTimeout(() => setTypingName(null), 3000);
       }
     });
-    const retry = setInterval(flushOutbox, 15000);
-    const app = AppState.addEventListener('change', (st) => { if (st === 'active') { loadMissed(); flushOutbox(); } });
+    const retry = setInterval(() => { flushOutbox(); retryVoiceOutbox({ periodic: true }); }, 15000);
+    const app = AppState.addEventListener('change', (st) => { if (st === 'active') { loadMissed(); flushOutbox(); retryVoiceOutbox(); } });
     return () => { off(); offSent(); offFailed(); app.remove(); clearInterval(retry); if (typingTimer.current) clearTimeout(typingTimer.current); };
   }, [chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
 

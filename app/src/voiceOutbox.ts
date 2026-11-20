@@ -116,6 +116,28 @@ export function sendQueuedVoice(clientId: string): Promise<Msg> {
   return p;
 }
 
+// Reconnect / app active: send every queued voice note, oldest first (one at a time, like text). The first failure stops
+// the round (still offline: no point hammering); the bubbles stay "Nahi gaya" with Retry until the next round.
+// { periodic: true } = ChatScreen's 15 s timer (the socket can stay up while HTTP fails, so no reconnect event comes):
+// at most one such round per PERIODIC_MS, so a note that keeps failing is not re-uploaded every 15 s.
+export const PERIODIC_MS = 60_000;
+let retrying: Promise<void> | null = null;
+let lastPeriodic = 0;
+export function retryVoiceOutbox(opts: { periodic?: boolean } = {}): Promise<void> {
+  if (retrying) return retrying;
+  if (opts.periodic) {
+    if (!known.size) return Promise.resolve(); // nothing queued (known is filled by read())
+    if (Date.now() - lastPeriodic < PERIODIC_MS) return Promise.resolve();
+    lastPeriodic = Date.now();
+  }
+  retrying = (async () => {
+    for (const item of await read()) {
+      try { await sendQueuedVoice(item.clientId); } catch (e) { break; }
+    }
+  })().finally(() => { retrying = null; });
+  return retrying;
+}
+
 async function forget(clientId: string, uri?: string) {
   let file = uri;
   await update((items) => {
@@ -150,4 +172,4 @@ export async function clearVoiceOutbox() {
 }
 
 // Tests: forget the in-memory state (what an app restart does); storage is kept.
-export const __restartForTests = () => { inflight.clear(); known.clear(); chain = Promise.resolve(); };
+export const __restartForTests = () => { inflight.clear(); known.clear(); chain = Promise.resolve(); retrying = null; lastPeriodic = 0; };
