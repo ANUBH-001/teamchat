@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../useTheme';
 import { Msg } from '../chatTypes';
-import { useMediaSrc } from '../media';
+import { mediaCacheKey, useMediaSrc } from '../media';
 import ImageViewer from './ImageViewer';
 
 export const imagesOf = (msgs: Msg[]) => msgs.filter((m) => m.type === 'image' && !m.deleted && !!m.mediaUrl).sort((a, b) => (b.id || 0) - (a.id || 0));
@@ -16,7 +16,7 @@ function Thumb({ m, size, onPress }: { m: Msg; size: number; onPress: (m: Msg) =
   const src = useMediaSrc(m.mediaUrl || null);
   return (
     <Pressable onPress={() => onPress(m)} style={{ width: size, height: size, padding: 1 }}>
-      <View style={{ flex: 1, backgroundColor: t.surface }}>{!!src && <Image source={{ uri: src }} style={{ flex: 1 }} contentFit="cover" />}</View>
+      <View style={{ flex: 1, backgroundColor: t.surface }}>{!!src && <Image source={{ uri: src, cacheKey: mediaCacheKey(m.mediaUrl) }} style={{ flex: 1 }} contentFit="cover" />}</View>
     </Pressable>
   );
 }

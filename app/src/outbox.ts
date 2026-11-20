@@ -31,6 +31,12 @@ function mutate<T>(fn: (items: Item[]) => T | Promise<T>): Promise<T> {
 }
 const snapshot = () => mutate((items) => items.map((i) => ({ ...i })));
 
+/** A-06 logout: drop every unsent message of this user (memory + storage). */
+export async function clearOutbox() {
+  await mutate((items) => { items.splice(0, items.length); });
+  try { await AsyncStorage.removeItem(KEY); } catch (e) {}
+}
+
 /** test helper: forget in-memory state (storage is re-read on next use) */
 export function _resetOutboxForTests() { mem = null; chain = Promise.resolve(); flushing = false; again = false; }
 

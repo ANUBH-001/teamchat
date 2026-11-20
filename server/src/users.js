@@ -57,7 +57,8 @@ function cleanEmoji(v) {
 
 // {name?, avatarEmoji?} -> {sets, vals, changes} for UPDATE users (throws UserError).
 const fileExists = (f) => !!f && require('fs').existsSync(f);
-async function profileUpdate(body, userId) {
+// actorId: who is editing (the user, or the boss via Admin); a new photo must be a file that one of them uploaded (B-03).
+async function profileUpdate(body, userId, actorId = userId) {
   const sets = []; const vals = []; const changes = {};
   if (body.name !== undefined) {
     const name = cleanName(body.name);
@@ -72,6 +73,14 @@ async function profileUpdate(body, userId) {
     const u = body.avatarUrl;
     if (u !== null && !(typeof u === 'string' && u.startsWith('/media/f/') && u.length <= 255 && fileExists(require('./routes/media').resolvePath(u)))) {
       throw new UserError(400, 'Invalid avatarUrl', 'BAD_AVATAR');
+    }
+    // B-03: a profile photo is visible to everyone, so it must be the user's (or the editing boss's) own upload, or unchanged;
+    // otherwise anyone could publish a private chat photo by setting its path as their avatar
+    if (u !== null) {
+      const [[ok]] = await pool.query(
+        'SELECT (SELECT COUNT(*) FROM media_files WHERE path = ? AND uploader_id IN (?, ?)) + (SELECT COUNT(*) FROM users WHERE id = ? AND avatar_url = ?) n',
+        [u, userId, actorId, userId, u]);
+      if (!Number(ok.n)) throw new UserError(400, 'Invalid avatarUrl', 'BAD_AVATAR');
     }
     sets.push('avatar_url = ?'); vals.push(u); changes.avatarUrl = u;
   }

@@ -124,7 +124,7 @@ router.patch('/users/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const [[target]] = await pool.query('SELECT id FROM users WHERE id = ? AND is_bot = 0', [id || 0]);
     if (!target) return res.status(404).json({ error: 'User not found' });
-    const { sets, vals, changes } = await users.profileUpdate(req.body || {}, id);
+    const { sets, vals, changes } = await users.profileUpdate(req.body || {}, id, req.user.id);
     if (req.body.active !== undefined) {
       if (id === req.user.id && !req.body.active) return res.status(400).json({ error: 'Cannot deactivate yourself' });
       sets.push('active = ?'); vals.push(req.body.active ? 1 : 0);

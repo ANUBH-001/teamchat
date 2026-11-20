@@ -572,6 +572,9 @@ router.post('/:id/messages', async (req, res) => {
       mediaUrl = String(req.body.mediaUrl || '');
       const file = mediaUrl.startsWith('/media/f/') && mediaUrl.length <= 255 ? require('./media').resolvePath(mediaUrl) : null;
       if (!file || !require('fs').existsSync(file)) return res.status(400).json({ error: 'Invalid mediaUrl', code: 'BAD_REQUEST' });
+      // B-03: only a file the sender may see (own upload, or media of a message they can read: forward); otherwise posting a
+      // known path into one's own chat would grant access to it
+      if (!(await require('../mediaAuth').canAccess(req.user, mediaUrl))) return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
       media = cleanMedia(mtype, req.body.media);
     }
     const quote = cleanQuote(req.body.payload && req.body.payload.quote);

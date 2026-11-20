@@ -4,7 +4,7 @@ import { Linking, Pressable, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Msg } from '../chatTypes';
-import { useMediaSrc } from '../media';
+import { mediaCacheKey, useMediaSrc } from '../media';
 
 export const IMG_W = 240;
 
@@ -21,7 +21,7 @@ export default function ImageBubble({ msg, onOpen, onLongPress, textColor, linkC
   return (
     <View>
       <Pressable onPress={() => onOpen(msg)} onLongPress={() => onLongPress(msg)} style={{ width: IMG_W, height, borderRadius: 8, overflow: 'hidden', backgroundColor: 'rgba(0,0,0,0.15)' }}>
-        {!!src && <Image source={{ uri: src }} style={{ width: IMG_W, height }} contentFit="cover" transition={150} />}
+        {!!src && <Image source={{ uri: src, cacheKey: mediaCacheKey(msg.mediaUrl) }} style={{ width: IMG_W, height }} contentFit="cover" transition={150} />}
         {children}
       </Pressable>
       {geo && (

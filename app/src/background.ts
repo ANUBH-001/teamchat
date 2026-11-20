@@ -46,7 +46,7 @@ export async function endSession() {
   if (releaseTask) { releaseTask(); releaseTask = null; }
   clearCheckinReminders();
   dismissMessageAlerts();
-  await AsyncStorage.removeItem(USER_KEY).catch(() => {});
+  await AsyncStorage.multiRemove([USER_KEY, ROLE_KEY]).catch(() => {}); // A-06: role too
 }
 
 export const backgroundSupported = !!Native;

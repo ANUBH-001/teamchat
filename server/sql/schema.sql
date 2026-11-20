@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
   session_id CHAR(32) NULL, -- current login (JWT sv); a new login rotates it and logs the old device out
   avatar_url VARCHAR(255) NULL, -- round 4: /media/f/... profile photo
   profile_done TINYINT NOT NULL DEFAULT 0, -- round 4: onboarding seen (bots = 1)
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_users_avatar_url (avatar_url) -- B-03 media access check (migrate_011)
 );
 
 CREATE TABLE IF NOT EXISTS invites (
@@ -81,10 +82,20 @@ CREATE TABLE IF NOT EXISTS messages (
   INDEX idx_msg_reply (reply_to_id),
   INDEX idx_visible_to (visible_to),
   INDEX idx_messages_created (created_at),
+  INDEX idx_msg_media_url (media_url), -- B-03 media access check (migrate_011)
   FOREIGN KEY (visible_to) REFERENCES users(id),
   UNIQUE KEY uq_sender_client (sender_id, client_id),
   FOREIGN KEY (chat_id) REFERENCES chats(id),
   FOREIGN KEY (sender_id) REFERENCES users(id)
+);
+
+-- B-03 (migrate_011): uploader of each /media/f/ file, so it is visible to them between upload and send
+CREATE TABLE IF NOT EXISTS media_files (
+  path VARCHAR(255) NOT NULL PRIMARY KEY,
+  uploader_id INT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_media_uploader (uploader_id),
+  FOREIGN KEY (uploader_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS message_revisions (

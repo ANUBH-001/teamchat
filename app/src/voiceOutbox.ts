@@ -139,5 +139,15 @@ export async function dropDeliveredVoice(clientId: string) {
   await forget(clientId);
 }
 
+// A-06 logout: drop every queued voice note of this user and delete the recordings (the whole voice-outbox folder).
+export async function clearVoiceOutbox() {
+  const items = await update(() => []);
+  void items;
+  inflight.clear();
+  await AsyncStorage.removeItem(KEY).catch(() => {});
+  await FileSystem.deleteAsync((FileSystem.documentDirectory || '') + DIR, { idempotent: true }).catch(() => {});
+  emitState();
+}
+
 // Tests: forget the in-memory state (what an app restart does); storage is kept.
 export const __restartForTests = () => { inflight.clear(); known.clear(); chain = Promise.resolve(); };

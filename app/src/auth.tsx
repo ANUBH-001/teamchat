@@ -6,7 +6,7 @@ import { isUpdateRequired, subscribeUpdate } from './updateStore';
 import { onKick, resetKick } from './sessionStore';
 import { onEvent } from './realtime';
 import { loadUsers, setUser as storeUser } from './userStore';
-import { warmMediaToken, clearMediaToken } from './media';
+import { clearUserData } from './userData';
 
 type Ctx = {
   user: User | null;
@@ -26,10 +26,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const userRef = useRef<User | null>(null);
   userRef.current = user;
 
-  const doLogout = async () => {
-    await endSession(); // stops socket, alerts, foreground service, reminders
+  // revoke: tell the server (A-05) so the token is dead even if it was copied. Done AFTER endSession stopped the socket (the
+  // server closes live sockets with 4401, which would otherwise read as 'logged out by admin'), best effort (5 s cap, offline ok).
+  // Kicks skip it: the server already invalidated that token.
+  const doLogout = async (revoke = false) => {
+    await endSession(); // stops socket, alerts, foreground service, reminders; removes bgUserId / bgRole
+    if (revoke) {
+      await Promise.race([api('POST', '/auth/logout').catch(() => {}), new Promise((r) => setTimeout(r, 5000))]);
+    }
     await clearToken();
-    clearMediaToken();
+    await clearUserData(); // A-06: outbox, voice outbox (+ files), stars, caches, signed media URLs, image cache
     setUser(null);
   };
 
@@ -55,13 +61,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         if (await getToken()) {
           const r = await api<{ user: User }>('GET', '/auth/me');
-          await warmMediaToken();
           setUser(r.user);
           loadUsers();
         }
       } catch (e) {
         // drop the token only when the server rejected it, not when offline
-        if (e instanceof ApiError && e.status === 401) { await clearToken(); await endSession(); }
+        if (e instanceof ApiError && e.status === 401) { await clearToken(); await endSession(); await clearUserData(); }
         // blocked by force update: keep the token and retry once the block is lifted ("Check again")
         if (e instanceof ApiError && e.status === 426 && !unsub) {
           unsub = subscribeUpdate(() => {
@@ -77,7 +82,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const finish = async (r: { token: string; user: User }) => {
     await saveToken(r.token);
-    await warmMediaToken();
     resetKick();
     setUser(r.user);
     loadUsers();
@@ -89,7 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     login: async (phone, pin) => finish(await api('POST', '/auth/login', { phone, pin })),
     activate: async (phone, inviteCode, pin) =>
       finish(await api('POST', '/auth/activate', { phone, inviteCode, pin })),
-    logout: doLogout,
+    logout: () => doLogout(true),
     updateMe: (u) => {
       const me = userRef.current;
       if (!me) return;
