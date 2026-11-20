@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "seed": "node src/seed.js",
-    "backup": "node src/backup.js"
+    "backup": "node src/backup.js",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -16,5 +17,8 @@
     "multer": "^2.5.0",
     "mysql2": "^3.11.0",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.3.2"
   }
 }

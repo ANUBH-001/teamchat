@@ -5,9 +5,32 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const router = express.Router();
-const ROOT = path.join(__dirname, '..', '..', 'updates');
-const RV_RE = /^[A-Za-z0-9._-]+$/;
+const ROOT = path.join(__dirname, '..', '..', 'updates'); // constant: never built from request input
+// Segments must start with a letter/digit/_/-: this rejects ".", "..", and dotfiles (.env, .env.bak-*).
+const SEG = '[A-Za-z0-9_-][A-Za-z0-9._-]*';
+const RV_RE = new RegExp(`^${SEG}$`);
+const ASSET_RE = new RegExp(`^${SEG}(/${SEG})*$`); // forward slashes only: no "\", ":", NUL, "%"
+
+// Returns the absolute file for a validated asset request, or null. B-01 (P0) regression guard.
+function safeAssetPath(root, rv, asset) {
+  if (typeof rv !== 'string' || typeof asset !== 'string') return null; // ?asset=a&asset=b gives an array
+  if (!RV_RE.test(rv) || !ASSET_RE.test(asset)) return null;
+  const parts = asset.split('/');
+  // manifest only hands out <rv>/<timestamp>/<path>
+  if (parts.length < 3 || parts[0] !== rv || !/^\d+$/.test(parts[1])) return null;
+  const rvDir = path.resolve(root, rv);
+  const file = path.resolve(root, asset);
+  for (const [base, target] of [[root, rvDir], [rvDir, file]]) {
+    const rel = path.relative(path.resolve(base), target);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  }
+  // symlinks: the real file must still be inside the real updates root
+  let real;
+  try { real = fs.realpathSync(file); } catch { return null; }
+  const relReal = path.relative(fs.realpathSync(root), real);
+  if (!relReal || relReal.startsWith('..') || path.isAbsolute(relReal)) return null;
+  return real;
+}
 const TYPES = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
   ttf: 'font/ttf', otf: 'font/otf', json: 'application/json', js: 'application/javascript', hbc: 'application/javascript',
@@ -17,8 +40,8 @@ const typeOf = (ext) => TYPES[String(ext).toLowerCase().replace(/^\./, '')] || '
 const hashOf = (buf, algo, enc) => crypto.createHash(algo).update(buf).digest(enc);
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, ''));
 
-function latestDir(rv) {
-  const base = path.join(ROOT, rv);
+function latestDir(root, rv) {
+  const base = path.join(root, rv);
   if (!fs.existsSync(base)) return null;
   // only <timestamp> folders (digits): a half-copied or renamed folder is never served
   const names = fs.readdirSync(base).filter((n) => /^\d+$/.test(n) && fs.statSync(path.join(base, n)).isDirectory());
@@ -35,13 +58,16 @@ function part(boundary, name, json) {
   return `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\nContent-Type: application/json; charset=utf-8\r\n\r\n${JSON.stringify(json)}\r\n`;
 }
 
+function createUpdatesRouter(root = ROOT) {
+const router = express.Router();
+
 router.get('/manifest', (req, res) => {
   const platform = req.get('expo-platform') || req.query.platform;
   const rv = req.get('expo-runtime-version') || req.query['runtime-version'];
   if (platform !== 'android') return res.status(400).json({ error: 'platform android hona chahiye' });
   if (!rv || !RV_RE.test(rv)) return res.status(400).json({ error: 'runtime version galat hai' });
   try {
-    const dir = latestDir(rv);
+    const dir = latestDir(root, rv);
     if (!dir) {
       // nothing published for this runtime: tell the app "no update" (not an error), it keeps its current code
       if (req.get('expo-protocol-version') !== '1') return res.status(404).json({ error: 'is runtime ka update nahi hai' });
@@ -56,7 +82,7 @@ router.get('/manifest', (req, res) => {
     const id = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
     const fm = meta.fileMetadata && meta.fileMetadata.android;
     if (!fm || !fm.bundle) return res.status(404).json({ error: 'android bundle nahi mila' });
-    const rel = path.relative(ROOT, dir).split(path.sep).join('/'); // <rv>/<timestamp>
+    const rel = path.relative(root, dir).split(path.sep).join('/'); // <rv>/<timestamp>
     const base = baseUrl(req);
     const mk = (rawPath, ext) => {
       const relPath = String(rawPath).replace(/\\/g, '/'); // export on Windows writes "assets\\<hash>"
@@ -97,15 +123,15 @@ router.get('/manifest', (req, res) => {
 });
 
 router.get('/assets', (req, res) => {
-  const rv = String(req.query.runtimeVersion || '');
-  const asset = String(req.query.asset || '');
-  if (!RV_RE.test(rv) || !asset || asset.includes('\0')) return res.status(400).json({ error: 'galat request' });
-  const base = path.resolve(ROOT, rv);
-  const file = path.resolve(ROOT, asset);
-  if (!file.startsWith(base + path.sep)) return res.status(400).json({ error: 'galat path' }); // no path traversal
-  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return res.status(404).json({ error: 'file nahi mili' });
+  const file = safeAssetPath(root, req.query.runtimeVersion, req.query.asset);
+  if (!file) return res.status(400).json({ error: 'galat request' });
+  if (!fs.statSync(file).isFile()) return res.status(404).json({ error: 'file nahi mili' });
   res.set({ 'content-type': typeOf(path.extname(file)), 'cache-control': 'public, max-age=31536000, immutable' });
   fs.createReadStream(file).pipe(res);
 });
 
-module.exports = router;
+return router;
+}
+
+module.exports = createUpdatesRouter();
+module.exports.createUpdatesRouter = createUpdatesRouter;
