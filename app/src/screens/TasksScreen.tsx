@@ -1,5 +1,5 @@
-// Round 4 Tasks tab, Google Keep style. Chips: Mine | Team (admin) | Done. Admin: "Take a task..." composer + masonry of
-// one card per person. Tick = optimistic, 4 s Undo snackbar, live via ws 'task'. The old Overview / Board / List screen is
+// Round 4 Tasks tab, Google Keep style. Chips: Me | Team (admin) | Done. "Take a task..." composer for everyone; Keep checklist
+// cards ("<Name> tasks", one per person) in a masonry. Tick = optimistic, 4 s Undo snackbar, live via ws 'task'. The old Overview / Board / List screen is
 // kept in TasksScreenLegacy.tsx ("Round 4: disabled (simple create->done)").
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TextInput, Pressable, RefreshControl, ActivityIndicator, BackHandler } from 'react-native';
@@ -14,7 +14,8 @@ import { useLiveRefresh, usePullRefresh } from '../useLive';
 import { AnyTask, Task, isBrief, isPrivate } from '../taskTypes';
 import { Line, linesOf } from '../taskFormat';
 import { toast } from '../useVoiceInput';
-import { DoneList, KeepCard, MineList, Masonry, estHeight } from '../components/KeepViews';
+import { ChecklistCard, KeepCard, Masonry, estHeight } from '../components/KeepViews';
+import { usePublicSettings } from '../publicSettings';
 import TaskComposer from '../components/TaskComposer';
 import TaskSheet from '../components/TaskSheet';
 import Sheet, { SheetRow } from '../components/Sheet';
@@ -39,6 +40,7 @@ export default function TasksScreen() {
   const t = useTheme();
   const { user } = useAuth();
   const me = user!;
+  const canAssign = usePublicSettings().membersCanAssign;
   const isBoss = me.role === 'boss';
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
@@ -144,6 +146,12 @@ export default function TasksScreen() {
     return src.filter((l) => (isBoss || l.userId === me.id) && matches(l));
   }, [doneAll, isBoss, me.id, ql]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const doneCards = useMemo(() => {
+    const m = new Map<number, { id: number; name: string; lines: Line[] }>();
+    for (const l of doneLines) { if (!m.has(l.userId)) m.set(l.userId, { id: l.userId, name: l.name, lines: [] }); m.get(l.userId)!.lines.push(l); }
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [doneLines]);
+
   const teamCards = useMemo(() => {
     const priv = allLines.filter((l) => isPrivate(l.task) && matches(l));
     const byUser = new Map<number, { name: string; lines: Line[] }>();
@@ -167,9 +175,10 @@ export default function TasksScreen() {
   let body: React.ReactNode;
   if (!loaded) body = <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} />;
   else if (chip === 'mine') {
-    body = mineLines.length ? <MineList lines={mineLines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> : empty('Koi task nahi 🎉');
+    const open = mineLines.filter((l) => !l.done);
+    body = open.length ? <Masonry items={[{ key: 'me', h: estHeight(open), node: <ChecklistCard title={me.name + ' tasks'} lines={open} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> }]} /> : empty('Koi task nahi 🎉');
   } else if (chip === 'done') {
-    body = doneAll === null ? <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} /> : doneLines.length ? <DoneList lines={doneLines} onOpen={onOpen} /> : empty('Abhi tak koi task done nahi');
+    body = doneAll === null ? <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} /> : doneLines.length ? <Masonry items={doneCards.map((p) => ({ key: 'd' + p.id, h: estHeight(p.lines), node: <ChecklistCard done title={p.name + ' tasks'} lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> }))} /> : empty('Abhi tak koi task done nahi');
   } else if (person !== null) {
     const p = teamCards.people.find((x) => x.id === person);
     body = (
@@ -178,7 +187,7 @@ export default function TasksScreen() {
           <Ionicons name="arrow-back" size={20} color={t.text} />
           <Text style={{ color: t.text, fontWeight: '700', marginLeft: 8 }}>{p ? p.name : 'Team'}</Text>
         </Pressable>
-        {p ? <MineList lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> : empty('Koi task nahi 🎉')}
+        {p ? <Masonry items={[{ key: 'p', h: estHeight(p.lines), node: <ChecklistCard title={p.name + ' tasks'} lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> }]} /> : empty('Koi task nahi 🎉')}
       </View>
     );
   } else {
@@ -189,7 +198,7 @@ export default function TasksScreen() {
     for (const p of teamCards.people) {
       items.push({
         key: 'u' + p.id, h: estHeight(p.lines),
-        node: <KeepCard title={p.name} userId={p.id} lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} onTitle={() => setPerson(p.id)} />,
+        node: <ChecklistCard title={p.name + ' tasks'} lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} onTitle={() => setPerson(p.id)} />,
       });
     }
     body = items.length ? <Masonry items={items} /> : empty('Koi task nahi 🎉');
@@ -227,7 +236,7 @@ export default function TasksScreen() {
       )}
       <View style={{ height: 44 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, alignItems: 'center' }}>
-          {chipBtn('mine', 'Mine')}{isBoss && chipBtn('team', 'Team')}{chipBtn('done', 'Done')}
+          {chipBtn('mine', 'Me')}{isBoss && chipBtn('team', 'Team')}{chipBtn('done', 'Done')}
         </ScrollView>
       </View>
       {!!err && <Text style={{ color: t.danger, paddingHorizontal: 16, paddingBottom: 6 }}>{err}</Text>}
@@ -235,7 +244,7 @@ export default function TasksScreen() {
         keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: 6, paddingBottom: 100 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.accent]} />}
       >
-        {isBoss && chip !== 'done' && person === null && <TaskComposer meId={me.id} onCreated={(nt) => merge(nt)} />}
+        {chip !== 'done' && person === null && <TaskComposer meId={me.id} isBoss={isBoss} canAssign={canAssign} onCreated={(nt) => merge(nt)} />}
         {body}
       </ScrollView>
 

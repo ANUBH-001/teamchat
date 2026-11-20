@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, AppState, ActivityIndicator, ScrollView, Modal,
+  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, AppState, Keyboard, ActivityIndicator, ScrollView, Modal,
   NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,7 +12,8 @@ import { Chat, Msg, Quote, ReplyRef, Reaction } from '../chatTypes';
 import { AnyTask, assigneeIdsOf, assigneeNamesOf, colorOf, isBrief, isOpen, labelOf, Task } from '../taskTypes';
 import { loadUsers as loadStoreUsers, useUsers } from '../userStore';
 import { onEvent, sendTyping } from '../realtime';
-import { enqueue, flushOutbox, newClientId, onSent, pendingFor, removeFromOutbox } from '../outbox';
+import { shouldSend } from '../sendGuard';
+import { enqueue, flushOutbox, newClientId, onFailed, onSent, pendingFor, removeFromOutbox, retryOutbox } from '../outbox';
 import { COMMANDS, Command, DUE_CHIPS, QUICK } from '../commands';
 import { CommandSheet, firstName, PeopleSheet, PersonAction, PersonSheet, phoneTail, PickPerson } from '../components/ComposerSheets';
 import { usePublicSettings } from '../publicSettings';
@@ -126,6 +127,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   // Round 4: latest typed text, so a Send tap right after typing (before React re-rendered) still sends it
   const textRef = useRef(text);
   textRef.current = text;
+  const lastSend = useRef<{ text: string; at: number } | null>(null);
   const filterable = chat.type === 'group' || chat.type === 'all';
   const [kind, setKind] = useState<Kind>(() => {
     const k = filterable ? kindByChat.get(chat.id) || 'all' : 'all';
@@ -156,6 +158,12 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const [person, setPerson] = useState<PickPerson | null>(null);
   const [personTasks, setPersonTasks] = useState<Task[] | null>(null);
   const [focused, setFocused] = useState(false);
+  const [kbVisible, setKbVisible] = useState(false); // Android Back closes the keyboard without blurring, so track it separately
+  useEffect(() => {
+    const a = Keyboard.addListener('keyboardDidShow', () => setKbVisible(true));
+    const b = Keyboard.addListener('keyboardDidHide', () => setKbVisible(false));
+    return () => { a.remove(); b.remove(); };
+  }, []);
   const [editing, setEditing] = useState<Msg | null>(null);
   const refs = useRef<MentionRef[]>(drafts.get(chat.id)?.refs || []);
   const [askTasks, setAskTasks] = useState<AnyTask[] | null>(null);
@@ -268,6 +276,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     const offSent = onSent((clientId, message) => {
       if (message.chatId === chat.id) setMsgs((cur) => merge(cur, [message]));
     });
+    const offFailed = onFailed((clientId) => setMsgs((cur) => cur.map((m) => (m.clientId === clientId && !m.id ? { ...m, pending: false, failed: true } : m))));
     const off = onEvent((e) => {
       if (e.type === '_open') { loadMissed(); flushOutbox(); }
       else if (e.type === 'message' && e.message.chatId === chat.id) {
@@ -306,7 +315,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     });
     const retry = setInterval(flushOutbox, 15000);
     const app = AppState.addEventListener('change', (st) => { if (st === 'active') { loadMissed(); flushOutbox(); } });
-    return () => { off(); offSent(); app.remove(); clearInterval(retry); if (typingTimer.current) clearTimeout(typingTimer.current); };
+    return () => { off(); offSent(); offFailed(); app.remove(); clearInterval(retry); if (typingTimer.current) clearTimeout(typingTimer.current); };
   }, [chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeKind = (k: Kind) => {
@@ -332,6 +341,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const send = (raw = text, keepReply = false, ids?: number[]) => {
     const body = raw.trim();
     if (!body) return;
+    if (!keepReply && !shouldSend(lastSend.current, body, Date.now())) return; // double-tap guard
+    if (!keepReply) lastSend.current = { text: body, at: Date.now() };
     if (editing && !keepReply) { saveEdit(body); return; }
     const mentionIds = ids ?? (keepReply ? [] : mentionIdsFor(body, refs.current));
     const clientId = newClientId();
@@ -346,7 +357,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       replyTo: ref, payload: !keepReply && quote ? ({ quote } as any) : null,
     }]));
     const q = keepReply ? null : quote;
-    if (!keepReply) { setText(''); setReplyTo(null); setQuote(null); refs.current = []; }
+    if (!keepReply) { textRef.current = ''; setText(''); setReplyTo(null); setQuote(null); refs.current = []; }
     enqueue(chat.id, body, clientId, createdAt, ref, mentionIds, q);
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   };
@@ -536,6 +547,14 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   // ---- long-press menu ----
   const longPress = useCallback((m: Msg) => {
     if (m.deleted || m.type === 'system') return;
+    if (m.failed && !m.id) { // outbox: server rejected it
+      Alert.alert('Message nahi gaya', 'Dobara bhejein ya delete karein?', [
+        { text: 'Retry', onPress: () => { setMsgs((cur) => cur.map((x) => (x.clientId === m.clientId ? { ...x, failed: false, pending: true } : x))); retryOutbox(m.clientId); } },
+        { text: 'Delete', style: 'destructive', onPress: () => { removeFromOutbox(m.clientId); setMsgs((cur) => cur.filter((x) => x.clientId !== m.clientId)); } },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+      return;
+    }
     setMenu(m);
   }, []);
 
@@ -761,7 +780,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const jumpBottom = () => { listRef.current?.scrollToOffset({ offset: 0, animated: true }); setBelowCount(0); };
 
   const tickOf = (m: Msg): TickStatus => {
-    if (!m.id) return 'pending';
+    if (!m.id) return m.failed ? 'failed' : 'pending';
     if (m.id <= status.read) return 'read';
     if (m.id <= status.delivered) return 'delivered';
     return 'sent';
@@ -873,7 +892,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   // check-in chat too: "/" and the task button (typed check-in text logic is unchanged)
   const helpers = ps.commandsEnabled;
   // Round 4: composer helpers live in the chip row (the row itself is the WhatsApp pill)
-  const showChips = helpers && !editing && !text && !suggestions.length;
+  const showChips = helpers && !editing && !text && !suggestions.length && focused && kbVisible; // only when about to type
   const quick = QUICK.map((q) => COMMANDS.find((c) => c.cmd === q)!).filter(Boolean);
   const chipBtn = (label: string, onPress: () => void, icon?: keyof typeof Ionicons.glyphMap, key?: string) => (
     <Pressable
@@ -1166,7 +1185,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
           <View style={{ paddingHorizontal: 20, paddingVertical: 8 }}>
             <Text style={{ color: t.text, fontSize: 15 }}>Sent: {new Date(infoMsg.createdAt).toLocaleString()}</Text>
             <Text style={{ color: t.text, fontSize: 15, marginTop: 8 }}>
-              {{ pending: 'Bhej rahe hain', sent: 'Sent', delivered: 'Delivered (sabko)', read: 'Read (sabne dekha)' }[tickOf(infoMsg)]}
+              {{ pending: 'Bhej rahe hain', failed: 'Nahi gaya (tap karke retry)', sent: 'Sent', delivered: 'Delivered (sabko)', read: 'Read (sabne dekha)' }[tickOf(infoMsg)]}
             </Text>
             <Text style={{ color: t.subtext, fontSize: 12, marginTop: 8 }}>Har member ka alag read time abhi available nahi.</Text>
           </View>

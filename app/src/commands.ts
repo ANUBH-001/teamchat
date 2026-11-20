@@ -6,7 +6,7 @@ export type Command = {
   cmd: string; args: string; desc: string; icon: keyof typeof Ionicons.glyphMap; needsTask?: boolean; needsPerson?: boolean;
 };
 export const COMMANDS: Command[] = [
-  { cmd: '/task', args: '@name [@name2] <text> [due kal]', desc: 'Task do (ek ya zyada log)', icon: 'add-circle-outline', needsPerson: true },
+  { cmd: '/task', args: '@name [@name2] <text> [due kal]', desc: 'Task do (ek ya zyada log; member sirf khud ko, jab tak admin assign allow na kare)', icon: 'add-circle-outline', needsPerson: true },
   { cmd: '/done', args: '[#id] [note]', desc: 'Mera task Done', icon: 'checkmark-circle-outline', needsTask: true },
   { cmd: '/re', args: '#id [@old] @new', desc: 'Task kisi aur ko do', icon: 'swap-horizontal-outline', needsTask: true },
   { cmd: '/tasks', args: '[name]', desc: 'Open tasks (sabke / ek insaan ke)', icon: 'list-outline' },

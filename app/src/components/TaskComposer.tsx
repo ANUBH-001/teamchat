@@ -82,23 +82,26 @@ export function TimePick({ value, onChange }: { value: string | null; onChange: 
 }
 
 // Keep's "Take a note" bar: collapsed = one line; tap = title, people chips (multi, "Me (khud)" = private self task), due, Save.
-export default function TaskComposer({ meId, onCreated }: { meId: number; onCreated: (task: Task) => void }) {
+// Everyone gets it. Admin picks anyone ("Me (khud)" = private). A member is preselected as the only assignee and the
+// people picker is hidden unless the admin allowed `membersCanAssign` (the server enforces the same rule).
+export default function TaskComposer({ meId, onCreated, isBoss = true, canAssign = true }: { meId: number; onCreated: (task: Task) => void; isBoss?: boolean; canAssign?: boolean }) {
+  const showPeople = isBoss || canAssign;
   const t = useTheme();
   const users = useUsers();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [sel, setSel] = useState<number[]>([]);
+  const [sel, setSel] = useState<number[]>(isBoss ? [] : [meId]);
   const [due, setDue] = useState<string | null>(null);
   const [pickDate, setPickDate] = useState(false);
   const [time, setTime] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const reset = () => { setOpen(false); setTitle(''); setSel([]); setDue(null); setTime(null); setPickDate(false); setBusy(false); };
+  const reset = () => { setOpen(false); setTitle(''); setSel(isBoss ? [] : [meId]); setDue(null); setTime(null); setPickDate(false); setBusy(false); };
 
   if (!open) {
     return (
-      <Pressable onPress={() => setOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 10, minHeight: 48, borderRadius: 14, backgroundColor: t.card, borderWidth: 1, borderColor: t.border, paddingHorizontal: 14 }}>
-        <Text style={{ flex: 1, color: t.subtext, fontSize: 15 }}>Take a task…</Text>
-        <Ionicons name="add-circle-outline" size={22} color={t.accent} />
+      <Pressable onPress={() => setOpen(true)} accessibilityLabel="Take a task" style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 12, minHeight: 50, borderRadius: 26, backgroundColor: t.card, paddingHorizontal: 18, elevation: 4, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 5, shadowOffset: { width: 0, height: 2 } }}>
+        <Text style={{ flex: 1, color: t.subtext, fontSize: 16 }}>Take a task…</Text>
+        <Ionicons name="checkbox-outline" size={24} color={t.subtext} />
       </Pressable>
     );
   }
@@ -125,17 +128,17 @@ export default function TaskComposer({ meId, onCreated }: { meId: number; onCrea
         value={title} onChangeText={setTitle} autoFocus placeholder="Task kya hai?" placeholderTextColor={t.subtext} maxLength={255} multiline
         style={{ color: t.text, fontSize: 16, minHeight: 40, paddingVertical: 4 }}
       />
-      <Text style={{ color: t.subtext, fontSize: 11, fontWeight: '700', marginTop: 8, marginBottom: 6 }}>KISKO</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+      {showPeople && <Text style={{ color: t.subtext, fontSize: 11, fontWeight: '700', marginTop: 8, marginBottom: 6 }}>KISKO</Text>}
+      {showPeople && <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
         {ordered.map((u) => {
           const on = sel.includes(u.id);
           return (
             <Pressable key={u.id} onPress={() => toggle(u.id)} style={{ minHeight: 36, justifyContent: 'center', paddingHorizontal: 12, borderRadius: 18, marginRight: 6, marginBottom: 6, backgroundColor: on ? t.chip : t.surface, borderWidth: 1, borderColor: on ? t.accent : 'transparent' }}>
-              <Text style={{ color: on ? t.chipText : t.text, fontSize: 13, fontWeight: on ? '700' : '500' }}>{u.id === meId ? 'Me (khud) 🔒' : u.name}</Text>
+              <Text style={{ color: on ? t.chipText : t.text, fontSize: 13, fontWeight: on ? '700' : '500' }}>{u.id === meId ? (isBoss ? 'Me (khud) 🔒' : 'Me (khud)') : u.name}</Text>
             </Pressable>
           );
         })}
-      </View>
+      </View>}
       <Text style={{ color: t.subtext, fontSize: 11, fontWeight: '700', marginTop: 4, marginBottom: 6 }}>DUE</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
         {dueChip('Aaj', due === isoDay(0), () => setDue(due === isoDay(0) ? null : isoDay(0)))}
