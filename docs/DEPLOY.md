@@ -101,7 +101,8 @@ Rollback: min `0`, restore the pre-009 dump, `git checkout <previous hash>`, res
 5. Nayi APK tab bhi chahiye jab native dependency/plugin badle: `runtimeVersion` (app.json) badhao (jaise "2"), nayi APK build + upload, min version badhao. Purane runtime ke phones ko naye runtime ka update nahi milta.
 6. Optional env `PUBLIC_BASE_URL=https://apps.landauditors.com/team_chat` (Apache /team_chat prefix hatata hai, isliye asset URLs me prefix is se aata hai). `server/updates/` git-ignored hai.
 
-## Round 4 update (BUILT, NOT deployed: deploy only when the owner says)
+## Round 4 update (DEPLOYED 2026-11-20: pushed 1ce7517, rollback hash 40f9b35 + /root/team-chat-dbbackup/pre-010-20261120-1309.sql, .env backup server/.env.bak-round4-20261120-1310, old APK /root/TeamChat-0.5.0.bak.apk, migrate_010 applied, uploads/ made, AI=gemini, no Maps key yet (OSM), latest = 6, min = 4 until the team updates)
+Notes: Apache 2.4.52 default body limit is unlimited (no change needed). Git Bash: set `MSYS_NO_PATHCONV=1` before passing `/remote/paths` to scripts.
 Needs the new APK (runtime 2) first; Phase 1 server is backward-compatible for old chat clients but old task UI will not match.
 1. DB backup, then BEFORE the new server starts: `mysql -u team_chat_user -p team_chat_db < /opt/node/team-chat/server/sql/migrate_010.sql` (avatar_url, profile_done, favourite, media columns, tasks.private).
 2. `mkdir -p /opt/node/team-chat/server/uploads` (owned by the pm2 user; NOT in backups, size). Apache `LimitRequestBody` must allow >= 16 MB for /team_chat/media.
