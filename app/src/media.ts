@@ -42,6 +42,7 @@ export const clearMediaToken = () => { tokenCache = null; };
 
 export function mediaSrc(url?: string | null): string | null {
   if (!url) return null;
+  if (/^(file|content):/i.test(url)) return url; // A-12: unsent voice note plays from the local file
   const full = /^https?:/i.test(url) ? url : SERVER_URL + url;
   return tokenCache ? full + (full.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(tokenCache) : full;
 }
