@@ -89,3 +89,15 @@ test('the card of my own tick is not unread for me; other people\'s unread messa
   await H.sleep(300);
   assert.equal(await unreadIn(tokM, group), 2, 'the admin message and the card stay unread (not silently marked read)');
 });
+
+test('tick, untick, tick again: one "completed" card, not one per tick', async () => {
+  const t = await mkTask(tokBoss, { title: 'Flip flop', assigneeIds: [member.id], chatId: group });
+  for (const status of ['done', 'todo', 'done', 'todo', 'done']) {
+    const r = await request(app).patch('/tasks/' + t.id).set(H.bearer(tokM)).send({ status });
+    assert.equal(r.status, 200);
+  }
+  await H.sleep(300);
+  const [rows] = await H.pool().query(
+    "SELECT id FROM messages WHERE chat_id = ? AND task_id = ? AND type = 'bot' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.event')) = 'completed'", [group, t.id]);
+  assert.equal(rows.length, 1);
+});

@@ -376,7 +376,7 @@ async function doneCard(task, actor) {
   try {
     if (task.private) return;
     if (task.chatId && (await rt.isChatMember(task.chatId, actor.id))) {
-      await bot.taskCard(task.chatId, 'completed', task, actor);
+      if (!(await recentDoneCard(task.chatId, task.id, actor.id))) await bot.taskCard(task.chatId, 'completed', task, actor);
       return;
     }
     let others;
@@ -387,9 +387,21 @@ async function doneCard(task, actor) {
     }
     for (const other of [...new Set(others)].slice(0, 5)) {
       const { chatId } = await bot.ensureDm(actor.id, other);
-      await bot.taskCard(chatId, 'completed', task, actor);
+      if (!(await recentDoneCard(chatId, task.id, actor.id))) await bot.taskCard(chatId, 'completed', task, actor);
     }
   } catch (e) { console.error('done card:', e.message); }
+}
+
+// Tick, untick, tick again within a few minutes (a slip of the finger, or Undo then redo) posted a new "completed" card
+// every time (3 identical cards in the acceptance test 2026-11-20). The card is live (shows the current state), so the
+// same person's recent card for the same task is reused instead of posting another one.
+async function recentDoneCard(chatId, taskId, actorId) {
+  const [[r]] = await pool.query(
+    `SELECT id FROM messages WHERE chat_id = ? AND task_id = ? AND type = 'bot' AND deleted_at IS NULL
+       AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.event')) = 'completed' AND JSON_EXTRACT(payload, '$.actorId') = ?
+       AND created_at > NOW() - INTERVAL 10 MINUTE
+     ORDER BY id DESC LIMIT 1`, [chatId, taskId, actorId]);
+  return r ? r.id : null;
 }
 
 const updateTask = async (id, f, actor, source = 'manual', messageId = null) =>
