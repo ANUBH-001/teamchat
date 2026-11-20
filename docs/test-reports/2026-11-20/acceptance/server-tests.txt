@@ -1,0 +1,575 @@
+
+> teamchat-server@0.1.0 test
+> node --test --test-concurrency=1 "test/**/*.test.js"
+
+TAP version 13
+# Subtest: timezone: local date / minutes are Asia/Kolkata, the day flips at 18:30 UTC
+ok 1 - timezone: local date / minutes are Asia/Kolkata, the day flips at 18:30 UTC
+  ---
+  duration_ms: 1441.995
+  type: 'test'
+  ...
+# Subtest: scheduler: nothing before 10:00 local; at 10:00 one morning card per active member, none for the bot / inactive / admin
+ok 2 - scheduler: nothing before 10:00 local; at 10:00 one morning card per active member, none for the bot / inactive / admin
+  ---
+  duration_ms: 184.1811
+  type: 'test'
+  ...
+# Subtest: scheduler: a missed morning is not caught up in the evening; the evening card is sent once
+ok 3 - scheduler: a missed morning is not caught up in the evening; the evening card is sent once
+  ---
+  duration_ms: 72.8784
+  type: 'test'
+  ...
+# Subtest: picks: own open task only; toggling updates the morning card and is stored for the admin
+ok 4 - picks: own open task only; toggling updates the morning card and is stored for the admin
+  ---
+  duration_ms: 118.7662
+  type: 'test'
+  ...
+# Subtest: evening tick through PATCH /tasks: own task done, the card and the admin see it; a forged id is refused
+ok 5 - evening tick through PATCH /tasks: own task done, the card and the admin see it; a forged id is refused
+  ---
+  duration_ms: 858.6109
+  type: 'test'
+  ...
+# Subtest: replies in the check-in chat are stored as the report; the admins get one live summary card
+ok 6 - replies in the check-in chat are stored as the report; the admins get one live summary card
+  ---
+  duration_ms: 1657.9595
+  type: 'test'
+  ...
+# Subtest: admin-only POST /admin/jobs/run {summary}
+ok 7 - admin-only POST /admin/jobs/run {summary}
+  ---
+  duration_ms: 25.0855
+  type: 'test'
+  ...
+# Subtest: settings: summaryTime must be after the evening time
+ok 8 - settings: summaryTime must be after the evening time
+  ---
+  duration_ms: 22.2432
+  type: 'test'
+  ...
+# Subtest: AI: "I'll also do X" in my own check-in chat becomes MY task; the bot never answers itself
+ok 9 - AI: "I'll also do X" in my own check-in chat becomes MY task; the bot never answers itself
+  ---
+  duration_ms: 560.9006
+  type: 'test'
+  ...
+# Subtest: AI: a bare answer to "Anything new?" in the check-in chat reaches the model; the same text in a DM does not
+ok 10 - AI: a bare answer to "Anything new?" in the check-in chat reaches the model; the same text in a DM does not
+  ---
+  duration_ms: 812.7914
+  type: 'test'
+  ...
+# Subtest: AI pre-filter: Hinglish future / plural verb forms and "need to" reach the model (were silently dropped)
+ok 11 - AI pre-filter: Hinglish future / plural verb forms and "need to" reach the model (were silently dropped)
+  ---
+  duration_ms: 246.315
+  type: 'test'
+  ...
+# Subtest: login ok and bad PIN
+ok 12 - login ok and bad PIN
+  ---
+  duration_ms: 1457.9655
+  type: 'test'
+  ...
+# Subtest: old token is rejected after a newer login (session id check)
+ok 13 - old token is rejected after a newer login (session id check)
+  ---
+  duration_ms: 22.2843
+  type: 'test'
+  ...
+# Subtest: messages: unauthenticated 401, non-member 403, member ok
+ok 14 - messages: unauthenticated 401, non-member 403, member ok
+  ---
+  duration_ms: 75.5815
+  type: 'test'
+  ...
+# Subtest: idempotent send: same clientId twice = one row, same id
+ok 15 - idempotent send: same clientId twice = one row, same id
+  ---
+  duration_ms: 30.3164
+  type: 'test'
+  ...
+# Subtest: realtime: A sends via REST, B receives exactly once
+ok 16 - realtime: A sends via REST, B receives exactly once
+  ---
+  duration_ms: 337.8112
+  type: 'test'
+  ...
+# Subtest: typing: member is relayed, non-member is ignored
+ok 17 - typing: member is relayed, non-member is ignored
+  ---
+  duration_ms: 329.2795
+  type: 'test'
+  ...
+# Subtest: bad token closes ws with 4401
+ok 18 - bad token closes ws with 4401
+  ---
+  duration_ms: 7.9495
+  type: 'test'
+  ...
+# Subtest: A-03: ws {"type":"ping"} gets {"type":"pong","t":<ms>} on that socket only
+ok 19 - A-03: ws {"type":"ping"} gets {"type":"pong","t":<ms>} on that socket only
+  ---
+  duration_ms: 1604.9834
+  type: 'test'
+  ...
+# Subtest: B-21: malformed JSON body -> 400 JSON, not an HTML stack
+ok 20 - B-21: malformed JSON body -> 400 JSON, not an HTML stack
+  ---
+  duration_ms: 45.8527
+  type: 'test'
+  ...
+# Subtest: B-12: an oversize ws frame closes the socket (1009); small frames still work
+ok 21 - B-12: an oversize ws frame closes the socket (1009); small frames still work
+  ---
+  duration_ms: 10.6525
+  type: 'test'
+  ...
+# Subtest: B-15: two concurrent activations with one invite -> exactly one succeeds
+ok 22 - B-15: two concurrent activations with one invite -> exactly one succeeds
+  ---
+  duration_ms: 195.6048
+  type: 'test'
+  ...
+# Subtest: B-03: uploader can sign before send; nobody else can (not even a chat member or the boss)
+ok 23 - B-03: uploader can sign before send; nobody else can (not even a chat member or the boss)
+  ---
+  duration_ms: 1521.5129
+  type: 'test'
+  ...
+# Subtest: B-03: after send: member yes, non-member no, removed member no, boss yes; deleted message only boss
+ok 24 - B-03: after send: member yes, non-member no, removed member no, boss yes; deleted message only boss
+  ---
+  duration_ms: 136.9582
+  type: 'test'
+  ...
+# Subtest: B-03: check-in chat media is private to its owner, even for the boss
+ok 25 - B-03: check-in chat media is private to its owner, even for the boss
+  ---
+  duration_ms: 39.8497
+  type: 'test'
+  ...
+# Subtest: B-03: a profile photo is visible to every logged-in user; only your own upload can become your photo
+ok 26 - B-03: a profile photo is visible to every logged-in user; only your own upload can become your photo
+  ---
+  duration_ms: 57.8797
+  type: 'test'
+  ...
+# Subtest: B-03: a message cannot re-share a file the sender may not see
+ok 27 - B-03: a message cannot re-share a file the sender may not see
+  ---
+  duration_ms: 18.8413
+  type: 'test'
+  ...
+# Subtest: A-07: tampered, cross-user, expired and malformed signatures are rejected
+ok 28 - A-07: tampered, cross-user, expired and malformed signatures are rejected
+  ---
+  duration_ms: 55.5136
+  type: 'test'
+  ...
+# Subtest: A-07: TTL is 30 min by default and expiresAt is returned; sign validates input
+ok 29 - A-07: TTL is 30 min by default and expiresAt is returned; sign validates input
+  ---
+  duration_ms: 31.3696
+  type: 'test'
+  ...
+# Subtest: A-07: legacy ?t=<jwt> works only while MEDIA_ALLOW_TOKEN_QUERY is on, and is access-checked
+ok 30 - A-07: legacy ?t=<jwt> works only while MEDIA_ALLOW_TOKEN_QUERY is on, and is access-checked
+  ---
+  duration_ms: 65.9675
+  type: 'test'
+  ...
+# Subtest: path traversal is still blocked (header and signed)
+ok 31 - path traversal is still blocked (header and signed)
+  ---
+  duration_ms: 18.5716
+  type: 'test'
+  ...
+# Subtest: A-07: static map: signed URL works without the JWT; a bad signature does not
+ok 32 - A-07: static map: signed URL works without the JWT; a bad signature does not
+  ---
+  duration_ms: 15.2401
+  type: 'test'
+  ...
+# Subtest: A-05: POST /auth/logout revokes the token (REST 401, live socket closed, reconnect refused)
+ok 33 - A-05: POST /auth/logout revokes the token (REST 401, live socket closed, reconnect refused)
+  ---
+  duration_ms: 59.8753
+  type: 'test'
+  ...
+# Subtest: R-07: create ignores dueDate (even an invalid one); the task has no due fields
+ok 34 - R-07: create ignores dueDate (even an invalid one); the task has no due fields
+  ---
+  duration_ms: 1441.458
+  type: 'test'
+  ...
+# Subtest: R-07: PATCH with only dueDate (old app) is a harmless no-op, not an error; with other fields they still apply
+ok 35 - R-07: PATCH with only dueDate (old app) is a harmless no-op, not an error; with other fields they still apply
+  ---
+  duration_ms: 52.2362
+  type: 'test'
+  ...
+# Subtest: R-07: list / summary responses carry no due data
+ok 36 - R-07: list / summary responses carry no due data
+  ---
+  duration_ms: 20.3829
+  type: 'test'
+  ...
+# Subtest: R-08: no Hindi/Hinglish user-facing phrases left in server code
+ok 37 - R-08: no Hindi/Hinglish user-facing phrases left in server code
+  ---
+  duration_ms: 13.9493
+  type: 'test'
+  ...
+# Subtest: R-08: AI prompts ask for English output and no due date
+ok 38 - R-08: AI prompts ask for English output and no due date
+  ---
+  duration_ms: 0.6384
+  type: 'test'
+  ...
+# checkin card refresh: Pool is closed.
+# Subtest: no-store on /chats
+ok 39 - no-store on /chats
+  ---
+  duration_ms: 1433.7058
+  type: 'test'
+  ...
+# Subtest: no-store on /chats/:id/messages
+ok 40 - no-store on /chats/:id/messages
+  ---
+  duration_ms: 9.0949
+  type: 'test'
+  ...
+# Subtest: no-store on /tasks?scope=mine
+ok 41 - no-store on /tasks?scope=mine
+  ---
+  duration_ms: 10.659
+  type: 'test'
+  ...
+# Subtest: no-store on /users?includeSelf=1
+ok 42 - no-store on /users?includeSelf=1
+  ---
+  duration_ms: 8.317
+  type: 'test'
+  ...
+# Subtest: no-store on /auth/me
+ok 43 - no-store on /auth/me
+  ---
+  duration_ms: 7.2532
+  type: 'test'
+  ...
+# Subtest: errors (401) are no-store too
+ok 44 - errors (401) are no-store too
+  ---
+  duration_ms: 5.1136
+  type: 'test'
+  ...
+# Subtest: OTA manifest and health are untouched by the API rule
+ok 45 - OTA manifest and health are untouched by the API rule
+  ---
+  duration_ms: 6.2022
+  type: 'test'
+  ...
+# Subtest: after-paging with 600 messages: hasMore until the end, every message exactly once, in order
+ok 46 - after-paging with 600 messages: hasMore until the end, every message exactly once, in order
+  ---
+  duration_ms: 1452.4411
+  type: 'test'
+  ...
+# Subtest: exactly 500 remaining: hasMore false; before-paging unchanged
+ok 47 - exactly 500 remaining: hasMore false; before-paging unchanged
+  ---
+  duration_ms: 32.1459
+  type: 'test'
+  ...
+# Subtest: member marks own task done -> admin gets one ws task event and one card (task made in a chat)
+ok 48 - member marks own task done -> admin gets one ws task event and one card (task made in a chat)
+  ---
+  duration_ms: 1820.4212
+  type: 'test'
+  ...
+# Subtest: member marks own task done -> admin notified even when the task has no chat (DM fallback)
+ok 49 - member marks own task done -> admin notified even when the task has no chat (DM fallback)
+  ---
+  duration_ms: 376.9375
+  type: 'test'
+  ...
+# Subtest: boss marks a member task done -> member gets one ws task event and one card
+ok 50 - boss marks a member task done -> member gets one ws task event and one card
+  ---
+  duration_ms: 355.7921
+  type: 'test'
+  ...
+# Subtest: boss marks a member task done (no chat) -> member gets a DM card
+ok 51 - boss marks a member task done (no chat) -> member gets a DM card
+  ---
+  duration_ms: 355.8708
+  type: 'test'
+  ...
+# Subtest: boss private self-task done posts no card
+ok 52 - boss private self-task done posts no card
+  ---
+  duration_ms: 39.2906
+  type: 'test'
+  ...
+# Subtest: the card of my own tick is not unread for me; other people's unread messages stay unread
+ok 53 - the card of my own tick is not unread for me; other people's unread messages stay unread
+  ---
+  duration_ms: 778.2261
+  type: 'test'
+  ...
+# Subtest: tick, untick, tick again: one "completed" card, not one per tick
+ok 54 - tick, untick, tick again: one "completed" card, not one per tick
+  ---
+  duration_ms: 418.2674
+  type: 'test'
+  ...
+# checkin card refresh: Pool is closed.
+# Subtest: status: assignee 200, other member 403, admin 200
+ok 55 - status: assignee 200, other member 403, admin 200
+  ---
+  duration_ms: 1378.1648
+  type: 'test'
+  ...
+# Subtest: undo: other member 403, assignee 200
+ok 56 - undo: other member 403, assignee 200
+  ---
+  duration_ms: 72.6157
+  type: 'test'
+  ...
+# Subtest: creator who is not the assignee cannot tick the task; admin can
+ok 57 - creator who is not the assignee cannot tick the task; admin can
+  ---
+  duration_ms: 44.3081
+  type: 'test'
+  ...
+# Subtest: assignee cannot set another assignee's status
+ok 58 - assignee cannot set another assignee's status
+  ---
+  duration_ms: 23.3363
+  type: 'test'
+  ...
+# Subtest: delete/close/reopen: non-admin 403 (even the creator and the assignee), admin 200
+ok 59 - delete/close/reopen: non-admin 403 (even the creator and the assignee), admin 200
+  ---
+  duration_ms: 86.2394
+  type: 'test'
+  ...
+# Subtest: task logic (used by ws, slash commands and the AI) enforces the same rule
+ok 60 - task logic (used by ws, slash commands and the AI) enforces the same rule
+  ---
+  duration_ms: 39.2185
+  type: 'test'
+  ...
+# checkin card refresh: Pool is closed.
+# checkin card refresh: Pool is closed.
+# Subtest: member self-task via REST works and is NOT private (toggle off)
+ok 61 - member self-task via REST works and is NOT private (toggle off)
+  ---
+  duration_ms: 1542.485
+  type: 'test'
+  ...
+# Subtest: member -> other: 403 with toggle off, 201 with toggle on
+ok 62 - member -> other: 403 with toggle off, 201 with toggle on
+  ---
+  duration_ms: 37.2881
+  type: 'test'
+  ...
+# Subtest: boss unchanged: assigns anyone; boss self-only task stays private
+ok 63 - boss unchanged: assigns anyone; boss self-only task stays private
+  ---
+  duration_ms: 32.788
+  type: 'test'
+  ...
+# Subtest: members cannot manage tasks they neither created nor are assigned to
+ok 64 - members cannot manage tasks they neither created nor are assigned to
+  ---
+  duration_ms: 55.9621
+  type: 'test'
+  ...
+# Subtest: /task khud ... by a member creates a self-task (toggle off)
+ok 65 - /task khud ... by a member creates a self-task (toggle off)
+  ---
+  duration_ms: 63.6161
+  type: 'test'
+  ...
+# Subtest: /task @Uzair by a member: NOT_ALLOWED off, created on
+ok 66 - /task @Uzair by a member: NOT_ALLOWED off, created on
+  ---
+  duration_ms: 117.4359
+  type: 'test'
+  ...
+# checkin card refresh: Pool is closed.
+# checkin card refresh: Pool is closed.
+# checkin card refresh: Pool is closed.
+# Subtest: valid bundle and extensionless asset are still served
+ok 67 - valid bundle and extensionless asset are still served
+  ---
+  duration_ms: 57.8882
+  type: 'test'
+  ...
+# Subtest: manifest asset URLs resolve through /assets
+ok 68 - manifest asset URLs resolve through /assets
+  ---
+  duration_ms: 20.3506
+  type: 'test'
+  ...
+# Subtest: rejects: rv=.. reaches .env (the original exploit)
+ok 69 - rejects: rv=.. reaches .env (the original exploit)
+  ---
+  duration_ms: 7.0031
+  type: 'test'
+  ...
+# Subtest: rejects: rv=.. reaches backup
+ok 70 - rejects: rv=.. reaches backup
+  ---
+  duration_ms: 5.1348
+  type: 'test'
+  ...
+# Subtest: rejects: rv=. with dot-dot asset
+ok 71 - rejects: rv=. with dot-dot asset
+  ---
+  duration_ms: 4.5212
+  type: 'test'
+  ...
+# Subtest: rejects: percent-encoded dots
+ok 72 - rejects: percent-encoded dots
+  ---
+  duration_ms: 4.6565
+  type: 'test'
+  ...
+# Subtest: rejects: double-encoded dots
+ok 73 - rejects: double-encoded dots
+  ---
+  duration_ms: 6.84
+  type: 'test'
+  ...
+# Subtest: rejects: encoded slash
+ok 74 - rejects: encoded slash
+  ---
+  duration_ms: 5.1992
+  type: 'test'
+  ...
+# Subtest: rejects: dot-dot inside valid prefix
+ok 75 - rejects: dot-dot inside valid prefix
+  ---
+  duration_ms: 4.8684
+  type: 'test'
+  ...
+# Subtest: rejects: backslashes
+ok 76 - rejects: backslashes
+  ---
+  duration_ms: 4.5108
+  type: 'test'
+  ...
+# Subtest: rejects: encoded backslashes
+ok 77 - rejects: encoded backslashes
+  ---
+  duration_ms: 4.1497
+  type: 'test'
+  ...
+# Subtest: rejects: absolute path
+ok 78 - rejects: absolute path
+  ---
+  duration_ms: 4.2047
+  type: 'test'
+  ...
+# Subtest: rejects: absolute windows path
+ok 79 - rejects: absolute windows path
+  ---
+  duration_ms: 4.1067
+  type: 'test'
+  ...
+# Subtest: rejects: NUL byte
+ok 80 - rejects: NUL byte
+  ---
+  duration_ms: 4.0025
+  type: 'test'
+  ...
+# Subtest: rejects: dotfile inside updates
+ok 81 - rejects: dotfile inside updates
+  ---
+  duration_ms: 3.9679
+  type: 'test'
+  ...
+# Subtest: rejects: asset outside the given rv
+ok 82 - rejects: asset outside the given rv
+  ---
+  duration_ms: 3.8508
+  type: 'test'
+  ...
+# Subtest: rejects: rv folder itself
+ok 83 - rejects: rv folder itself
+  ---
+  duration_ms: 4.1844
+  type: 'test'
+  ...
+# Subtest: rejects: array params
+ok 84 - rejects: array params
+  ---
+  duration_ms: 4.0621
+  type: 'test'
+  ...
+# Subtest: manifest rejects dot runtime versions
+ok 85 - manifest rejects dot runtime versions
+  ---
+  duration_ms: 11.8357
+  type: 'test'
+  ...
+# Subtest: V-03a: boss voice note assigns a task to Anubhav (source = the voice message, card posted)
+ok 86 - V-03a: boss voice note assigns a task to Anubhav (source = the voice message, card posted)
+  ---
+  duration_ms: 1566.241
+  type: 'test'
+  ...
+# Subtest: V-03b: member voice assigning someone else: note when off, task when on
+ok 87 - V-03b: member voice assigning someone else: note when off, task when on
+  ---
+  duration_ms: 118.5563
+  type: 'test'
+  ...
+# Subtest: V-03c: member "mujhe kal tak report banani hai" is a self-task even with toggle off
+ok 88 - V-03c: member "mujhe kal tak report banani hai" is a self-task even with toggle off
+  ---
+  duration_ms: 52.7692
+  type: 'test'
+  ...
+# Subtest: V-02e: failure stores a transcriptError code
+ok 89 - V-02e: failure stores a transcriptError code
+  ---
+  duration_ms: 72.5782
+  type: 'test'
+  ...
+# Subtest: V-02d: retry endpoint permissions, eligibility, and no duplicate tasks
+ok 90 - V-02d: retry endpoint permissions, eligibility, and no duplicate tasks
+  ---
+  duration_ms: 378.854
+  type: 'test'
+  ...
+# Subtest: V-02d: boss may retry; fresh pending is not retryable, stale pending is
+ok 91 - V-02d: boss may retry; fresh pending is not retryable, stale pending is
+  ---
+  duration_ms: 137.1844
+  type: 'test'
+  ...
+# Subtest: V-02: startup requeue picks up stale pending voice notes and transcribes them
+ok 92 - V-02: startup requeue picks up stale pending voice notes and transcribes them
+  ---
+  duration_ms: 109.0092
+  type: 'test'
+  ...
+# checkin card refresh: Pool is closed.
+# checkin card refresh: Pool is closed.
+1..92
+# tests 92
+# suites 0
+# pass 92
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 35872.6421

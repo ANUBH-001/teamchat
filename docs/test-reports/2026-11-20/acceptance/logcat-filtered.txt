@@ -1,0 +1,2 @@
+== de4eaf03 (adb logcat -d, filtered: AndroidRuntime FATAL / ReactNativeJS E / crash buffer)
+== emulator-5554 (adb logcat -d, filtered: AndroidRuntime FATAL / ReactNativeJS E / crash buffer)

@@ -95,3 +95,70 @@ Check-in on device:
 - Admin summary: sent by the scheduler right after the server start (past 20:30), again via `jobs/run summary` with the app in the background -> quiet notification "Daily check-in summary" (`05-emulator-admin-summary-notification.png`); card with REPLIED / NO REPLY, Today picks, done today, report (`06-emulator-admin-summary-card.png`; an older test transcript in the report line is masked).
 
 Not verified / known limits: the original prod failure could not be replayed on prod (read-only rule), so R-09 is fixed for the two root causes reproduced locally (silent focus failure, dead sound after an error); the release APK was not rebuilt (JS only, OTA). A long card's reply box can sit under the keyboard while typing (the text is kept, the list scrolls back). Tapping the summary notification opened the chat list, not the chat. The morning card shows open tasks only, so a task ticked done later disappears from it (it stays in the evening card and the summary).
+
+## Acceptance test: member and admin (2026-11-20 late night, branch hardening/integration)
+Setup: server and Metro restarted from this repo (local e2e DB `team_chat_e2e`, port 3100, real Gemini key; JS from Metro, no new APK). Tablet (Android 16, OnePlus Pad, real touch via adb) and the emulator. Test users only (Anubhav 9000000001 member, Rishit 9000000004 admin). Speech for voice notes came from PC text-to-speech. Evidence: `test-reports/2026-11-20/acceptance/` (status bars blacked out; one summary-card line that quoted room speech is masked; screenshots of the photo picker were not kept because they showed the owner's personal gallery).
+
+### Pass A: tablet = member (Anubhav), emulator = admin (Rishit)
+| # | Scenario | Result | Evidence |
+|---|---|---|---|
+| A1 | Chat list, open DM, text both ways in real time, ✓✓ read ticks | PASS | A-01, A-02 |
+| A2 | Emoji, reply (quote), edit ("edited"), delete for everyone; admin sees all of it | PASS after fix (Back with the emoji panel open left the chat; delete had no confirmation) | A-03, A-10 |
+| A3 | Voice: hold-record with live wave, slide-left cancel (nothing sent), slide-up lock, send from locked; transcript (TTS speech) | PASS | A-04, A-05, A-06 |
+| A4 | Playback (R-09): new note, two notes in a row (the second stops the first), an OLD note (20:17); the admin plays the member's note | PASS | A-07, A-08 |
+| A5 | Photo from the gallery with a caption; loads on the admin's emulator | PASS | A-09, A-10 |
+| A6 | Settings, edit profile | PASS after fix ("Photo badlo" was Hinglish) | A-11, A-12 |
+| A7 | Tasks: Keep card + Me tab; self-task from "Take a task…" | PASS | A-13 |
+| A8 | membersCanAssign OFF: the "Assign to" row disappears live; API assigning others → 403 in English; AI refusal in chat is English | PASS | A-14, A-22 |
+| A9 | Tick own task → Undo snackbar; the admin gets the "Anubhav completed a task" notification (background) and the completed card; tapping it opens the DM | PASS | A-15, A-16 |
+| A10 | Member cannot tick others' tasks, no delete/close; task screen | PASS after fix (the member still saw Undo on an "assigned" card → "Not allowed", and "Change" people with the setting off) | A-17 |
+| A11 | No due date anywhere | PASS | all task screens |
+| A12 | Morning card: Today picks (live pill), "Anything new" reply box | PASS after fix (box under the keyboard while typing, known limit 1; a bare answer made no task) | A-18, A-19 |
+| A13 | Evening card: tick Done (live), report box → AI self-task "Write release notes" | PASS after fix (same keyboard issue) | A-20, A-21 |
+| A14 | AI task detection: English "I will review the payment screen today" → Task 20; Hinglish "Main aaj login page fix kar dunga" → Task 21; "Rishit tumhe server logs check karne hain" → English refusal (setting off) | PASS after fix (both Hinglish lines were silently ignored by the pre-filter) | A-22 |
+| A15 | Notification while backgrounded (message from the admin) | PASS after a clean app start (note 2) | A-23 |
+| A16 | Logout → login screen; login again | PASS (login form fixed to a phone-like width on the tablet) | B-01 |
+
+### Pass B: tablet = admin (Rishit), emulator = member (Anubhav)
+| # | Scenario | Result | Evidence |
+|---|---|---|---|
+| B1 | Login as admin (the emulator's session is replaced, as designed); chat list | PASS | B-02 |
+| B2 | Assign a task to a member from the Tasks composer; Team tab = one Keep card per person; the member sees it live | PASS | B-03 |
+| B3 | Admin ticks the member's task → gone from the member's Me card live | PASS | B-04 |
+| B4 | Close (delete) a task from the sheet (confirm dialog) → reopen from the task screen → the member sees it again | PASS after fix (the closed task's sheet popped up again over another screen when the task was reopened) | B-05, B-07, B-08, B-09 |
+| B5 | Task search with no match | PASS after fix (said "No tasks done yet") | B-06 |
+| B6 | Admin panel: members list, settings; toggle "members can assign" from the UI | PASS after fix (misleading label, dead Praise switch) | B-10, B-11 |
+| B7 | Reports (Daily reports) | PASS after fix (a member who answered the check-in card showed a red "Sign-off Missing") | B-12 |
+| B8 | Admin check-in summary card; summary notification with the app in the background → tap opens the Daily Check-in chat | PASS (known limit 2 did not reproduce, note 3) | B-13 |
+| B9 | AI from the admin: "Anubhav tumhe invoice bhejna hai aaj" → Task 23 for Anubhav; the member sees it | PASS | session log |
+| B10 | Tick / untick / tick → one "completed" card | PASS after fix (3 identical cards before) | DB check, server test |
+| B11 | Own action cards ("Rishit completed Task 22") are not unread for the actor | PASS after fix | server test |
+| B12 | Logcat on both devices: crash buffer + FATAL / ReactNativeJS errors | PASS (0) | logcat-filtered.txt |
+
+### Fixes (all JS or server; no native change, no new permission)
+| Commit | Fix |
+|---|---|
+| 43e97c1, c5f0034 | Check-in card reply box stays above the keyboard while typing (known limit 1); Back closes the emoji panel; delete for everyone asks first |
+| b402cb1 | Task card Undo only where the server allows it (assigned card = admin; completed card only while still done); Change people / Edit title follow `membersCanAssign`; last Hinglish strings ("Photo badlo", "/done" help) + wider English source scan |
+| f5b5078 | A reply in the member's own check-in chat always reaches the AI (a bare "Update the onboarding guide" → task) |
+| 709ac0c | AI pre-filter: Hinglish "kar dunga / karunga / karne / lunga …" and "need/have to" |
+| b68abe6 | Login form max width on tablets |
+| 713fd72 | The card of my own task action is not unread for me (other people's unread messages stay unread) |
+| 4ba2a42 | Task search: "nothing matches" text |
+| dc2735b | No stale task sheet after close → reopen |
+| 904b7e4 | Admin settings labels; Praise switch hidden (the button itself was removed in Round 4) |
+| 7b35b34 | Reports: "Report Submitted" counts check-in card replies |
+| ffc2706 | One "completed" card per person and task within 10 minutes |
+
+Tests after the fixes: server **92/92** (+4), app **111/111** (+5), `tsc` 0 errors (`server-tests.txt`, `app-tests.txt`).
+
+Notes
+1. Unexplained input on the tablet (someone touched it): at 00:03 a voice note was recorded in the member's check-in chat (real room speech; the AI answered with the task list; its transcript is masked in B-13 and no other kept screenshot shows it); at 00:34–00:35 Task 23 was ticked and unticked seven times in the admin session while the script was idle. The second event exposed the duplicate-card bug fixed in ffc2706.
+2. Background notifications on the tablet did not appear after many Metro hot reloads in the session (`AppState` said `active` while the app was in the background); after a clean app start they worked at once (A-23). Dev session only (no hot reload in a release build); not changed.
+3. Known limit 2: on this OnePlus the silent TeamChat notifications are grouped; the first tap expands the group, the second opens the Daily Check-in chat. That is probably what was seen before; the app's tap handler opens the right chat.
+4. Test-data artifacts, not bugs: two morning/evening card pairs dated 20 Nov in Anubhav's check-in chat (an earlier run cleared the `checkin_prompts` markers); the 00:00 "Good morning" cards came from the admin `jobs/run` override; replies before the evening time count as the "morning" reply in Reports.
+5. Left as is (cosmetic or by design): a captioned photo shows "📷 Photo" in the chat list; the Keep grid keeps two columns on a phone even with one card (Keep look); the emoji panel uses 7 columns on the tablet; a self-task card reads "Anubhav assigned Task 16 to Anubhav".
+6. Not covered: camera / Geo camera (would photograph the room), calls, adding or editing members (viewed only, to keep the test data stable), release APK.
+
+### Deploy notes
+Server files changed: `ai/engine.js`, `ai/bot.js`, `tasks.js` (no migration). App changes are JS only (OTA on the same runtimeVersion).

@@ -1,0 +1,33 @@
+
+> teamchat-app@0.1.0 test
+> jest
+
+PASS src/__tests__/voiceOutbox.test.ts
+PASS src/__tests__/media.test.ts
+PASS src/__tests__/realtime.test.ts
+PASS src/__tests__/smoke.test.ts
+PASS src/__tests__/voicePlayer.test.ts
+PASS src/__tests__/keepVisible.test.ts
+PASS src/__tests__/recorderEngine.test.ts
+PASS src/__tests__/taskPermissions.test.ts
+PASS src/__tests__/transcriptRetry.test.ts
+PASS src/__tests__/outbox.test.ts
+PASS src/__tests__/reportsStatus.test.ts
+PASS src/__tests__/deviceCaches.test.ts
+PASS src/__tests__/sendGuard.test.ts
+PASS src/__tests__/useVoiceRecorder.test.tsx
+PASS src/__tests__/Tick.test.tsx
+PASS src/__tests__/logout.test.tsx
+PASS src/__tests__/ChecklistCard.test.tsx
+PASS src/__tests__/DailyCheckinCard.test.tsx (5.514 s)
+A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.
+
+Test Suites: 18 passed, 18 total
+Tests:       111 passed, 111 total
+Snapshots:   0 total
+Time:        8.342 s
+Ran all test suites.
+
+> teamchat-app@0.1.0 typecheck
+> tsc --noEmit
+
