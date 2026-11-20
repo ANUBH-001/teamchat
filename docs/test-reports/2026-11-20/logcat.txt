@@ -1,0 +1,29 @@
+# Filtered logcat (ReactNativeJS, FATAL, E AndroidRuntime). Benign AndroidRuntime D/I lines from 'adb shell input' helper processes removed.
+11-20 10:54:05.202 10478 17696 I ReactNativeJS: Bridgeless mode is enabled
+11-20 10:54:05.936 10478 17696 I ReactNativeJS: Running "main" with {"rootTag":61,"initialProps":{},"fabric":true}
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: Cannot connect to Metro.
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: 
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: Try the following to fix the issue:
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: - Ensure that Metro is running and available on the same network
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: - Ensure that your device/emulator is connected to your machine and has USB debugging enabled - run 'adb devices' to see a list of connected devices
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: - If you're on a physical device connected to the same machine, run 'adb reverse tcp:8081 tcp:8081' to forward requests from your device
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: - If your device is on the same Wi-Fi network, set 'Debug server host & port for device' in 'Dev settings' to your machine's IP address and the port of the local dev server - e.g. 10.0.1.1:8081
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: 
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: URL: 10.0.2.2:8081
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: 
+11-20 15:16:41.770 10478 17696 W ReactNativeJS: Error: Connection reset
+11-20 16:27:45.034 23921 23976 I ReactNativeJS: Bridgeless mode is enabled
+11-20 16:27:50.940 23921 23976 I ReactNativeJS: Running "main" with {"rootTag":11,"initialProps":{},"fabric":true}
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: Cannot connect to Metro.
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: 
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: Try the following to fix the issue:
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: - Ensure that Metro is running and available on the same network
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: - Ensure that your device/emulator is connected to your machine and has USB debugging enabled - run 'adb devices' to see a list of connected devices
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: - If you're on a physical device connected to the same machine, run 'adb reverse tcp:8081 tcp:8081' to forward requests from your device
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: - If your device is on the same Wi-Fi network, set 'Debug server host & port for device' in 'Dev settings' to your machine's IP address and the port of the local dev server - e.g. 10.0.1.1:8081
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: 
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: URL: 10.0.2.2:8081
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: 
+11-20 16:35:10.325 23921 23976 W ReactNativeJS: Error: Software caused connection abort
+11-20 16:39:51.591 26537 26583 I ReactNativeJS: Bridgeless mode is enabled
+11-20 16:39:52.674 26537 26583 I ReactNativeJS: Running "main" with {"rootTag":11,"initialProps":{},"fabric":true}
