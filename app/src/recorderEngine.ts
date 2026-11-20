@@ -136,6 +136,7 @@ export class RecorderEngine {
   setCallbacks(cb: EngineCallbacks) { this.cb = cb; }
   get snapshot() { return this.snap; }
   get phase() { return this.snap.phase; }
+  get isDead() { return this.dead; }
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
   getSnapshot = () => this.snap;
 
