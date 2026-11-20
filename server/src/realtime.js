@@ -85,6 +85,7 @@ function closeUser(userId, code = 4401, reason = 'Not authenticated') {
 function attach(server) {
   const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 }) // clients only send tiny typing / ping frames; bigger = closed 1009;
   wss.on('connection', async (ws, req) => {
+    ws.on('error', () => {}); // e.g. oversize frame (1009): ws closes the socket itself; an unhandled 'error' would crash the process
     let user;
     try {
       const params = new url.URL(req.url, 'http://x').searchParams;
