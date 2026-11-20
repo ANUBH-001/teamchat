@@ -51,33 +51,36 @@ Priority: P0 → **R-xx (owner)** → P1 → P2 → P3. "OTA" means a JS-only ch
 | ID | Area | Description | Sev | Evidence | Status |
 |---|---|---|---|---|---|
 | B-01 | OTA route | Unauthenticated path traversal: `/updates/assets?runtimeVersion=..&asset=../.env` serves any file under `server/` | **P0** | `routes/updates.js:10,103-105` | **Fixed** on `hardening/p0-updates-traversal` (`ead90ba`, 19 tests). **Not deployed** (server work on hold). No exploitation found in logs. |
-| R-01 | Tasks | Members cannot create a task, not even for themselves; the `membersCanAssign` toggle is ignored | P1 | `tasks.js:100-102` hard-codes `isBoss` (Round 4) | In progress: server + app |
-| R-05 | Voice | Recorder freezes at 0:00; cancel, lock and delete do nothing | P1 | `VoiceRecorder.tsx:63-65,83-103`: while start is pending every exit only sets a flag; no watchdog | In progress (OTA) |
-| R-02 | Voice | Slow start; slide-cancel and slide-up lock unreliable; no live waveform | P1 | 4 native awaits per press; mic at the gesture-nav edge, scaled 1.35×; timer and wave depend on the status callback | In progress (OTA) |
-| R-04 | Tasks UI | No self-task composer for members; rename "Mine" to "Me"; Keep-style grid | P2 | `TasksScreen.tsx:230,238,169` | In progress (OTA) |
-| R-03 | Chat UI | Command chips are always shown; the owner wants them only while typing | P3 | `ChatScreen.tsx:876` | In progress (OTA) |
-| A-01 | Outbox | Concurrent read-modify-write in AsyncStorage can lose a queued message (stuck "pending") | P1 | `outbox.ts:30-53` | In progress |
-| A-03 | Realtime | No client heartbeat: dead socket after a network change, no reconnect | P1 | `realtime.ts:45-79` | In progress (client + server ping/pong) |
+| R-01 | Tasks | Members cannot create a task, not even for themselves; the `membersCanAssign` toggle is ignored | P1 | `tasks.js:100-102` hard-codes `isBoss` (Round 4) | Fixed (server+app, tests) (branch hardening/integration, not deployed) |
+| R-05 | Voice | Recorder freezes at 0:00; cancel, lock and delete do nothing | P1 | `VoiceRecorder.tsx:63-65,83-103`: while start is pending every exit only sets a flag; no watchdog | Fixed in code (recorderEngine, tests); device check pending (branch hardening/integration, not deployed) |
+| R-02 | Voice | Slow start; slide-cancel and slide-up lock unreliable; no live waveform | P1 | 4 native awaits per press; mic at the gesture-nav edge, scaled 1.35×; timer and wave depend on the status callback | Fixed in code (layout, clock timer, metering); device check pending (branch hardening/integration, not deployed) |
+| V-01 | Voice + AI | A task spoken (or typed) naturally by a member is silently ignored by the AI engine | P1 | `ai/engine.js` `if (!boss) return` | Fixed (same rules as R-01, ephemeral refusal) (branch hardening/integration, not deployed) |
+| V-02 | Voice + AI | A failed transcription is silent and permanent ("Transcript nahi bana"), so the AI never sees the voice note | P1 | `routes/chats.js:473-497`, `ai/transcribe.js` | Fixed (reason codes, retry endpoint, startup requeue) (branch hardening/integration, not deployed) |
+| V-04 | Voice UI | No retry for a failed transcript | P2 | `VoiceBubble.tsx` | Fixed (Dobara try karo) (branch hardening/integration, not deployed) |
+| R-04 | Tasks UI | No self-task composer for members; rename "Mine" to "Me"; Keep-style grid | P2 | `TasksScreen.tsx:230,238,169` | Fixed (Keep checklist cards, Me tab, composer for all, done card both ways) (branch hardening/integration, not deployed) |
+| R-03 | Chat UI | Command chips are always shown; the owner wants them only while typing | P3 | `ChatScreen.tsx:876` | Fixed (focused + keyboard) (branch hardening/integration, not deployed) |
+| A-01 | Outbox | Concurrent read-modify-write in AsyncStorage can lose a queued message (stuck "pending") | P1 | `outbox.ts:30-53` | Fixed (mutex queue, tests) (branch hardening/integration, not deployed) |
+| A-03 | Realtime | No client heartbeat: dead socket after a network change, no reconnect | P1 | `realtime.ts:45-79` | Fixed (ping/pong both sides, tests) (branch hardening/integration, not deployed) |
 | A-07 / B-02 | Auth | 30-day JWT sent in media URLs (`?t=`) and the WS fallback (`?token=`), so it lands in proxy logs and the image cache | P1 | `media.ts:43-47`, `routes/media.js:26-29` | Open: needs short-lived signed media URLs (server + app) |
-| A-02 | Outbox | A message queued during a flush waits up to 15 s | P2 | `outbox.ts:42-46` | In progress |
-| A-04 | Outbox | Drops items on any 4xx (including 426) with no feedback | P2 | `outbox.ts:55-57` | In progress |
+| A-02 | Outbox | A message queued during a flush waits up to 15 s | P2 | `outbox.ts:42-46` | Fixed (branch hardening/integration, not deployed) |
+| A-04 | Outbox | Drops items on any 4xx (including 426) with no feedback | P2 | `outbox.ts:55-57` | Fixed (failed bubble + Retry/Delete) (branch hardening/integration, not deployed) |
 | A-05 | Auth | Logout does not revoke the token on the server | P2 | `auth.tsx:29-34` | Open |
 | A-06 | Privacy | Logout leaves the outbox, stars and task cache for the next user | P2 | `background.ts`, `outbox.ts`, `taskCache.ts` | Open |
 | A-08 / B-06 | Sync | Edits, deletes, reactions and pins missed while offline are never caught up | P2 | `chats.js:381` | Open |
-| A-09 | Realtime | A stop/start race can open two sockets (duplicate notifications) | P2 | `realtime.ts:45-93` | In progress |
-| A-10 | Composer | A double tap on Send sends the same text twice | P2 | `ChatScreen.tsx:127,348` | In progress |
-| A-12 | Voice | A failed upload loses the recording | P2 | `ChatScreen.tsx:503-521` | In progress |
+| A-09 | Realtime | A stop/start race can open two sockets (duplicate notifications) | P2 | `realtime.ts:45-93` | Fixed (generation counter) (branch hardening/integration, not deployed) |
+| A-10 | Composer | A double tap on Send sends the same text twice | P2 | `ChatScreen.tsx:127,348` | Fixed (send guard) (branch hardening/integration, not deployed) |
+| A-12 | Voice | A failed upload loses the recording | P2 | `ChatScreen.tsx:503-521` | Fixed (voice outbox, persisted) (branch hardening/integration, not deployed) |
 | A-21 | Config | `app.json` defaults to the production URL in every build | P2 | `app.json:9,77`, `config.ts` | Open |
 | B-03 | Media | Any logged-in user can fetch any media file (no membership check) | P2 | `routes/media.js:77-87` | Open (with A-07) |
 | B-04 | Privacy | Purged data survives in `backup/purge-*.json` etc. forever | P2 | `jobs.js:29-36` | Open (server; on hold) |
-| B-05 | Sync | Catch-up `?after=` capped at 500 with no `hasMore` | P2 | `chats.js:380-382` | In progress |
+| B-05 | Sync | Catch-up `?after=` capped at 500 with no `hasMore` | P2 | `chats.js:380-382` | Fixed (hasMore) (branch hardening/integration, not deployed) |
 | B-07 | Ops | No graceful shutdown; voice transcripts stay "pending" forever after a restart | P2 | `index.js` | Open |
 | B-08 | Time | The DB session time zone is implicit (assumes MySQL TZ = Node TZ) | P2 | `db.js:3-10` | Open (verify on server later) |
 | B-09 | Abuse | No rate limit on messages, uploads, AI calls or typing | P2 | `chats.js:498`, `media.js:48` | Open |
 | B-10 | Secrets | Local `server/src/.env` holds server SSH credentials | P2 | `.gitignore`, local file | Open (owner: move to a password manager or keys) |
 | A-11, A-13 to A-24 | App | Media retry duplicates, expo-av deprecated (APK), 500-row gap, token fallback, clock skew, regexes, APK URL check, perf, image cache, silent catches, dead code | P3 | see `docs/private/phase0-reports.md` | Open |
 | B-11 to B-27 (except B-12, B-15, B-21) | Server | Upload type check, forged quotes, avatar from any file, task edit race, task paging, PIN lockout, phone-number privacy, boss reads DMs (disclose), new members see old history, delivered ticks, backup blocking, single-process assumptions, migration ledger | P3 | see `docs/private/phase0-reports.md` | Open |
-| B-12, B-15, B-21 | Server | WS maxPayload 100 MiB; invite activation race; no JSON error handler | P3 | `realtime.js:106`, `auth.js:77-82`, `index.js` | In progress |
+| B-12, B-15, B-21 | Server | WS maxPayload 100 MiB; invite activation race; no JSON error handler | P3 | `realtime.js:106`, `auth.js:77-82`, `index.js` | Fixed (maxPayload 64 KiB + ws error handler, atomic invite claim, JSON errors) (branch hardening/integration, not deployed) |
 
 Checked and fine: parameterized SQL everywhere, bcrypt PINs with a timing-safe dummy compare, HS256 pinned, membership checks on every chat route and WS event, `/media/f` path containment, message dedupe constraint, `npm audit` (server) clean.
 
