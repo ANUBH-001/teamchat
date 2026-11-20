@@ -10,7 +10,7 @@ import { useTheme } from '../useTheme';
 import { usePublicSettings } from '../publicSettings';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
 import { emitEvent } from '../realtime';
-import { Assignee, DetailEvent, StepStatus, Task, canClose, colorOf, isAssignee, labelOf } from '../taskTypes';
+import { Assignee, DetailEvent, StepStatus, Task, canClose, canManage, colorOf, isAssignee, labelOf } from '../taskTypes';
 import { describeEvent, ago, agoText, EVENT_ICON } from '../taskEvents';
 import Avatar from '../components/Avatar';
 // Round 4: disabled (simple create->done): import StatusChips from '../components/StatusChips';
@@ -59,7 +59,7 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
   const closed = task?.status === 'closed';
   const creator = !!task && task.createdBy === me.id;
   const mine = !!task && isAssignee(task, me);
-  const manage = !!task && (isBoss || creator || mine) && !closed; // title / people (server re-checks)
+  const manage = !!task && canManage(task, me, !!ps.membersCanAssign); // title / people (server re-checks)
   const bossOrCreator = !!task && (isBoss || creator); // may add notes
   const myRow = task ? (task.assignees || []).find((a) => a.id === me.id) : null;
   // Round 4: disabled (simple create->done): praise

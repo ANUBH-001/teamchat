@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Theme } from '../theme';
 import { api } from '../api';
 import { Msg, BotPayload, TaskEventName } from '../chatTypes';
-import { STALE_COLOR, Task, labelOf, colorOf, assigneeIdsOf, assigneeNamesOf, StepStatus, canTick } from '../taskTypes';
+import { STALE_COLOR, Task, labelOf, colorOf, assigneeIdsOf, assigneeNamesOf, StepStatus, canTick, canUndoCard } from '../taskTypes';
 import { usePublicSettings } from '../publicSettings';
 import { useTaskState, ensureTask, putTask, applyTickTo, isBrief } from '../taskCache';
 import { toast } from '../useVoiceInput';
@@ -209,11 +209,8 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
     const task: Task = live ? (isBrief(live) ? { ...p.task, title: live.title, status: live.status } : live) : p.task;
     const gone = ev === 'deleted'; // old cards
     const closed = task.status === 'closed';
-    const creator = task.createdBy === meId;
-    const mine = assigneeIdsOf(task).includes(meId);
     const canOpen = viewable(task, meId, isBoss);
-    const canUndo = !undone && !gone && !closed && !['praise', 'note', 'closed', 'reopened', 'answered'].includes(ev) &&
-      (ev === 'created' ? isBoss || creator : isBoss || mine);
+
     // Round 4: disabled (simple create->done): praise
     // const canPraise = !praised && !gone && ps.praiseEnabled && ['completed', 'done', 'review', 'testing', 'change_merged'].includes(ev) && (isBoss || creator) && !mine;
     const canPraise = false;
@@ -223,6 +220,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
     const myRow = (task.assignees || []).find((a) => a.id === meId);
     const baseDone = myRow ? myRow.status === 'done' : task.status === 'done';
     const tickedNow = baseDone;
+    const canUndo = !undone && !gone && canUndoCard(ev, task, me_, baseDone);
     const doTick = () => guard(async () => {
       const before = task;
       putTask(applyTickTo(task, myRow ? meId : null, !tickedNow)); // optimistic, shared by every card of this task

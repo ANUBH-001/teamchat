@@ -3,9 +3,10 @@ import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'reac
 import { useTheme } from '../useTheme';
 import { useAuth } from '../auth';
 import { api } from '../api';
-import { canClose, canView, isAssignee, myStatusOf, STATUS_COLOR, STATUS_LABEL, StepStatus, Task } from '../taskTypes';
+import { canClose, canManage, canView, isAssignee, myStatusOf, STATUS_COLOR, STATUS_LABEL, StepStatus, Task } from '../taskTypes';
 import { toast } from '../useVoiceInput';
 import Sheet, { SheetRow } from './Sheet';
+import { getPublicSettings } from '../publicSettings';
 // Round 4: disabled (simple create->done): import StatusChips from './StatusChips';
 import StatusChips from './DoneChips';
 import PeoplePickSheet from './PeoplePickSheet';
@@ -61,7 +62,7 @@ export default function TaskActionSheet({ visible, onClose, taskId, task: given,
   const mine = !!task && isAssignee(task, me);
   const creator = !!task && task.createdBy === me.id;
   const closed = task?.status === 'closed';
-  const manage = !!task && (isBoss || creator || mine);
+  const manage = !!task && canManage(task, me, !!getPublicSettings().membersCanAssign); // server canManage
   const myStatus = task ? myStatusOf(task, me) : null;
 
   const editor = (label: string, multiline: boolean, onSave: (v: string) => void) => (

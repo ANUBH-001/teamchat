@@ -61,7 +61,7 @@ export default function ProfileSheet({ visible, onClose, userId, name: n0, avata
           {preview
             ? <Image source={{ uri: preview }} style={{ width: 88, height: 88, borderRadius: 44 }} />
             : <Avatar name={name || n0} id={userId} emoji={emoji} size={88} />}
-          {self && <Text style={{ color: t.accent, fontWeight: '600', marginTop: 6 }}>Photo badlo</Text>}
+          {self && <Text style={{ color: t.accent, fontWeight: '600', marginTop: 6 }}>Change photo</Text>}
         </Pressable>
         <TextInput
           value={name} onChangeText={setName} maxLength={60} placeholder="Name" placeholderTextColor={t.subtext}

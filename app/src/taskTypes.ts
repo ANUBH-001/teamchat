@@ -102,3 +102,19 @@ export const simpleStatus = (s: string | null | undefined): 'todo' | 'done' | 'c
 export const isPrivate = (t: { private?: boolean }) => !!t.private;
 // Tick = the admin (any person, or all) or an assignee (own). Closed tasks cannot be ticked.
 export const canTick = (t: Task, me: Me) => !!me && t.status !== 'closed' && (me.role === 'boss' || isAssignee(t, me));
+
+// Undo on a chat task card (acceptance test 2026-11-20). "assigned" card: Undo = close the new task, so admin only (R-06);
+// a member creator used to see Undo and got "Not allowed". "completed" / "done" card: Undo = put the status back, so only
+// while the task is still done and only for someone who may tick it (an old "completed" card of a task that was reopened
+// since kept an Undo that would revert some later change). Any other card: no Undo (the server's undo only reverts status).
+export const canUndoCard = (ev: string, t: Task, me: Me, stillDone: boolean) => {
+  if (!me || t.status === 'closed') return false;
+  if (ev === 'created') return canClose(t, me);
+  if (ev === 'completed' || ev === 'done') return stillDone && canTick(t, me);
+  return false;
+};
+
+// Title / people (server canManage): the admin, or the creator / an assignee only while the admin lets members assign
+// (setting membersCanAssign). With the setting off the task screen showed "Change" to a member and the save failed.
+export const canManage = (t: Task, me: Me, membersCanAssign: boolean) =>
+  !!me && t.status !== 'closed' && (me.role === 'boss' || (membersCanAssign && (t.createdBy === me.id || isAssignee(t, me))));

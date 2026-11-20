@@ -7,7 +7,7 @@ export type Command = {
 };
 export const COMMANDS: Command[] = [
   { cmd: '/task', args: '@name [@name2] <text>', desc: 'Give a task (one or more people; members can only assign to themselves unless the admin allows assigning)', icon: 'add-circle-outline', needsPerson: true },
-  { cmd: '/done', args: '[#id] [note]', desc: 'Mera task Done', icon: 'checkmark-circle-outline', needsTask: true },
+  { cmd: '/done', args: '[#id] [note]', desc: 'Mark my task done', icon: 'checkmark-circle-outline', needsTask: true },
   { cmd: '/re', args: '#id [@old] @new', desc: 'Give a task to someone else', icon: 'swap-horizontal-outline', needsTask: true },
   { cmd: '/tasks', args: '[name]', desc: "Open tasks (everyone's / one person's)", icon: 'list-outline' },
   { cmd: '/mytasks', args: '', desc: 'My open tasks', icon: 'person-outline' },

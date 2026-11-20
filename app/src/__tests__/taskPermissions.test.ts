@@ -43,7 +43,7 @@ test('R-07: no task due-date UI or fields in app source', () => {
 });
 
 test('R-08: no Hinglish phrases in app source strings', () => {
-  const banned = /(\bnahi\b|\bnhi\b|dobara|\bkarein\b|\bkaro\b|kisko|likhiye|\bhai\b|\bbaaki\b|\bAaj\b|\bKal\b|\bbhejo\b|\bnaam\b|\bkaam\b|chuniye|\bjawab\b|\bpooch|\bmein\b|\bliye\b)/;
+  const banned = /(\bnahi\b|\bnhi\b|dobara|\bkarein\b|\bkaro\b|kisko|likhiye|\bhai\b|\bbaaki\b|\bAaj\b|\bKal\b|\bbhejo\b|\bnaam\b|\bkaam\b|chuniye|\bjawab\b|\bpooch|\bmein\b|\bliye\b|badlo|\bmera\b|\bmeri\b|\bkya\b|\babhi\b|\bwapas\b|\bdekho\b|\blikho\b|\brakho\b)/i;
   const bad: string[] = [];
   for (const f of SRC) {
     fs.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
@@ -52,4 +52,33 @@ test('R-08: no Hinglish phrases in app source strings', () => {
     });
   }
   expect(bad).toEqual([]);
+});
+
+test('task card Undo: "assigned" card = admin only; "completed" card only while still done, for who may tick', () => {
+  const { canUndoCard } = require('../taskTypes');
+  // assigned card: Undo closes the task -> admin only (the member creator used to get "Not allowed")
+  expect(canUndoCard('created', task(), boss, false)).toBe(true);
+  expect(canUndoCard('created', task(), creator, false)).toBe(false);
+  expect(canUndoCard('created', task(), assignee, false)).toBe(false);
+  // completed card: only while the task is still done, and only for the assignee / admin
+  expect(canUndoCard('completed', task({ status: 'done' }), assignee, true)).toBe(true);
+  expect(canUndoCard('completed', task({ status: 'done' }), boss, true)).toBe(true);
+  expect(canUndoCard('completed', task(), assignee, false)).toBe(false); // reopened since: no stale Undo
+  expect(canUndoCard('completed', task({ status: 'done' }), creator, true)).toBe(false);
+  expect(canUndoCard('completed', task({ status: 'done' }), other, true)).toBe(false);
+  // closed task or other card kinds: never
+  expect(canUndoCard('created', task({ status: 'closed' }), boss, false)).toBe(false);
+  expect(canUndoCard('reassigned', task(), boss, false)).toBe(false);
+  expect(canUndoCard('created', task(), null, false)).toBe(false);
+});
+
+test('title / people (canManage): admin always; creator or assignee only while members may assign', () => {
+  const { canManage } = require('../taskTypes');
+  expect(canManage(task(), boss, false)).toBe(true);
+  expect(canManage(task(), creator, true)).toBe(true);
+  expect(canManage(task(), assignee, true)).toBe(true);
+  expect(canManage(task(), creator, false)).toBe(false); // the "Change" link used to show and the save failed (403)
+  expect(canManage(task(), assignee, false)).toBe(false);
+  expect(canManage(task(), other, true)).toBe(false);
+  expect(canManage(task({ status: 'closed' }), boss, true)).toBe(false);
 });
