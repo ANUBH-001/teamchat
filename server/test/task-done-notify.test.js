@@ -70,3 +70,22 @@ test('boss private self-task done posts no card', async () => {
   const [[after2]] = await H.pool().query('SELECT COUNT(*) n FROM messages');
   assert.equal(after2.n, before.n);
 });
+
+test('the card of my own tick is not unread for me; other people\'s unread messages stay unread', async () => {
+  const unreadIn = async (tok, chatId) => (await request(app).get('/chats').set(H.bearer(tok))).body.chats.find((c) => c.id === chatId).unread;
+  const t1 = await mkTask(tokBoss, { title: 'Own card read', assigneeIds: [member.id], chatId: group });
+  await request(app).post('/chats/' + group + '/read').set(H.bearer(tokM)).send({});
+  let r = await request(app).patch('/tasks/' + t1.id).set(H.bearer(tokM)).send({ status: 'done' });
+  assert.equal(r.status, 200);
+  await H.sleep(300);
+  assert.equal(await unreadIn(tokM, group), 0, 'my own "completed" card does not count as unread');
+  assert.ok(await unreadIn(tokBoss, group) >= 1, 'the admin still gets it as unread');
+  // the admin writes; then I tick another task: the admin's message stays unread for me
+  const t2 = await mkTask(tokBoss, { title: 'Second own card', assigneeIds: [member.id], chatId: group });
+  await request(app).post('/chats/' + group + '/read').set(H.bearer(tokM)).send({});
+  await request(app).post('/chats/' + group + '/messages').set(H.bearer(tokBoss)).send({ text: 'hello', clientId: 'own-card-1' });
+  r = await request(app).patch('/tasks/' + t2.id).set(H.bearer(tokM)).send({ status: 'done' });
+  assert.equal(r.status, 200);
+  await H.sleep(300);
+  assert.equal(await unreadIn(tokM, group), 2, 'the admin message and the card stay unread (not silently marked read)');
+});

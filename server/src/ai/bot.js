@@ -65,7 +65,23 @@ function taskCard(chatId, event, task, actor, extra = {}) {
   // Round 4: "Task 22" code (= tasks.id); a private (admin's own) task card is visible to its creator only
   let body = (EVENT_TEXT[event] || 'Task') + ': Task ' + task.id + ' - ' + task.title + (who ? ' (' + who + ')' : '');
   if (extra.note) body += '\n' + extra.note;
-  return postBot(chatId, body, payload, task.private ? actor.id : null);
+  return postBot(chatId, body, payload, task.private ? actor.id : null).then(async (m) => {
+    await markOwnCardRead(chatId, actor.id, m.id).catch(() => {});
+    return m;
+  });
+}
+
+// The card of my own action ("Anubhav completed Task 17") is not news to me: it must not show as unread / bump my
+// badge (acceptance test 2026-11-20). Only when I had read everything before it, so other people's unread messages
+// stay unread.
+async function markOwnCardRead(chatId, userId, cardId) {
+  if (!userId) return;
+  await pool.query(
+    `UPDATE chat_members cm SET cm.last_read_message_id = ?
+      WHERE cm.chat_id = ? AND cm.user_id = ? AND cm.left_at IS NULL
+        AND COALESCE(cm.last_read_message_id, 0) >= (SELECT COALESCE(MAX(m.id), 0) FROM messages m
+          WHERE m.chat_id = ? AND m.id < ? AND m.sender_id <> ? AND m.deleted_at IS NULL AND (m.visible_to IS NULL OR m.visible_to = ?))`,
+    [cardId, chatId, userId, chatId, cardId, userId, userId]);
 }
 
 // Ephemeral cards for one user.
