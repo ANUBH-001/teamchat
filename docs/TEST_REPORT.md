@@ -45,3 +45,34 @@ None found that needed a code fix; no commits to app/server code in this pass.
 | App loads with the new server (migrate_011 applied on the local e2e DB only) | PASS | 09a-after-media-auth.png |
 | API: media without auth → 401; signed URL → 200 (26 KB m4a); tampered signature → 403; chat member can sign | PASS | command output in the session log |
 | Voice note plays through a signed URL in the app (0:01 / 0:09) | PASS | 09b-voice-plays-signed-url.png |
+
+## Real device (tablet), 2026-11-20 evening
+Setup: Android 16 tablet over USB (debug APK 0.6.0, JS from Metro), `adb reverse` for Metro and the local e2e server (port 3100, local MySQL `team_chat_e2e`, real Gemini key). Tablet = Anubhav (member), emulator = Rishit (boss). Gestures driven with `adb shell input motionevent` (real touch events). Evidence: `test-reports/2026-11-20/device/` (status bars blacked out).
+
+| # | Scenario | Result | Evidence |
+|---|---|---|---|
+| 1 | Login, chat list, DM; text tablet → emulator and back in real time; ✓✓ ticks | PASS | 01, 02, 04, 05, 06 |
+| 2a | Voice, cold start: first hold right after a fresh app start records (timer, live wave) and sends 0:04 | PASS (emulator "too short" issue does not reproduce on real hardware) | 10, 11, 12 |
+| 2b | Slide left = cancel (nothing sent); slide up = lock; pause in locked mode; trash; send from locked (5.2 s note) | PASS | 20, 21, 22, 23, 24, 25 |
+| 2c | Short tap / 0.6 s hold → "Mic dabake rakho (kam se kam 1 second)", nothing sent; Home during recording → discarded | PASS | 26, 27, 28 |
+| 2d | Playback on tablet and emulator through signed URLs; real-speech transcript; failed transcript shows reason + "Dobara try karo", retry produces the transcript | PASS | 13, 14, 15, 29, 30, 31 |
+| 3 | R-03 chips hidden normally, shown with input focused + keyboard | PASS | 02, 03 |
+| 4a | Member self task from "Take a task…" (Me preselected) → "Anubhav tasks" Keep card | PASS | 40–45 |
+| 4b | Member ticks a boss task → Done on the boss's emulator + "Anubhav completed Task 7" card; boss Team tab = one Keep card per person | PASS | 46–50 |
+| 4c | Boss ticks a member task → member gets "Rishit ne task Done kiya" notification (app in background) | PASS | 51-notifications-teamchat.txt |
+| 4d | AI: typed assignment by the boss → Task 9 created; spoken assignment (PC text-to-speech into the tablet mic) → transcribed, AI recognised a task and asked whom (TTS name came out wrong, "Harshad" for "Rishit") | PASS for text; voice pipeline PASS, name accuracy needs a human voice | 52, 53 |
+| 5 | Photo from gallery → sent, loads on the emulator via signed URL; profile photo change shows on the emulator | PASS | 54, 55, 56, 75, 76 |
+| 6a | Server unreachable: 3 texts pending (◷) → link back → delivered once, in order (DB ids 63–65) | PASS | 60, 61 |
+| 6b | Voice note offline → "Nahi gaya" + Retry → retry sends it | PASS | 62, 63 |
+| 6c | Server rejects a queued text (403) → was red ✓✓ (**bug A-25**) → fixed: "⚠ Nahi gaya · tap = retry", tap → Retry → delivered | PASS after fix | 64, 65, 66, 67 |
+| 6d | Voice note queued offline was only sent after a manual Retry (**bug A-26**) → fixed: sent by itself ~14 s after the link came back | PASS after fix | 68, 69 |
+| 6e | Server restart → emulator socket reconnects, live messages flow | PASS | (session log) |
+| 7 | Notifications in background: new message ("Rishit: Background mein mila kya"), task done | PASS | 51-notifications-teamchat.txt |
+| 8 | Logout: old token 200 → 401; outbox, voice outbox, stars gone; **leak found (A-06 follow-up)**: HTTP disk cache kept chats/tasks/people JSON and the picked photo copies → fixed (server `no-store`, app clears entries); re-login works | PASS after fix | 70, 71, 72-after-logout-files.txt, 73 |
+| 9 | Back gesture chat → list, Tasks → Chats; restarts; crash buffer + FATAL / JS errors | PASS (0 crashes) | 74, logcat-filtered.txt |
+
+Not covered on the device (needs a person or another setup): camera / Geo camera capture (permission not granted, would photograph the room), real Wi-Fi ↔ mobile-data switch (traffic runs over the USB tunnel, so the link was cut with `adb reverse --remove` instead), push while the app is killed, speech accuracy with a real voice, release (production-profile) APK.
+
+Observation: at 19:50 four mic presses arrived within 12 s that this run did not send (Android audio log shows them); one 3 s note got sent. Most likely someone touched the tablet; not reproducible in two attempts. Also: Gemini transcribed nearby room speech in "silent" test notes, so AI task detection can react to background talk picked up by the mic.
+
+Fixes from this pass: A-25, A-26, A-06 follow-up (see AUDIT). Tests after fixes: server 68/68, app 77/77, `tsc` 0 errors.

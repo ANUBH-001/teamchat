@@ -1,0 +1,3 @@
+# tablet crash buffer (logcat -b crash) filtered to com.teamchat.app:
+# main buffer: FATAL / ReactNativeJS errors:
+# end

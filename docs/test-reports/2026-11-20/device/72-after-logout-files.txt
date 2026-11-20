@@ -1,0 +1,9 @@
+      1 cache/ExponentAsset-6148e7019854f3bde85b633cb88f3c25.ttf
+      1 cache/http-cache
+      1 cache/temp_602f2747-ceb8-4f9f-83dc-75e2ca966cd9.pcm
+      1 cache/temp_79ca3dc1-5e34-42a0-8036-c3ff5449cdf1.pcm
+      1 cache/temp_c9c9da39-ccfd-4664-8392-ee4ee167b2b8.pcm
+      1 cache/temp_e738721c-f8c7-4ba5-9bf7-33fbd8c20718.pcm
+      1 files/BridgelessReactNativeDevBundle.js
+      1 files/dev.expo.modules.core.logging.dev.expo.updates
+      1 files/profileInstalled
