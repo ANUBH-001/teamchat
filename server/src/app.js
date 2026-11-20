@@ -41,6 +41,9 @@ function createApp() {
   // Round 4: media (login required inside; mounted before the 426 check: RN Image/Audio cannot send X-App-Version, they use ?t=)
   app.use('/media', require('./routes/media'));
 
+  // A-06 (device test): API answers are per-user and must never land in the phone's HTTP disk cache (it outlives logout).
+  app.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
   // Every other route: header X-App-Version (missing = 0) below minVersionCode -> 426 UPDATE_REQUIRED.
   app.use(async (req, res, next) => {
     try {

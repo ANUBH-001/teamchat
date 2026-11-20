@@ -1,6 +1,6 @@
 // A-06: everything this phone keeps about the logged-in user, cleared on logout / kick so the next person who logs in on the
 // same phone never sees (or sends) it: unsent text + voice messages (files too), stars, task cache, people store, check-in
-// cache, signed media URLs and the expo-image caches. Device preferences (prefs.v1, voice language) are kept.
+// cache, signed media URLs, the expo-image caches, picked-photo copies and the HTTP disk cache (deviceCaches.ts). Device preferences (prefs.v1, voice language) are kept.
 // bgUserId / bgRole are removed by background.endSession().
 import { clearOutbox } from './outbox';
 import { clearVoiceOutbox } from './voiceOutbox';
@@ -9,6 +9,7 @@ import { clearTaskCache } from './taskCache';
 import { clearUsers } from './userStore';
 import { clearCheckinToday } from './checkinStore';
 import { clearMediaCache } from './media';
+import { clearDeviceCaches } from './deviceCaches';
 
 export async function clearUserData(): Promise<void> {
   clearTaskCache();
@@ -19,5 +20,6 @@ export async function clearUserData(): Promise<void> {
     clearVoiceOutbox().catch(() => {}),
     clearStars().catch(() => {}),
     clearMediaCache().catch(() => {}),
+    clearDeviceCaches().catch(() => {}),
   ]);
 }
