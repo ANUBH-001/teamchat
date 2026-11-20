@@ -113,6 +113,8 @@ function attach(server) {
     ws.on('message', async (raw) => {
       try {
         const m = JSON.parse(String(raw));
+        // A-03 app heartbeat: the client pings, we answer this socket only (lets the app detect half-dead connections)
+        if (m.type === 'ping') { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'pong', t: Date.now() })); return; }
         if (m.type !== 'typing') return;
         const chatId = parseInt(m.chatId, 10);
         if (await isChatMember(chatId, user.id)) await sendToChat(chatId, { type: 'typing', chatId, userId: user.id, name: user.name }, user.id);
