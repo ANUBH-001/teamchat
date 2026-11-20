@@ -31,7 +31,9 @@ export default function LoginScreen() {
   } as const;
 
   return (
-    <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: t.background }}>
+    // maxWidth: on a 10" tablet the fields stretched edge to edge (acceptance test 2026-11-20); phones are unchanged
+    <View style={{ flex: 1, backgroundColor: t.background }}>
+    <View style={{ flex: 1, justifyContent: 'center', padding: 24, width: '100%', maxWidth: 520, alignSelf: 'center' }}>
       <Text style={{ fontSize: 28, fontWeight: '700', color: t.accent, textAlign: 'center', marginBottom: 4 }}>
         Team Chat
       </Text>
@@ -61,6 +63,7 @@ export default function LoginScreen() {
           {mode === 'login' ? 'I have an invite code' : 'Back to log in'}
         </Text>
       </TouchableOpacity>
+    </View>
     </View>
   );
 }
