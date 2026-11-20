@@ -41,6 +41,7 @@ export type Msg = {
   sourceMessageId?: number | null; // bot card: the human message that caused it (shown attached under it)
   taskId?: number | null; // card / command / "#N" message / reply in a task reply chain // set = bubble shows "edited"
   pending?: boolean;
+  failed?: boolean; // outbox: rejected by the server, shows Retry / Delete
   type?: 'text' | 'bot' | 'system' | 'checkin_prompt' | 'image' | 'audio'; // 'bot' = task event card; 'system' = centered grey pill; 'checkin_prompt' = daily check-in card
   payload?: BotPayload | CheckinPromptPayload | null;
   visibleTo?: number | null; // set = only that user sees it ("Only visible to you")
