@@ -38,3 +38,10 @@ None found that needed a code fix; no commits to app/server code in this pass.
 - Emulator network via 10.0.2.2 (HTTP, no TLS); airplane mode on the emulator comes back on cell data, not wifi.
 - Task "Undo" snackbar lasts 4 s; screenshots had to be timed to catch it.
 - Only the Android emulator was tested; boss UI in the app (logged in as Rishit) was not exercised, boss actions were done through the API.
+
+## Re-check after merging `hardening/media-auth` (2026-11-20, 17:00)
+| Check | Result | Evidence |
+|---|---|---|
+| App loads with the new server (migrate_011 applied on the local e2e DB only) | PASS | 09a-after-media-auth.png |
+| API: media without auth → 401; signed URL → 200 (26 KB m4a); tampered signature → 403; chat member can sign | PASS | command output in the session log |
+| Voice note plays through a signed URL in the app (0:01 / 0:09) | PASS | 09b-voice-plays-signed-url.png |
