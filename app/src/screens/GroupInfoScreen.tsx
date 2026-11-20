@@ -5,7 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { useTheme } from '../useTheme';
-import { Chat } from '../chatTypes';
+import { Chat, Msg } from '../chatTypes';
+import { MediaGridModal, MediaPreview } from '../components/MediaGrid';
 import { Theme } from '../theme';
 import { useLiveRefresh } from '../useLive';
 import Avatar from '../components/Avatar';
@@ -54,6 +55,12 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
   const [tasks, setTasks] = useState<AnyTask[]>([]);
   const [pinned, setPinned] = useState(!!chat.pinned);
   const [sel, setSel] = useState<number | null>(null);
+  // Round 4: Media section = photos among the latest 100 messages of this chat
+  const [media, setMedia] = useState<Msg[]>([]);
+  const [mediaAll, setMediaAll] = useState(false);
+  useEffect(() => {
+    api<{ messages: Msg[] }>('GET', '/chats/' + chat.id + '/messages?limit=100').then((r) => setMedia(r.messages)).catch(() => {});
+  }, [chat.id]);
 
   const load = useCallback(async () => {
     try {
@@ -135,7 +142,7 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
 
   return (
     <View style={{ flex: 1, backgroundColor: t.background }}>
-      <View style={{ backgroundColor: t.primary, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ backgroundColor: t.header, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}>
         <Pressable onPress={onBack} hitSlop={10} style={{ paddingRight: 12 }}>
           <Text style={{ color: '#fff', fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
         </Pressable>
@@ -192,6 +199,9 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
             </View>
           </>
         )}
+
+        <MediaPreview msgs={media} onSeeAll={() => setMediaAll(true)} />
+        <MediaGridModal visible={mediaAll} onClose={() => setMediaAll(false)} msgs={media} />
 
         <Text style={label}>{isDm ? 'Shared tasks' : 'Is chat ke tasks'}</Text>
         <View style={card}>

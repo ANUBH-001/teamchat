@@ -3,8 +3,8 @@
     "newArchEnabled": true,
     "name": "TeamChat",
     "slug": "teamchat",
-    "version": "0.5.0",
-    "runtimeVersion": "1",
+    "version": "0.6.0",
+    "runtimeVersion": "2",
     "updates": {
       "url": "https://apps.landauditors.com/team_chat/updates/manifest",
       "enabled": true,
@@ -17,9 +17,13 @@
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.teamchat.app",
-      "versionCode": 5,
+      "versionCode": 6,
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES"
       ]
     },
     "plugins": [
@@ -31,6 +35,41 @@
         {
           "microphonePermission": "TeamChat uses the microphone for voice typing.",
           "speechRecognitionPermission": "TeamChat uses speech recognition for voice typing."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "TeamChat camera use karega photo lene ke liye.",
+          "microphonePermission": "TeamChat microphone use karega.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "TeamChat aapki photos access karega bhejne ke liye.",
+          "cameraPermission": "TeamChat camera use karega photo lene ke liye."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "TeamChat photos dekhega.",
+          "savePhotosPermission": "TeamChat photos gallery me save karega (TeamChat album).",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "TeamChat location use karega geo-tag photo ke liye."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "TeamChat microphone use karega voice note record karne ke liye."
         }
       ]
     ],

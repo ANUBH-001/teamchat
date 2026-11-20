@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, AppState, ActivityIndicator, ScrollView,
+  View, Text, FlatList, TextInput, Pressable, Alert, KeyboardAvoidingView, Platform, AppState, ActivityIndicator, ScrollView, Modal,
   NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { useTheme } from '../useTheme';
-import { Chat, Msg, ReplyRef, Reaction } from '../chatTypes';
+import { Chat, Msg, Quote, ReplyRef, Reaction } from '../chatTypes';
 import { AnyTask, assigneeIdsOf, assigneeNamesOf, colorOf, isBrief, isOpen, labelOf, Task } from '../taskTypes';
 import { loadUsers as loadStoreUsers, useUsers } from '../userStore';
 import { onEvent, sendTyping } from '../realtime';
@@ -17,17 +17,27 @@ import { COMMANDS, Command, DUE_CHIPS, QUICK } from '../commands';
 import { CommandSheet, firstName, PeopleSheet, PersonAction, PersonSheet, phoneTail, PickPerson } from '../components/ComposerSheets';
 import { usePublicSettings } from '../publicSettings';
 import Avatar from '../components/Avatar';
-import Bubble, { isTaskCard } from '../components/Bubble';
+import Bubble, { FWD, isTaskCard } from '../components/Bubble';
 import Sheet, { SheetRow } from '../components/Sheet';
 import Suggestions, { Suggestion } from '../components/Suggestions';
 import { TickStatus } from '../components/Tick';
-import VoiceBar, { MicButton } from '../components/VoiceBar';
+// Round 4: old speech-to-text mic no longer used: import VoiceBar, { MicButton } from '../components/VoiceBar';
+import Composer from '../components/Composer';
+import AttachSheet from '../components/AttachSheet';
+import PhotoPreviewPanel, { PreviewItem } from '../components/PhotoPreviewPanel';
+import ImageViewer from '../components/ImageViewer';
+import { MediaGridModal } from '../components/MediaGrid';
+import SendToSheet from '../components/SendToSheet';
+import GeoCameraScreen from './GeoCameraScreen';
+import { VoiceResult } from '../components/VoiceRecorder';
+import { sendImageToChat, uploadMedia } from '../media';
+import { setPendingQuote, takePendingQuote, toggleStar, useStars } from '../starStore';
 import { copyText } from '../dates';
 import TaskActionSheet from '../components/TaskActionSheet';
 import TaskModal from '../components/TaskModal';
 import DmTasksSheet from '../components/DmTasksSheet';
 import InAppBanner from '../components/InAppBanner';
-import { toast, useVoiceInput } from '../useVoiceInput';
+import { toast } from '../useVoiceInput'; // Round 4: useVoiceInput is no longer used (voice notes use expo-av)
 
 type Item =
   | { kind: 'date'; key: string; label: string }
@@ -38,8 +48,12 @@ type Kind = 'all' | 'ai' | 'chat'; // group filter: AI = bot cards only, Chat = 
 const SHEET_GAP = 350;
 const kindByChat = new Map<number, Kind>(); // filter remembered per chat (memory only)
 const drafts = new Map<number, { text: string; refs: { id: number; label: string }[] }>(); // unsent composer text per chat
-const isHuman = (m: Msg) => !m.type || m.type === 'text';
-const TASK_CMD_ME = /^\/(task|assign|unassign|reassign)\b/i; // inline "@" offers me only after these
+const isHuman = (m: Msg) => !m.type || m.type === 'text' || m.type === 'image' || m.type === 'audio'; // Round 4: media is human too
+// "📷 Photo" / "🎤 Voice note" for media messages (reply previews, quotes, stars); '' for text
+const mediaLabel = (m: Msg) => (m.type === 'image' ? (m.media?.kind === 'geo_image' ? '📍 Photo' : '📷 Photo') : m.type === 'audio' ? '🎤 Voice note' : '');
+const plainText = (m: Msg) => (m.text || '').replace(/^↪ Forwarded\n?/, '');
+const previewOf = (m: Msg) => plainText(m) || mediaLabel(m);
+const TASK_CMD_ME = /^\/(task|assign|unassign|reassign|re)\b/i; // inline "@" offers me only after these
 const idsOfAny = (x: AnyTask) => (isBrief(x) ? x.assigneeIds : assigneeIdsOf(x));
 type Member = { id: number; name: string; role: 'boss' | 'member'; isCreator: boolean; phone?: string };
 type MentionRef = { id: number; label: string }; // "@Rishit" inserted from a picker, sent as structured mentionIds
@@ -57,8 +71,12 @@ function mentionIdsFor(text: string, refs: MentionRef[]) {
   }
   return found.sort((a, b) => a.pos - b.pos).map((f) => f.id);
 }
+const canDeleteMedia = (m: Msg, meId: number) =>
+  !!m.id && !m.deleted && m.senderId === meId && (m.type === 'image' || m.type === 'audio') && m.visibleTo == null &&
+  Date.now() - new Date(m.createdAt).getTime() < EDIT_MS;
 const canEditMsg = (m: Msg, meId: number) =>
-  !!m.id && !m.deleted && m.senderId === meId && (!m.type || m.type === 'text') && m.visibleTo == null &&
+  // Round 4: own photo / voice-note captions can be edited too (server PATCH allows it)
+  !!m.id && !m.deleted && m.senderId === meId && (!m.type || m.type === 'text' || m.type === 'image' || m.type === 'audio') && m.visibleTo == null &&
   Date.now() - new Date(m.createdAt).getTime() < EDIT_MS;
 
 const EMOJIS = ['👍', '✅', '🙏', '😂', '❤️', '👀'];
@@ -105,6 +123,9 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const [status, setStatus] = useState({ delivered: 0, read: 0 });
   const [hasMore, setHasMore] = useState(false);
   const [text, setText] = useState(() => drafts.get(chat.id)?.text || '');
+  // Round 4: latest typed text, so a Send tap right after typing (before React re-rendered) still sends it
+  const textRef = useRef(text);
+  textRef.current = text;
   const filterable = chat.type === 'group' || chat.type === 'all';
   const [kind, setKind] = useState<Kind>(() => {
     const k = filterable ? kindByChat.get(chat.id) || 'all' : 'all';
@@ -138,6 +159,25 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const [editing, setEditing] = useState<Msg | null>(null);
   const refs = useRef<MentionRef[]>(drafts.get(chat.id)?.refs || []);
   const [askTasks, setAskTasks] = useState<AnyTask[] | null>(null);
+  // Round 4 Phase 3: header menu, search, media, attach / photo preview / geo camera, viewer, forward, info, quote, uploads
+  const [headMenu, setHeadMenu] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState('');
+  const [searchPos, setSearchPos] = useState(0); // 0 = newest match
+  const [mediaOpen, setMediaOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [previewUris, setPreviewUris] = useState<string[] | null>(null);
+  const [geoOpen, setGeoOpen] = useState(false);
+  const [viewMsg, setViewMsg] = useState<Msg | null>(null);
+  const [fwdMsg, setFwdMsg] = useState<Msg | null>(null);
+  const [fwdChats, setFwdChats] = useState<Chat[]>([]);
+  const [infoMsg, setInfoMsg] = useState<Msg | null>(null);
+  const [quote, setQuote] = useState<Quote | null>(() => takePendingQuote(chat.id)); // "Reply privately" waiting for the next message
+  const [uploading, setUploading] = useState(0);
+  const [mutedL, setMutedL] = useState(!!chat.muted);
+  const [peopleSrc, setPeopleSrc] = useState<PickPerson[] | null>(null); // custom list for the people sheet (old assignees of /re)
+  const stars = useStars();
+  const starIds = useMemo(() => new Set(stars.filter((x) => x.chatId === chat.id).map((x) => x.messageId)), [stars, chat.id]);
   const listRef = useRef<FlatList<Item>>(null);
   const inputRef = useRef<TextInput>(null);
   const loadingOlder = useRef(false);
@@ -287,7 +327,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     if (!editing) drafts.set(chat.id, { text, refs: refs.current });
   }, [text, editing, chat.id]);
 
-  const voice = useVoiceInput();
+  // Round 4: const voice = useVoiceInput(); (old speech-to-text, removed from the UI)
 
   const send = (raw = text, keepReply = false, ids?: number[]) => {
     const body = raw.trim();
@@ -299,14 +339,15 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     const createdAt = new Date().toISOString();
     const rt = keepReply ? null : replyTo;
     const ref: ReplyRef | null = rt && rt.id
-      ? { id: rt.id, senderName: rt.senderName, text: (rt.text || '').slice(0, 200), deleted: false }
+      ? { id: rt.id, senderName: rt.senderName, text: (previewOf(rt) || '').slice(0, 200), deleted: false }
       : null;
     setMsgs((cur) => merge(cur, [{
       clientId, chatId: chat.id, senderId: me.id, senderName: me.name, text: body, deleted: false, createdAt, pending: true,
-      replyTo: ref,
+      replyTo: ref, payload: !keepReply && quote ? ({ quote } as any) : null,
     }]));
-    if (!keepReply) { setText(''); setReplyTo(null); refs.current = []; }
-    enqueue(chat.id, body, clientId, createdAt, ref, mentionIds);
+    const q = keepReply ? null : quote;
+    if (!keepReply) { setText(''); setReplyTo(null); setQuote(null); refs.current = []; }
+    enqueue(chat.id, body, clientId, createdAt, ref, mentionIds, q);
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   };
 
@@ -318,6 +359,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   openTaskRef.current = onOpenTask;
   const openTask = useCallback((id: number) => openTaskRef.current(id), []);
   const onTaskChip = useCallback((id: number) => setChipTask(id), []);
+  const openImage = useCallback((m: Msg) => setViewMsg(m), []);
 
   const saveEdit = async (body: string) => {
     const m = editing;
@@ -356,7 +398,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   }, [members, storeUsers, me.id]);
   const mePerson: PickPerson = useMemo(() => ({ id: me.id, name: me.name, phone: me.phone, role: me.role, inChat: true }), [me.id, me.name, me.phone, me.role]);
   // includeMe: task / assign / reassign / tasks pickers offer "Me (khud)" first (bug 1)
-  const openPeople = (title: string, onPick: (p: PickPerson) => void, includeMe = false) => {
+  const openPeople = (title: string, onPick: (p: PickPerson) => void, includeMe = false, src: PickPerson[] | null = null) => {
+    setPeopleSrc(src);
     peoplePick.current = onPick;
     peoplePickMany.current = null;
     setPeopleTitle(title);
@@ -365,6 +408,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     setSheet('people');
   };
   const openPeopleMany = (title: string, onPick: (ps: PickPerson[]) => void, includeMe = true) => {
+    setPeopleSrc(null);
     peoplePick.current = null;
     peoplePickMany.current = onPick;
     setPeopleTitle(title);
@@ -393,9 +437,20 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       .then((r) => setPersonTasks(r.tasks.filter((x) => isOpen(x.status)))).catch(() => setPersonTasks([]));
   }, true);
   // /assign /unassign /reassign #id -> people (several allowed, me included)
-  const PEOPLE_CMD: Record<string, string> = { reassign: 'Kisko dena hai?', assign: 'Kisko jodna hai?', unassign: 'Kisko hatana hai?' };
+  const PEOPLE_CMD: Record<string, string> = { reassign: 'Kisko dena hai?', assign: 'Kisko jodna hai?', unassign: 'Kisko hatana hai?', re: 'Kisko dena hai?' };
   const pickPeopleFor = (cmd: string, base: string) =>
     openPeopleMany(PEOPLE_CMD[cmd] || 'Kaun?', (tos) => { refs.current = []; put(withMentions(base, tos)); });
+  // Round 4: /re -> task picked -> (several assignees: whose place?) -> new person(s) => "/re #N @Old @New" (single assignee: "/re #N @New")
+  const startReassign = (x: AnyTask) => {
+    const ids = idsOfAny(x);
+    const names = assigneeNamesOf(x);
+    const base = '/re #' + x.id + ' ';
+    const askNew = (olds: PickPerson[]) =>
+      openPeopleMany('Kisko dena hai?', (tos) => { refs.current = []; put(withMentions(withMentions(base, olds), tos)); });
+    if (ids.length <= 1) { askNew([]); return; }
+    const olds: PickPerson[] = ids.map((id, i) => ({ id, name: names[i] || 'User ' + id }));
+    openPeople('Kis ki jagah? (purana)', (p) => askNew([p]), false, olds);
+  };
   const personAction = (a: PersonAction, task: Task | null) => {
     const p = person;
     setSheet(null);
@@ -419,38 +474,60 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     setTimeout(() => {
       // /task: one or more people (me too) -> "/task @A @B " with structured mentions for all
       if (c.cmd === '/task') openPeopleMany('Task kisko dena hai? (ek ya zyada)', (ps) => put(withMentions('/task ', ps)));
+      // Round 4: /done and /re list my open tasks (needsTask); /re then chains into startReassign
       else if (c.needsTask) put(c.cmd + ' #');
       else if (c.cmd === '/tasks') openPeople('Kiske tasks?', (p) => put(withMention('/tasks ', p)), true);
       else put(c.cmd + (c.args ? ' ' : ''));
     }, SHEET_GAP);
   };
 
-  // voice: stop -> transcript goes into the text box to edit; send -> sent at once; X -> discarded
-  const cardTarget = useRef<((said: string) => void) | null>(null); // set while voice types into a check-in card
-  const cardMic = useMemo(() => (voice.available ? (cb: (said: string) => void) => {
-    cardTarget.current = cb;
-    voice.start(toBoxRef.current);
-  } : undefined), [voice.available]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toBoxRef = useRef<(said: string) => void>(() => {});
-  const toBox = (said: string) => {
-    const target = cardTarget.current;
-    cardTarget.current = null;
-    if (!said) { toast('Kuch sunai nahi diya'); return; }
-    if (target) { target(said); return; }
-    setText((cur) => (cur ? cur + ' ' + said : said));
+  // Round 4: old speech-to-text mic removed from the UI (useVoiceInput / VoiceBar files stay). The check-in card mic is hidden.
+  const cardMic = undefined;
+
+  // ---- media sending (photos, voice notes). Not via the outbox: upload, then POST ----
+  const afterMedia = (message?: Msg) => {
+    if (!message) return;
+    if (message.clientId) sentHere.current.add(message.clientId);
+    setMsgs((cur) => merge(cur, [message]));
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
   };
-  toBoxRef.current = toBox;
-  const voiceStop = async () => toBox(await voice.finish());
-  const voiceSend = async () => {
-    const said = await voice.finish();
-    if (!said) { cardTarget.current = null; toast('Kuch sunai nahi diya'); return; }
-    const target = cardTarget.current;
-    cardTarget.current = null;
-    if (target) target(said);
-    else send(said);
+  const sendPhotos = async (items: PreviewItem[]) => {
+    setPreviewUris(null);
+    setUploading((n) => n + items.length);
+    for (const it of items) {
+      try { afterMedia((await sendImageToChat(chat.id, it.uri, it.caption)).message); }
+      catch (e: any) { Alert.alert('Photo nahi gayi', e?.message || 'Dobara try karo'); }
+      setUploading((n) => n - 1);
+    }
+  };
+  const sendVoice = async (r: VoiceResult) => {
+    const commandMode = /^\/(task|re|reassign|done)\b/i.test(text.trim());
+    // typed "/task @Anubhav" goes along as the caption; the server joins it with the transcript ("<typed> <spoken>")
+    const typed = commandMode ? text.trim() : '';
+    const typedIds = typed ? mentionIdsFor(typed, refs.current) : [];
+    const reply = replyTo && replyTo.id ? replyTo.id : undefined;
+    setReplyTo(null);
+    setUploading((n) => n + 1);
+    try {
+      const { url } = await uploadMedia(r.uri, 'audio', 'audio/mp4');
+      const res = await api<{ message: Msg }>('POST', '/chats/' + chat.id + '/messages', {
+        type: 'audio', mediaUrl: url, clientId: newClientId(), replyToId: reply,
+        ...(typed ? { text: typed, mentionIds: typedIds } : {}),
+        media: { kind: 'audio', durationMs: r.durationMs, waveform: r.waveform },
+      });
+      afterMedia(res.message);
+      if (commandMode) { setText(''); refs.current = []; } // the server runs the spoken command from the transcript
+    } catch (e: any) { Alert.alert('Voice note nahi gaya', e?.message || 'Dobara try karo'); }
+    setUploading((n) => n - 1);
   };
 
   const onChange = (v: string) => {
+    // Round 4: typing "/task " opens the person picker by itself
+    if (ps.commandsEnabled && !editing && /^\/task $/i.test(v) && text.toLowerCase() === '/task') {
+      const c = COMMANDS.find((x) => x.cmd === '/task');
+      if (c) { setText(v); pickCommand(c); return; }
+    }
+    textRef.current = v;
     setText(v);
     const now = Date.now();
     if (v && now - lastTypingSent.current > 2000) { lastTypingSent.current = now; sendTyping(chat.id); }
@@ -497,6 +574,39 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     try { onOpenChat((await api<{ chat: Chat }>('POST', '/chats/dm', { userId: m.senderId })).chat); }
     catch (e: any) { Alert.alert('Error', e.message); }
   };
+  // Round 4: Reply privately = open / create the DM with the sender, quote the message (payload.quote on the next message)
+  const replyPrivately = async (m: Msg) => {
+    try {
+      const dm = (await api<{ chat: Chat }>('POST', '/chats/dm', { userId: m.senderId })).chat;
+      setPendingQuote(dm.id, { chatId: chat.id, messageId: m.id!, senderName: m.senderName + ' · ' + chat.name, text: previewOf(m).slice(0, 200) });
+      onOpenChat(dm);
+    } catch (e: any) { Alert.alert('Error', e.message); }
+  };
+  const startForward = async (m: Msg) => {
+    setFwdMsg(m);
+    try { setFwdChats((await api<{ chats: Chat[] }>('GET', '/chats')).chats); } catch (e) {}
+  };
+  const doForward = async (m: Msg, target: Chat) => {
+    setFwdMsg(null);
+    const isMedia = (m.type === 'image' || m.type === 'audio') && !!m.mediaUrl;
+    const body = FWD + plainText(m);
+    try {
+      await api('POST', '/chats/' + target.id + '/messages', {
+        type: isMedia ? m.type : 'text', text: body, mediaUrl: isMedia ? m.mediaUrl : undefined, media: isMedia ? m.media : undefined, clientId: newClientId(),
+      });
+      toast('Forward ho gaya: ' + target.name);
+    } catch (e: any) { Alert.alert('Forward nahi hua', e.message); }
+  };
+  const doStar = (m: Msg) => {
+    if (!m.id) return;
+    const on = toggleStar({ chatId: chat.id, messageId: m.id, preview: previewOf(m).slice(0, 140), senderName: m.senderName, chatName: chat.name });
+    toast(on ? 'Starred' : 'Unstarred');
+  };
+  const toggleMute = async () => {
+    const next = !mutedL;
+    setMutedL(next);
+    try { await api('PATCH', '/chats/' + chat.id + '/me', { muted: next }); } catch (e: any) { setMutedL(!next); Alert.alert('Error', e.message); }
+  };
 
   const menuAction = (fn: () => void) => { setMenu(null); setTimeout(fn, 50); };
   const renderMenu = () => {
@@ -505,7 +615,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     const isBot = m.type === 'bot' || m.type === 'checkin_prompt';
     const canEdit = canEditMsg(m, me.id);
     // own text within 10 min (everyone, admin too), an unsent message, or my own "only visible to you" card
-    const canDelete = canEdit || !m.id || (m.type === 'bot' && m.visibleTo === me.id);
+    const canDelete = canEdit || canDeleteMedia(m, me.id) || !m.id || (m.type === 'bot' && m.visibleTo === me.id);
+    const aiAnswer = m.type === 'bot' && (m.payload as any)?.kind === 'ai_answer';
     const mineReact = (e: string) => !!m.reactions?.find((r) => r.emoji === e)?.userIds.includes(me.id);
     return (
       <>
@@ -514,7 +625,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
             {EMOJIS.map((e) => (
               <Pressable
                 key={e} onPress={() => menuAction(() => react(m, e))}
-                style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: mineReact(e) ? 'rgba(37,211,102,0.25)' : t.soft }}
+                style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: mineReact(e) ? t.chip : t.soft }}
               >
                 <Text style={{ fontSize: 24 }}>{e}</Text>
               </Pressable>
@@ -522,15 +633,28 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
           </View>
         )}
         {!!m.id && (!isBot || isTaskCard(m)) && <SheetRow icon="arrow-undo-outline" label="Reply" onPress={() => menuAction(() => startReply(m))} />}
-        {!isBot && !!m.text && <SheetRow icon="copy-outline" label="Copy" onPress={() => menuAction(() => copyText(m.text || ''))} />}
+        {!!m.id && m.senderId !== me.id && !isBot && !m.deleted && (chat.type === 'group' || chat.type === 'all') && (
+          <SheetRow icon="return-up-forward-outline" label="Reply privately" onPress={() => menuAction(() => replyPrivately(m))} />
+        )}
+        {(!isBot || aiAnswer) && !!plainText(m) && <SheetRow icon="copy-outline" label="Copy" onPress={() => menuAction(() => copyText(plainText(m)))} />}
+        {!!m.id && (!isBot || aiAnswer) && !m.deleted && m.visibleTo == null && (
+          <SheetRow icon="arrow-redo-outline" label="Forward" onPress={() => menuAction(() => startForward(m))} />
+        )}
+        {!!m.id && !m.deleted && m.visibleTo == null && (
+          <SheetRow icon={starIds.has(m.id) ? 'star' : 'star-outline'} label={starIds.has(m.id) ? 'Unstar' : 'Star'} onPress={() => menuAction(() => doStar(m))} />
+        )}
+        {!!m.id && m.senderId === me.id && !isBot && !m.deleted && (
+          <SheetRow icon="information-circle-outline" label="Info" onPress={() => menuAction(() => setInfoMsg(m))} />
+        )}
         {canEdit && <SheetRow icon="pencil-outline" label="Edit" onPress={() => menuAction(() => startEdit(m))} />}
         {!!m.id && m.visibleTo == null && (
           <SheetRow icon="pin-outline" label={pinned && pinned.id === m.id ? 'Unpin' : 'Pin'} onPress={() => menuAction(() => togglePin(m))} />
         )}
+        {/* Round 4: replaced by "Reply privately" above (messagePrivately kept for reference)
         {!!m.id && m.senderId !== me.id && !isBot && (chat.type === 'group' || chat.type === 'all') && (
           <SheetRow icon="chatbubble-outline" label={'Message ' + m.senderName.split(' ')[0] + ' privately'} onPress={() => menuAction(() => messagePrivately(m))} />
-        )}
-        {!isBot && ps.commandsEnabled && chat.type !== 'checkin' && (
+        )} */}
+        {!isBot && m.type !== 'image' && m.type !== 'audio' && ps.commandsEnabled && chat.type !== 'checkin' && me.role === 'boss' && (
           <SheetRow
             icon="checkbox-outline" label="Make task"
             onPress={() => menuAction(() => {
@@ -549,6 +673,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const seenSrc = useRef(new Map<number, string>());
   // previous attachment arrays, reused while their cards are unchanged (keeps Bubble memo working)
   const attCache = useRef(new Map<number, Msg[]>());
+  // a reply to a photo / voice note: the server sends an empty quote text, show "📷 Photo" (cached per message object)
+  const replyFix = useRef(new WeakMap<Msg, Msg>());
   const items = useMemo(() => {
     const asc: Item[] = [];
     let prev = '';
@@ -583,13 +709,23 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       if (kind === 'chat' && !isHuman(m)) continue;
       if (kind === 'ai' && m.type !== 'bot' && !m.pending && !(m.clientId && sentHere.current.has(m.clientId))) continue;
       const day = new Date(m.createdAt).toDateString();
-      if (day !== prev) { asc.push({ kind: 'date', key: 'd' + day, label: dayLabel(m.createdAt) }); prev = day; }
+      if (day !== prev) { asc.push({ kind: 'date', key: 'd' + day + '#' + asc.length, label: dayLabel(m.createdAt) }); prev = day; }
       if (!unreadShown && m.id && m.id > from && m.senderId !== me.id && m.type !== 'system') {
         unreadShown = true;
         asc.push({ kind: 'unread', key: 'unread', count: unreadCount });
       }
       const quote = kind === 'ai' && m.type === 'bot' && m.sourceMessageId ? seenSrc.current.get(m.sourceMessageId) || null : null;
-      asc.push({ kind: 'msg', key: m.clientId || String(m.id), msg: m, attachments: m.id ? att.get(m.id) : undefined, quote });
+      let shown = m;
+      const rtq = m.replyTo;
+      if (rtq && !rtq.deleted && !rtq.text) {
+        const lab = mediaLabel(byId.get(rtq.id) || ({} as Msg));
+        if (lab) {
+          let f = replyFix.current.get(m);
+          if (!f) { f = { ...m, replyTo: { ...rtq, text: lab } }; replyFix.current.set(m, f); }
+          shown = f;
+        }
+      }
+      asc.push({ kind: 'msg', key: m.clientId || String(m.id), msg: shown, attachments: m.id ? att.get(m.id) : undefined, quote });
     }
     return asc.reverse();
   }, [msgs, me.id, kind]);
@@ -633,7 +769,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
 
   // ---- composer suggestions: @mentions, slash palette, my tasks after "/done #" ----
   const taskCmd = /^\/(\w+)\s+#(\S*)$/.exec(text);
-  const needsTasks = !!taskCmd && ps.commandsEnabled && COMMANDS.some((c) => c.cmd === '/' + taskCmd[1] && c.needsTask);
+  const needsTasks = !!taskCmd && ps.commandsEnabled && COMMANDS.some((c) => c.cmd === '/' + (taskCmd[1] === 'reassign' ? 're' : taskCmd[1]) && c.needsTask);
   const isAsk = !!taskCmd && taskCmd[1] === 'ask';
   // plain text ending in "#12" / "#": my tasks (a message with one "#N" becomes a task note on the server)
   const hashQ = !taskCmd && !/^\//.test(text) ? /(^|\s)#(\d*)$/.exec(text) : null;
@@ -657,26 +793,26 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   );
   const taskSub = (x: AnyTask) => {
     const who = assigneeNamesOf(x).join(', ');
-    return '#' + x.id + (who ? '  ·  ' + who : '') + (!isBrief(x) && x.project ? '  ·  ' + x.project : '');
+    return 'Task ' + x.id + (who ? '  ·  ' + who : '') + (!isBrief(x) && x.project ? '  ·  ' + x.project : '');
   };
   const matchTask = (x: AnyTask, q: string) =>
     !q || String(x.id).startsWith(q) || x.title.toLowerCase().includes(q) || assigneeNamesOf(x).some((n) => n.toLowerCase().includes(q));
 
   const suggestions: Suggestion[] = (() => {
-    if (voice.recording) return [];
     if (needsTasks && taskCmd) {
       const q = taskCmd[2].toLowerCase();
       return ((isAsk ? askTasks : myTasks) ?? [])
         .filter((x) => matchTask(x, q))
         .slice(0, 8)
         .map((x) => ({
-          key: 't' + x.id, title: x.title, sub: taskSub(x),
+          key: 't' + x.id, title: 'Task ' + x.id + ' · ' + x.title, sub: taskSub(x),
           left: <Ionicons name="checkbox-outline" size={20} color={colorOf(x.status)} />,
           right: statusTag(x.status),
           onPress: () => {
             const cmd = taskCmd[1].toLowerCase();
             const base = '/' + taskCmd[1] + ' #' + x.id + ' ';
-            if (PEOPLE_CMD[cmd]) pickPeopleFor(cmd, base);
+            if (cmd === 're' || cmd === 'reassign') startReassign(x);
+            else if (PEOPLE_CMD[cmd]) pickPeopleFor(cmd, base);
             else put(base);
           },
         }));
@@ -684,7 +820,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     if (hashQ && ps.commandsEnabled) {
       const q = hashQ[2];
       return (myTasks ?? []).filter((x) => matchTask(x, q)).slice(0, 6).map((x) => ({
-        key: 'h' + x.id, title: x.title, sub: taskSub(x),
+        key: 'h' + x.id, title: 'Task ' + x.id + ' · ' + x.title, sub: taskSub(x),
         left: <Ionicons name="checkbox-outline" size={20} color={colorOf(x.status)} />,
         right: statusTag(x.status),
         onPress: () => put(text.slice(0, text.length - q.length) + x.id + ' '),
@@ -702,7 +838,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       return COMMANDS.filter((c) => c.cmd.startsWith(q)).map((c) => ({
         key: c.cmd, title: c.cmd + (c.args ? '  ' + c.args : ''), sub: c.desc,
         left: <Text style={{ color: t.accent, fontSize: 18, fontWeight: '700', width: 20, textAlign: 'center' }}>/</Text>,
-        onPress: () => { setText(c.cmd + ' '); inputRef.current?.focus(); },
+        onPress: () => pickCommand(c), // Round 4: /task opens the person picker, /done and /re list my tasks
       }));
     }
     const mm = /(^|\s)@([\p{L}\p{N}_]*)$/u.exec(text);
@@ -736,25 +872,43 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const hasInfo = chat.type !== 'checkin';
   // check-in chat too: "/" and the task button (typed check-in text logic is unchanged)
   const helpers = ps.commandsEnabled;
-  const showChips = helpers && focused && !text && !voice.recording && !editing && !suggestions.length;
+  // Round 4: composer helpers live in the chip row (the row itself is the WhatsApp pill)
+  const showChips = helpers && !editing && !text && !suggestions.length;
   const quick = QUICK.map((q) => COMMANDS.find((c) => c.cmd === q)!).filter(Boolean);
-  const smallBtn = (label: string, onPress: () => void, a11y: string, icon?: keyof typeof Ionicons.glyphMap) => (
+  const chipBtn = (label: string, onPress: () => void, icon?: keyof typeof Ionicons.glyphMap, key?: string) => (
     <Pressable
-      onPress={onPress} accessibilityLabel={a11y} hitSlop={4}
-      style={{ width: 36, height: 44, alignItems: 'center', justifyContent: 'center' }}
+      key={key || label} onPress={onPress}
+      style={{ flexDirection: 'row', alignItems: 'center', height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: t.card, marginRight: 6, borderWidth: 1, borderColor: t.border }}
     >
-      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: t.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: t.border }}>
-        {icon
-          ? <Ionicons name={icon} size={17} color={t.accent} />
-          : <Text style={{ color: t.accent, fontSize: 17, fontWeight: '800', includeFontPadding: false }}>{label}</Text>}
-      </View>
+      {!!icon && <Ionicons name={icon} size={15} color={t.accent} />}
+      <Text style={{ color: t.text, fontSize: 13, fontWeight: '600', marginLeft: icon ? 5 : 0 }}>{label}</Text>
     </Pressable>
   );
-  // second composer button: DM = tasks with this person, check-in = new task (for me), else "@" person actions
-  const personBtn = () =>
-    chat.type === 'dm' && chat.otherUserId ? smallBtn('', () => setSheet('dmTasks'), 'Tasks', 'clipboard-outline')
-      : chat.type === 'checkin' ? smallBtn('', () => setSheet('newTask'), 'Naya task', 'add-circle-outline')
-      : smallBtn('@', openPersonActions, 'Person');
+  // second helper chip: DM = tasks with this person, check-in = new task (for me), else "@" person actions
+  const personChip = () =>
+    chat.type === 'dm' && chat.otherUserId ? chipBtn('Tasks', () => setSheet('dmTasks'), 'clipboard-outline')
+      : chat.type === 'checkin' ? chipBtn('Naya task', () => setSheet('newTask'), 'add-circle-outline')
+      : chipBtn('person', openPersonActions, 'at');
+  // /task: day + time chips (text like "kal 5 pm" is appended; the server AI parses it)
+  const isTaskText = helpers && !editing && /^\/task\b/i.test(text) && refs.current.length > 0 && text.trim().split(/\s+/).length > 2;
+  const hasDay = /\b(aaj|kal|parso|today|tomorrow)\b/i.test(text);
+  const hasTime = /\b\d{1,2}(:\d{2})?\s?(am|pm)\b/i.test(text);
+  const taskChips = isTaskText ? (!hasDay ? ['Aaj', 'Kal', 'Parso'] : !hasTime ? ['9 am', '12 pm', '5 pm', '8 pm'] : []) : [];
+  const appendChip = (c: string) => setText(text.replace(/\s+$/, '') + ' ' + (/^\d/.test(c) ? c : c.toLowerCase()));
+  const voiceHint = helpers && /^\/(task|re|reassign)\b/i.test(text.trim()) ? (/^\/task/i.test(text.trim()) ? 'Bolo: kis ko, kya task' : 'Bolo: kaun sa task, kis ko')
+    : helpers && /^\/done\b/i.test(text.trim()) ? 'Bolo: kaun sa task done' : null;
+
+  // search in chat: loaded messages whose text / caption / address / transcript contain the query
+  const sq = searchQ.trim().toLowerCase();
+  const matchIds = useMemo(() => {
+    if (!searchOpen || !sq) return [] as number[];
+    return msgs.filter((m) => m.id && !m.deleted && m.type !== 'system'
+      && ((m.text || '').toLowerCase().includes(sq) || (m.media?.transcript || '').toLowerCase().includes(sq) || (m.media?.address || '').toLowerCase().includes(sq)))
+      .map((m) => m.id as number);
+  }, [msgs, sq, searchOpen]);
+  const curMatch = matchIds.length ? matchIds[matchIds.length - 1 - Math.min(searchPos, matchIds.length - 1)] : null;
+  useEffect(() => { if (curMatch) jumpTo(curMatch); }, [curMatch]); // eslint-disable-line react-hooks/exhaustive-deps
+  const closeSearch = () => { setSearchOpen(false); setSearchQ(''); setSearchPos(0); };
 
   const renderItem = useCallback(({ item }: { item: Item }) =>
     item.kind === 'date' ? (
@@ -765,7 +919,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       </View>
     ) : item.kind === 'unread' ? (
       <View style={{ alignItems: 'center', marginVertical: 8 }}>
-        <Text style={{ backgroundColor: 'rgba(37,211,102,0.2)', color: t.text, fontSize: 12, fontWeight: '600', paddingHorizontal: 14, paddingVertical: 4, borderRadius: 10, overflow: 'hidden' }}>
+        <Text style={{ backgroundColor: t.chip, color: t.text, fontSize: 12, fontWeight: '600', paddingHorizontal: 14, paddingVertical: 4, borderRadius: 10, overflow: 'hidden' }}>
           {item.count} unread message{item.count === 1 ? '' : 's'}
         </Text>
       </View>
@@ -787,16 +941,18 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
         meId={me.id}
         meName={me.name}
         isBoss={me.role === 'boss'}
-        highlight={!!item.msg.id && item.msg.id === flashId}
+        highlight={!!item.msg.id && (item.msg.id === flashId || item.msg.id === curMatch)}
+        onOpenImage={openImage}
+        starred={!!item.msg.id && starIds.has(item.msg.id)}
         attachments={item.attachments}
         quote={item.quote}
         onTaskChip={onTaskChip}
       />
-    ), [t, me.id, me.name, me.role, chat.type, status, flashId, longPress, startReply, jumpTo, react, openTask, onSendText, put, cardMic, onTaskChip]); // eslint-disable-line react-hooks/exhaustive-deps
+    ), [t, me.id, me.name, me.role, chat.type, status, flashId, curMatch, starIds, longPress, startReply, jumpTo, react, openTask, onSendText, put, cardMic, onTaskChip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.background }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={{ backgroundColor: t.primary, paddingTop: insets.top + 6, paddingBottom: 8, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ backgroundColor: t.header, paddingTop: insets.top + 6, paddingBottom: 8, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center' }}>
         <Pressable onPress={onBack} hitSlop={10} style={{ paddingHorizontal: 8 }}>
           <Text style={{ color: '#fff', fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
         </Pressable>
@@ -806,10 +962,31 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
             : <Avatar name={chat.name} id={chat.id} size={38} />}
           <View style={{ marginLeft: 10, flex: 1 }}>
             <Text numberOfLines={1} style={{ color: '#fff', fontSize: 17, fontWeight: '600' }}>{chat.name}</Text>
-            {!!subtitle && <Text style={{ color: '#D0E8E4', fontSize: 12 }}>{subtitle}</Text>}
+            {!!subtitle && <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>{subtitle}</Text>}
           </View>
         </Pressable>
+        <Pressable onPress={() => setHeadMenu(true)} hitSlop={8} style={{ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="Menu">
+          <Ionicons name="ellipsis-vertical" size={22} color={t.onAccent} />
+        </Pressable>
       </View>
+      {searchOpen && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, paddingHorizontal: 8, minHeight: 48, borderBottomWidth: 1, borderBottomColor: t.border }}>
+          <Pressable onPress={closeSearch} hitSlop={8} style={{ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="arrow-back" size={22} color={t.subtext} />
+          </Pressable>
+          <TextInput
+            value={searchQ} onChangeText={(v) => { setSearchQ(v); setSearchPos(0); }} autoFocus placeholder="Search in chat" placeholderTextColor={t.subtext}
+            style={{ flex: 1, color: t.text, fontSize: 16, paddingVertical: 8 }}
+          />
+          {!!sq && <Text style={{ color: t.subtext, fontSize: 13, marginHorizontal: 6 }}>{matchIds.length ? Math.min(searchPos, matchIds.length - 1) + 1 + '/' + matchIds.length : '0'}</Text>}
+          <Pressable onPress={() => setSearchPos((p) => Math.min(p + 1, Math.max(0, matchIds.length - 1)))} hitSlop={6} style={{ width: 36, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="chevron-up" size={22} color={t.subtext} />
+          </Pressable>
+          <Pressable onPress={() => setSearchPos((p) => Math.max(0, p - 1))} hitSlop={6} style={{ width: 36, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="chevron-down" size={22} color={t.subtext} />
+          </Pressable>
+        </View>
+      )}
       {filterable && (
         <View style={{ flexDirection: 'row', backgroundColor: t.card, paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: t.border }}>
           <View style={{ flex: 1, flexDirection: 'row', backgroundColor: t.soft, borderRadius: 16, padding: 2 }}>
@@ -836,7 +1013,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
           </View>
         </Pressable>
       )}
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: t.wallpaper }}>
         <FlatList
           ref={listRef}
           inverted
@@ -883,11 +1060,29 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
             <Text numberOfLines={1} style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>
               {replyTo.senderId === me.id ? 'You' : replyTo.senderName}
             </Text>
-            <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 13 }}>{replyTo.text || ''}</Text>
+            <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 13 }}>{previewOf(replyTo)}</Text>
           </View>
           <Pressable onPress={() => setReplyTo(null)} hitSlop={10} style={{ padding: 8 }}>
             <Ionicons name="close" size={22} color={t.subtext} />
           </Pressable>
+        </View>
+      )}
+      {!!quote && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, paddingHorizontal: 10, paddingTop: 8 }}>
+          <Ionicons name="return-up-forward-outline" size={18} color={t.accent} style={{ marginHorizontal: 6 }} />
+          <View style={{ flex: 1, borderLeftWidth: 4, borderLeftColor: t.accent, backgroundColor: t.background, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+            <Text numberOfLines={1} style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>{quote.senderName}</Text>
+            <Text numberOfLines={2} style={{ color: t.subtext, fontSize: 13 }}>{quote.text}</Text>
+          </View>
+          <Pressable onPress={() => setQuote(null)} hitSlop={10} style={{ padding: 8 }}>
+            <Ionicons name="close" size={22} color={t.subtext} />
+          </Pressable>
+        </View>
+      )}
+      {uploading > 0 && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, paddingHorizontal: 14, paddingTop: 8 }}>
+          <ActivityIndicator size="small" color={t.accent} />
+          <Text style={{ color: t.subtext, fontSize: 13, marginLeft: 10 }}>Bhej rahe hain… ({uploading})</Text>
         </View>
       )}
       {!!editing && (
@@ -903,69 +1098,33 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
         </View>
       )}
       <Suggestions items={suggestions} t={t} />
-      {showChips && (
+      {(showChips || taskChips.length > 0) && (
         <ScrollView
           horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false}
           style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 2, alignItems: 'center' }}
         >
-          {quick.map((c) => (
-            <Pressable
-              key={c.cmd} onPress={() => pickCommand(c)}
-              style={{ flexDirection: 'row', alignItems: 'center', height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: t.card, marginRight: 6, borderWidth: 1, borderColor: t.border }}
-            >
-              <Ionicons name={c.icon} size={15} color={t.accent} />
-              <Text style={{ color: t.text, fontSize: 13, fontWeight: '600', marginLeft: 5 }}>{c.cmd}</Text>
-            </Pressable>
-          ))}
-          <Pressable
-            onPress={openPersonActions}
-            style={{ flexDirection: 'row', alignItems: 'center', height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: t.card, borderWidth: 1, borderColor: t.border }}
-          >
-            <Ionicons name="at" size={15} color={t.accent} />
-            <Text style={{ color: t.text, fontSize: 13, fontWeight: '600', marginLeft: 5 }}>person</Text>
-          </Pressable>
+          {taskChips.length > 0
+            ? taskChips.map((c) => chipBtn(c, () => appendChip(c), 'calendar-outline', 'tc' + c))
+            : (
+              <>
+                {chipBtn('/', () => setSheet('cmd'), undefined, 'slash')}
+                {quick.map((c) => chipBtn(c.cmd, () => pickCommand(c), c.icon, c.cmd))}
+                {personChip()}
+              </>
+            )}
         </ScrollView>
       )}
-      {voice.recording ? (
-        <VoiceBar
-          t={t} levels={voice.levels} transcript={voice.transcript} lang={voice.lang} bottom={insets.bottom}
-          onToggleLang={voice.toggleLang} onCancel={() => { cardTarget.current = null; voice.cancel(); }} onStop={voiceStop} onSend={voiceSend}
-        />
-      ) : (
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', padding: 8, paddingBottom: 8 + insets.bottom }}>
-        {helpers && !editing && smallBtn('/', () => setSheet('cmd'), 'Commands')}
-        {helpers && !editing && personBtn()}
-        <TextInput
-          ref={inputRef}
-          value={text}
-          onChangeText={onChange}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder="Message"
-          placeholderTextColor={t.subtext}
-          multiline
-          style={{
-            flex: 1, maxHeight: 120, backgroundColor: t.card, color: t.text, borderRadius: 22,
-            paddingHorizontal: 14, paddingVertical: 8, fontSize: 16,
-          }}
-        />
-        {voice.available && !text.trim() && !editing ? (
-          <MicButton t={t} onPress={() => { cardTarget.current = null; voice.start(toBox); }} />
-        ) : (
-          <Pressable
-            onPress={() => send()}
-            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', marginLeft: 6 }}
-          >
-            {editing ? <Ionicons name="checkmark" size={24} color="#fff" /> : <Text style={{ color: '#fff', fontSize: 20 }}>{'➤'}</Text>}
-          </Pressable>
-        )}
-      </View>
-      )}
+      <Composer
+        t={t} text={text} onChangeText={onChange} inputRef={inputRef} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+        editing={!!editing} canSend={!!text.trim()} onSend={() => send(textRef.current)}
+        onAttach={() => setAttachOpen(true)} onGeo={() => setGeoOpen(true)} onVoice={sendVoice} onNotice={toast}
+        voiceHint={voiceHint} bottom={insets.bottom}
+      />
       <Sheet visible={!!menu} onClose={() => setMenu(null)} title={menu?.senderName}>{renderMenu()}</Sheet>
       <CommandSheet visible={sheet === 'cmd'} onClose={() => setSheet(null)} onPick={pickCommand} />
       <PeopleSheet
         visible={sheet === 'people'} onClose={() => { peoplePick.current = null; peoplePickMany.current = null; setSheet(null); }} title={peopleTitle}
-        people={pickList} loading={!storeUsers.length} onPick={pickedPerson}
+        people={peopleSrc ?? pickList} loading={!storeUsers.length} onPick={pickedPerson}
         me={peopleOpts.includeMe ? mePerson : null} multi={peopleOpts.multi} onPickMany={pickedPeople}
       />
       <PersonSheet visible={sheet === 'person'} onClose={() => setSheet(null)} person={person} tasks={personTasks} onAction={personAction} />
@@ -982,6 +1141,37 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
         <TaskActionSheet visible taskId={chipTask} onClose={() => setChipTask(null)} onOpen={(id) => { setChipTask(null); openTask(id); }} />
       )}
       <InAppBanner />
+      <Sheet visible={headMenu} onClose={() => setHeadMenu(false)} title={chat.name}>
+        <SheetRow icon="search-outline" label="Search in chat" onPress={() => { setHeadMenu(false); setTimeout(() => setSearchOpen(true), 50); }} />
+        <SheetRow icon="images-outline" label="Media" onPress={() => { setHeadMenu(false); setTimeout(() => setMediaOpen(true), SHEET_GAP); }} />
+        <SheetRow icon={mutedL ? 'notifications-outline' : 'notifications-off-outline'} label={mutedL ? 'Unmute' : 'Mute'} onPress={() => { setHeadMenu(false); toggleMute(); }} />
+        {hasInfo && <SheetRow icon="information-circle-outline" label={chat.type === 'dm' ? 'Chat info' : 'Group info'} onPress={() => { setHeadMenu(false); setTimeout(() => onOpenInfo(chat), 50); }} />}
+      </Sheet>
+      <MediaGridModal visible={mediaOpen} onClose={() => setMediaOpen(false)} msgs={msgs} />
+      <AttachSheet visible={attachOpen} onClose={() => setAttachOpen(false)} onPicked={setPreviewUris} onGeo={() => setGeoOpen(true)} />
+      <Modal visible={!!previewUris} animationType="slide" onRequestClose={() => setPreviewUris(null)} statusBarTranslucent>
+        {!!previewUris && <PhotoPreviewPanel uris={previewUris} onSend={sendPhotos} onCancel={() => setPreviewUris(null)} />}
+      </Modal>
+      <GeoCameraScreen visible={geoOpen} chatId={chat.id} onClose={() => setGeoOpen(false)} onSent={afterMedia} />
+      <ImageViewer
+        visible={!!viewMsg} url={viewMsg?.mediaUrl || null} caption={viewMsg ? plainText(viewMsg) : null} title={viewMsg?.senderName}
+        onClose={() => setViewMsg(null)}
+      />
+      <SendToSheet
+        visible={!!fwdMsg} onClose={() => setFwdMsg(null)} chats={fwdChats} title="Forward to..."
+        onPick={(c) => fwdMsg && doForward(fwdMsg, c)}
+      />
+      <Sheet visible={!!infoMsg} onClose={() => setInfoMsg(null)} title="Message info">
+        {!!infoMsg && (
+          <View style={{ paddingHorizontal: 20, paddingVertical: 8 }}>
+            <Text style={{ color: t.text, fontSize: 15 }}>Sent: {new Date(infoMsg.createdAt).toLocaleString()}</Text>
+            <Text style={{ color: t.text, fontSize: 15, marginTop: 8 }}>
+              {{ pending: 'Bhej rahe hain', sent: 'Sent', delivered: 'Delivered (sabko)', read: 'Read (sabne dekha)' }[tickOf(infoMsg)]}
+            </Text>
+            <Text style={{ color: t.subtext, fontSize: 12, marginTop: 8 }}>Har member ka alag read time abhi available nahi.</Text>
+          </View>
+        )}
+      </Sheet>
     </KeyboardAvoidingView>
   );
 }

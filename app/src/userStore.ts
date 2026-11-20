@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 import { api } from './api';
 import { onEvent } from './realtime';
 
-export type StoreUser = { id: number; name: string; avatarEmoji: string | null; role?: 'boss' | 'member'; phone?: string };
+export type StoreUser = { id: number; name: string; avatarEmoji: string | null; avatarUrl?: string | null; role?: 'boss' | 'member'; phone?: string };
 
 let map = new Map<number, StoreUser>();
 let list: StoreUser[] = [];
@@ -25,7 +25,7 @@ export function loadUsers(): Promise<void> {
   if (loading) return loading;
   loading = api<{ users: StoreUser[] }>('GET', '/users?includeSelf=1')
     .then((r) => {
-      map = new Map(r.users.map((u) => [u.id, { ...u, avatarEmoji: u.avatarEmoji || null }]));
+      map = new Map(r.users.map((u) => [u.id, { ...u, avatarEmoji: u.avatarEmoji || null, avatarUrl: u.avatarUrl || null }]));
       emit();
     })
     .catch(() => {})
@@ -38,7 +38,7 @@ export const allUsers = () => list;
 
 // live updates (registered once when this module loads)
 onEvent((e) => {
-  if (e && e.type === 'user' && e.user && e.user.id) setUser({ id: e.user.id, name: e.user.name, avatarEmoji: e.user.avatarEmoji || null });
+  if (e && e.type === 'user' && e.user && e.user.id) setUser({ id: e.user.id, name: e.user.name, avatarEmoji: e.user.avatarEmoji || null, ...(e.user.avatarUrl !== undefined ? { avatarUrl: e.user.avatarUrl || null } : {}) });
   else if (e && (e.type === 'users' || e.type === '_open')) loadUsers();
 });
 

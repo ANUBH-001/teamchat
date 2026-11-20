@@ -53,7 +53,7 @@ function CheckinCardBase({ msg, t, time, onLongPress, onOpenTask }: Props) {
             <Text style={{ color: colorOf(x.status), fontSize: 11, fontWeight: '700', marginLeft: 8, marginTop: 3 }}>{labelOf(x.status)}</Text>
           </Pressable>
         ))}
-        {isToday && (
+        {isToday && user?.role === 'boss' && (
           <Pressable onPress={() => setCreating(true)} style={{ alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: t.accent, marginTop: 8 }}>
             <Text style={{ color: t.accent, fontWeight: '600', fontSize: 13 }}>+ Naya task</Text>
           </Pressable>

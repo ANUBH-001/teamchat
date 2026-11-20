@@ -16,7 +16,7 @@ app.use((req, res, next) => {
   res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' });
   next();
 });
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '256kb' })); // media JSON (waveform) + payload.quote
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -41,6 +41,9 @@ app.use('/download', express.static(path.join(__dirname, '..', 'public', 'downlo
 
 // Self-hosted OTA updates (expo-updates sends no X-App-Version, so mount before the 426 check below)
 app.use('/updates', require('./routes/updates'));
+
+// Round 4: media (login required inside; mounted before the 426 check: RN Image/Audio cannot send X-App-Version, they use ?t=)
+app.use('/media', require('./routes/media'));
 
 // Every other route: header X-App-Version (missing = 0) below minVersionCode -> 426 UPDATE_REQUIRED.
 app.use(async (req, res, next) => {

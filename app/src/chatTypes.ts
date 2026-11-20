@@ -11,6 +11,7 @@ export type Chat = {
   createdBy?: number | null;
   muted?: boolean;
   pinned?: boolean;
+  favourite?: boolean; // Round 4: PATCH /chats/:id/me {favourite}
   pinnedMessage?: { id: number; body: string; senderName: string } | null;
   myLastRead?: number | null;
   lastMessage: null | {
@@ -18,7 +19,7 @@ export type Chat = {
     senderId: number;
     senderName: string;
     text: string | null;
-    type?: 'text' | 'bot' | 'system' | 'checkin_prompt';
+    type?: 'text' | 'bot' | 'system' | 'checkin_prompt' | 'image' | 'audio';
     deleted: boolean;
     createdAt: string;
   };
@@ -40,14 +41,26 @@ export type Msg = {
   sourceMessageId?: number | null; // bot card: the human message that caused it (shown attached under it)
   taskId?: number | null; // card / command / "#N" message / reply in a task reply chain // set = bubble shows "edited"
   pending?: boolean;
-  type?: 'text' | 'bot' | 'system' | 'checkin_prompt'; // 'bot' = task event card; 'system' = centered grey pill; 'checkin_prompt' = daily check-in card
+  type?: 'text' | 'bot' | 'system' | 'checkin_prompt' | 'image' | 'audio'; // 'bot' = task event card; 'system' = centered grey pill; 'checkin_prompt' = daily check-in card
   payload?: BotPayload | CheckinPromptPayload | null;
   visibleTo?: number | null; // set = only that user sees it ("Only visible to you")
   reactions?: Reaction[];
   mentions?: number[];
   mentionIds?: number[]; // outbox only: structured mentions sent with the message
   replyTo?: ReplyRef | null; // quoted message (swipe-to-reply)
+  // Round 4: media. payload.quote ("Reply privately") and payload.kind 'ai_answer' are read via casts (see Bubble.tsx)
+  mediaUrl?: string | null; // /media/f/... (image / audio)
+  media?: MediaInfo | null;
+  senderAvatarUrl?: string | null;
 };
+
+export type MediaInfo = {
+  kind: 'image' | 'audio' | 'geo_image'; w?: number; h?: number; durationMs?: number; waveform?: number[];
+  lat?: number; lng?: number; address?: string; takenAt?: string;
+  transcript?: string; transcriptStatus?: 'pending' | 'done' | 'failed';
+};
+// "Reply privately": payload.quote on the first message of the new DM (senderName already = "<sender> · <group name>")
+export type Quote = { chatId: number; messageId: number; senderName: string; text: string };
 
 export type Reaction = { emoji: string; userIds: number[] };
 

@@ -55,7 +55,8 @@ export default function TaskModal({ visible, people, meId, onClose, onDone, init
   };
   const input = { backgroundColor: t.soft, color: t.text, borderRadius: 12, paddingHorizontal: 14, minHeight: 48, fontSize: 15, marginBottom: 12 } as const;
   const label = { color: t.subtext, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', marginBottom: 6 } as const;
-  const onlySelf = !ps.membersCanAssign;
+  // Round 4: disabled (admin only create): const onlySelf = !ps.membersCanAssign;
+  const onlySelf = false;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>

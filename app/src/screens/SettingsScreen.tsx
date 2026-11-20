@@ -1,297 +1,132 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, Switch, TextInput, Alert, ActivityIndicator, RefreshControl, Modal, BackHandler } from 'react-native';
+// Round 4: WhatsApp-style main Settings (opened from the Chats top-right menu).
+// The old boss-only server switches screen moved to AdminSettingsScreen (Admin panel > Settings).
+import React, { useEffect, useState } from 'react';
+import { Alert, BackHandler, Image, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { api } from '../api';
 import { useTheme } from '../useTheme';
-import { usePullRefresh } from '../useLive';
-import { Theme } from '../theme';
-import { VERSION_CODE, VERSION_NAME } from '../version';
+import { useAuth } from '../auth';
+import { usePrefs, setPref, ThemeChoice } from '../prefs';
+import Avatar from '../components/Avatar';
+import ProfileSheet from '../components/ProfileSheet';
+import BackgroundCard from '../components/BackgroundCard';
+import AppUpdateCard from '../components/AppUpdateCard';
+import { useUser } from '../userStore';
+import { useMediaSrc } from '../media';
 
-type S = {
-  aiEnabled: boolean; aiDetect: boolean; commandsEnabled: boolean; membersCanAssign: boolean;
-  notifyAdminOnMemberChanges: boolean; quietTaskNotifs: boolean; praiseEnabled: boolean;
-  minVersionCode: number; latestVersionCode: number; latestVersionName: string; apkUrl: string; updateMessage: string;
-  retentionEnabled: boolean; taskReminderDays: number; taskDeleteDays: number; messageRetentionDays: number;
-};
-type Ai = { provider: string; model: string; hasKey: boolean; lastError: { code: string; message: string; at: string } | null };
-type BoolKey = 'aiEnabled' | 'aiDetect' | 'commandsEnabled' | 'membersCanAssign' | 'notifyAdminOnMemberChanges' | 'quietTaskNotifs' | 'praiseEnabled'
-  | 'retentionEnabled';
-type DayKey = 'taskReminderDays' | 'taskDeleteDays' | 'messageRetentionDays';
-const DAY_ROWS: { key: DayKey; label: string; sub: string; min: number }[] = [
-  { key: 'taskReminderDays', label: 'Pending reminder after (days)', sub: 'Ek baar yaad dilana + admin alert (0 = off)', min: 0 },
-  { key: 'taskDeleteDays', label: 'Delete tasks after (days)', sub: 'Done ho ya nahi, purane tasks hata do', min: 1 },
-  { key: 'messageRetentionDays', label: 'Delete messages after (days)', sub: 'Har Sunday 11 PM (pinned message bachta hai)', min: 1 },
-];
+const THEMES: { k: ThemeChoice; label: string }[] = [{ k: 'system', label: 'System' }, { k: 'light', label: 'Light' }, { k: 'dark', label: 'Dark' }];
 
-const GROUPS: { title: string; rows: { key: BoolKey; label: string; sub: string }[] }[] = [
-  { title: 'AI & Commands', rows: [
-    { key: 'aiEnabled', label: 'AI', sub: 'Master switch for AI features' },
-    { key: 'aiDetect', label: 'Detect tasks in messages', sub: 'AI reads normal chat for tasks' },
-    { key: 'commandsEnabled', label: 'Slash commands', sub: '/task, /done, /update ...' },
-  ] },
-  { title: 'Permissions', rows: [
-    { key: 'membersCanAssign', label: 'Members can create and assign tasks', sub: 'Otherwise only admin assigns' },
-    { key: 'praiseEnabled', label: 'Praise', sub: 'Allow the 👏 praise button' },
-  ] },
-  { title: 'Notifications', rows: [
-    { key: 'notifyAdminOnMemberChanges', label: 'Notify admin of member changes', sub: 'Task done / testing / new' },
-    { key: 'quietTaskNotifs', label: 'Quiet task notifications', sub: 'No sound for task updates' },
-  ] },
-];
+function Section({ title }: { title: string }) {
+  const t = useTheme();
+  return <Text style={{ color: t.accent, fontSize: 13, fontWeight: '700', paddingHorizontal: 20, paddingTop: 22, paddingBottom: 6 }}>{title}</Text>;
+}
+function Row({ icon, label, sub, onPress, right, danger }: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; sub?: string; onPress?: () => void; right?: React.ReactNode; danger?: boolean;
+}) {
+  const t = useTheme();
+  return (
+    <Pressable
+      onPress={onPress} disabled={!onPress} android_ripple={{ color: t.border }}
+      style={{ flexDirection: 'row', alignItems: 'center', minHeight: 56, paddingHorizontal: 20 }}
+    >
+      <Ionicons name={icon} size={22} color={danger ? t.danger : t.subtext} />
+      <View style={{ flex: 1, marginLeft: 18, paddingVertical: 8 }}>
+        <Text style={{ color: danger ? t.danger : t.text, fontSize: 16 }}>{label}</Text>
+        {!!sub && <Text style={{ color: t.subtext, fontSize: 12, marginTop: 1 }}>{sub}</Text>}
+      </View>
+      {right}
+    </Pressable>
+  );
+}
+function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useTheme();
+  return <Switch value={value} onValueChange={onChange} trackColor={{ true: t.accent, false: t.border }} thumbColor={t.onAccent} />;
+}
 
-const Row = ({ label, sub, value, onChange, t }: { label: string; sub: string; value: boolean; onChange: (v: boolean) => void; t: Theme }) => (
-  <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 60, paddingHorizontal: 16 }}>
-    <View style={{ flex: 1, paddingRight: 12 }}>
-      <Text style={{ color: t.text, fontSize: 15 }}>{label}</Text>
-      <Text style={{ color: t.subtext, fontSize: 12, marginTop: 1 }}>{sub}</Text>
-    </View>
-    <Switch value={value} onValueChange={onChange} trackColor={{ true: t.accent, false: t.border }} thumbColor="#fff" />
-  </View>
-);
-
-// Admin only: GET/PUT /admin/settings. Switches save at once; the app-update fields save with their button.
-export default function SettingsScreen({ onBack }: { onBack: () => void }) {
+export default function SettingsScreen({ onBack, onOpenAdmin }: { onBack: () => void; onOpenAdmin: () => void }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const [s, setS] = useState<S | null>(null);
-  const [ai, setAi] = useState<Ai | null>(null);
-  const [err, setErr] = useState('');
-  const [upd, setUpd] = useState({ minVersionCode: '', latestVersionCode: '', latestVersionName: '', apkUrl: '', updateMessage: '' });
-  // Android back = back to the Admin list (not out of the tab)
+  const { user, logout } = useAuth();
+  const prefs = usePrefs();
+  const me = useUser(user?.id);
+  const photo = useMediaSrc(me?.avatarUrl || user?.avatarUrl || null);
+  const [editing, setEditing] = useState(false);
+
+  // Android back = back to the Chats list
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => { onBack(); return true; });
     return () => sub.remove();
   }, [onBack]);
-  const [testing, setTesting] = useState(false);
-  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [savedMsg, setSavedMsg] = useState('');
-  const [days, setDays] = useState<Record<DayKey, string>>({ taskReminderDays: '', taskDeleteDays: '', messageRetentionDays: '' });
-  const [daysMsg, setDaysMsg] = useState('');
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetText, setResetText] = useState('');
-  const [resetting, setResetting] = useState(false);
-
-  const apply = (r: { settings: S; ai?: Ai }) => {
-    setS(r.settings);
-    if (r.ai) setAi(r.ai);
-    setDays({
-      taskReminderDays: String(r.settings.taskReminderDays ?? 6), taskDeleteDays: String(r.settings.taskDeleteDays ?? 14),
-      messageRetentionDays: String(r.settings.messageRetentionDays ?? 7),
-    });
-    setUpd({
-      minVersionCode: String(r.settings.minVersionCode ?? 0), latestVersionCode: String(r.settings.latestVersionCode ?? 0),
-      latestVersionName: r.settings.latestVersionName ?? '', apkUrl: r.settings.apkUrl ?? '', updateMessage: r.settings.updateMessage ?? '',
-    });
-  };
-  const load = useCallback(async () => {
-    try { apply(await api('GET', '/admin/settings')); setErr(''); } catch (e: any) { setErr(e.message); }
-  }, []);
-  useEffect(() => { load(); }, [load]);
-  const { refreshing, onRefresh } = usePullRefresh(load);
-
-  const toggle = async (k: BoolKey, v: boolean) => {
-    if (!s) return;
-    const old = s;
-    setS({ ...s, [k]: v });
-    try { setS((await api<{ settings: S }>('PUT', '/admin/settings', { [k]: v })).settings); }
-    catch (e: any) { setS(old); Alert.alert('Could not save', e.message); }
-  };
-  const saveUpdate = async () => {
-    const min = Number(upd.minVersionCode), latest = Number(upd.latestVersionCode);
-    if (!Number.isInteger(min) || !Number.isInteger(latest) || min < 0 || latest < 0) { Alert.alert('Version codes', 'Use whole numbers (0 or more).'); return; }
-    const go = async () => {
-      try {
-        const r = await api<{ settings: S }>('PUT', '/admin/settings', {
-          minVersionCode: min, latestVersionCode: latest, latestVersionName: upd.latestVersionName.trim(),
-          apkUrl: upd.apkUrl.trim(), updateMessage: upd.updateMessage.trim(),
-        });
-        setS(r.settings);
-        setSavedMsg('Saved');
-        setTimeout(() => setSavedMsg(''), 2000);
-      } catch (e: any) { Alert.alert('Could not save', e.message); }
-    };
-    if (min > VERSION_CODE) {
-      Alert.alert('Block this app?', 'Minimum version ' + min + ' is higher than this app (' + VERSION_CODE + '). Everyone below it, including you, is locked out until they install the new APK.', [
-        { text: 'Cancel', style: 'cancel' }, { text: 'Save anyway', style: 'destructive', onPress: go },
-      ]);
-    } else go();
-  };
-  const saveDays = async () => {
-    const body: Partial<Record<DayKey, number>> = {};
-    for (const r of DAY_ROWS) {
-      const n = Number(days[r.key]);
-      if (!Number.isInteger(n) || n < r.min) { Alert.alert('Days', r.label + ': ' + r.min + ' ya zyada likhiye.'); return; }
-      body[r.key] = n;
-    }
-    try {
-      setS((await api<{ settings: S }>('PUT', '/admin/settings', body)).settings);
-      setDaysMsg('Saved');
-      setTimeout(() => setDaysMsg(''), 2000);
-    } catch (e: any) { Alert.alert('Could not save', e.message); }
-  };
-  const doReset = async () => {
-    if (resetText.trim() !== 'RESET' || resetting) return;
-    setResetting(true);
-    try {
-      const r = await api<{ ok: boolean; backup: string }>('POST', '/admin/reset', { confirm: 'RESET' });
-      setResetOpen(false); setResetText('');
-      Alert.alert('Reset ho gaya', 'Saara chat/task data hata diya. Backup: ' + r.backup);
-    } catch (e: any) { Alert.alert('Reset nahi hua', e.message); }
-    setResetting(false);
-  };
-  const testAi = async () => {
-    setTesting(true); setTestMsg(null);
-    try {
-      const r = await api<{ ok: boolean; code?: string; message?: string }>('POST', '/admin/settings/test-ai', {});
-      setTestMsg(r.ok ? { ok: true, text: 'AI works' } : { ok: false, text: (r.code ? r.code + ': ' : '') + (r.message || 'Failed') });
-      load();
-    } catch (e: any) { setTestMsg({ ok: false, text: e.message }); }
-    setTesting(false);
-  };
-
-  const card = { backgroundColor: t.card, borderRadius: 16, marginHorizontal: 16, overflow: 'hidden' } as const;
-  const head = { color: t.subtext, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginHorizontal: 32, marginTop: 24, marginBottom: 8 } as const;
-  const input = { backgroundColor: t.soft, color: t.text, borderRadius: 12, paddingHorizontal: 14, minHeight: 48, fontSize: 15, marginBottom: 10 } as const;
-  const lbl = { color: t.subtext, fontSize: 12, marginBottom: 4 } as const;
+  if (!user) return null;
 
   return (
     <View style={{ flex: 1, backgroundColor: t.background }}>
-      <View style={{ backgroundColor: t.primary, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}>
-        <Pressable onPress={onBack} hitSlop={10} style={{ paddingRight: 12 }}>
-          <Text style={{ color: '#fff', fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
-        </Pressable>
-        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', flex: 1 }}>Settings</Text>
+      <View style={{ backgroundColor: t.header, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}>
+        <Pressable onPress={onBack} hitSlop={10} style={{ paddingHorizontal: 6 }}><Ionicons name="arrow-back" size={24} color={t.onAccent} /></Pressable>
+        <Text style={{ color: t.onAccent, fontSize: 20, fontWeight: '700', marginLeft: 8 }}>Settings</Text>
       </View>
-      {!s ? (
-        err ? <Text style={{ color: t.danger, padding: 20 }}>{err}</Text> : <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} />
-      ) : (
-        <ScrollView
-          keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.accent]} />}
-        >
-          {GROUPS.map((g) => (
-            <View key={g.title}>
-              <Text style={head}>{g.title}</Text>
-              <View style={card}>
-                {g.rows.map((r, i) => (
-                  <View key={r.key}>
-                    {i > 0 && <View style={{ height: 1, backgroundColor: t.border, marginLeft: 16 }} />}
-                    <Row label={r.label} sub={r.sub} value={!!s[r.key]} onChange={(v) => toggle(r.key, v)} t={t} />
-                  </View>
-                ))}
-                {g.title === 'AI & Commands' && ai && (
-                  <>
-                    <View style={{ height: 1, backgroundColor: t.border, marginLeft: 16 }} />
-                    <View style={{ padding: 16 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: ai.hasKey && !ai.lastError ? t.accent : ai.hasKey ? '#F5A623' : t.danger, marginRight: 10 }} />
-                        <Text style={{ color: t.text, fontSize: 15, fontWeight: '600', flex: 1 }}>{ai.provider} · {ai.model}</Text>
-                        <Text style={{ color: t.subtext, fontSize: 12 }}>{ai.hasKey ? 'Key set' : 'No key'}</Text>
-                      </View>
-                      {!!ai.lastError && (
-                        <Text style={{ color: '#F5A623', fontSize: 12, marginTop: 8 }}>
-                          Last error {ai.lastError.code}: {ai.lastError.message}
-                        </Text>
-                      )}
-                      {!!testMsg && <Text style={{ color: testMsg.ok ? t.accent : t.danger, fontSize: 13, marginTop: 8 }}>{testMsg.text}</Text>}
-                      <Pressable onPress={testAi} disabled={testing} style={{ marginTop: 12, minHeight: 44, borderRadius: 22, borderWidth: 1, borderColor: t.accent, alignItems: 'center', justifyContent: 'center', opacity: testing ? 0.6 : 1 }}>
-                        <Text style={{ color: t.accent, fontWeight: '700' }}>{testing ? 'Testing...' : 'Test AI'}</Text>
-                      </Pressable>
-                    </View>
-                  </>
-                )}
-              </View>
-            </View>
-          ))}
-
-          <Text style={head}>Data retention</Text>
-          <View style={card}>
-            <Row label="Auto delete old data" sub="Messages + purane tasks hard delete (backup JSON pehle)" value={!!s.retentionEnabled} onChange={(v) => toggle('retentionEnabled', v)} t={t} />
-            {DAY_ROWS.map((r) => (
-              <View key={r.key}>
-                <View style={{ height: 1, backgroundColor: t.border, marginLeft: 16 }} />
-                <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 64, paddingHorizontal: 16 }}>
-                  <View style={{ flex: 1, paddingRight: 12 }}>
-                    <Text style={{ color: t.text, fontSize: 15 }}>{r.label}</Text>
-                    <Text style={{ color: t.subtext, fontSize: 12, marginTop: 1 }}>{r.sub}</Text>
-                  </View>
-                  <TextInput
-                    keyboardType="number-pad" value={days[r.key]} onChangeText={(v) => setDays({ ...days, [r.key]: v.replace(/[^0-9]/g, '') })}
-                    style={{ width: 64, minHeight: 44, borderRadius: 12, backgroundColor: t.soft, color: t.text, textAlign: 'center', fontSize: 16, fontWeight: '600' }}
-                  />
-                </View>
-              </View>
-            ))}
-            <View style={{ padding: 16, paddingTop: 4 }}>
-              <Pressable onPress={saveDays} style={{ minHeight: 44, borderRadius: 22, borderWidth: 1, borderColor: t.accent, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: t.accent, fontWeight: '700' }}>{daysMsg || 'Save days'}</Text>
-              </Pressable>
-            </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
+        {/* profile header */}
+        <Pressable onPress={() => setEditing(true)} android_ripple={{ color: t.border }} style={{ flexDirection: 'row', alignItems: 'center', padding: 20 }}>
+          {photo
+            ? <Image source={{ uri: photo }} style={{ width: 72, height: 72, borderRadius: 36 }} />
+            : <Avatar name={me?.name || user.name} id={user.id} userId={user.id} emoji={user.avatarEmoji} size={72} />}
+          <View style={{ flex: 1, marginLeft: 16 }}>
+            <Text numberOfLines={1} style={{ color: t.text, fontSize: 20, fontWeight: '700' }}>{me?.name || user.name}</Text>
+            <Text style={{ color: t.subtext, fontSize: 14, marginTop: 2 }}>{user.phone}{user.role === 'boss' ? ' · Admin' : ''}</Text>
           </View>
+          <Ionicons name="create-outline" size={22} color={t.accent} />
+        </Pressable>
 
-          <Text style={head}>App update</Text>
-          <View style={{ ...card, padding: 16 }}>
-            <Text style={{ color: t.subtext, fontSize: 12, marginBottom: 12 }}>This app: {VERSION_NAME} (code {VERSION_CODE}). Below the minimum = blocked until updated.</Text>
-            <View style={{ flexDirection: 'row' }}>
-              <View style={{ flex: 1, marginRight: 8 }}>
-                <Text style={lbl}>Minimum version code</Text>
-                <TextInput style={input} keyboardType="number-pad" value={upd.minVersionCode} onChangeText={(v) => setUpd({ ...upd, minVersionCode: v })} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={lbl}>Latest version code</Text>
-                <TextInput style={input} keyboardType="number-pad" value={upd.latestVersionCode} onChangeText={(v) => setUpd({ ...upd, latestVersionCode: v })} />
-              </View>
-            </View>
-            <Text style={lbl}>Latest version name</Text>
-            <TextInput style={input} value={upd.latestVersionName} onChangeText={(v) => setUpd({ ...upd, latestVersionName: v })} placeholder="0.2.0" placeholderTextColor={t.subtext} />
-            <Text style={lbl}>APK download URL</Text>
-            <TextInput style={input} autoCapitalize="none" autoCorrect={false} value={upd.apkUrl} onChangeText={(v) => setUpd({ ...upd, apkUrl: v })} placeholder="https://..." placeholderTextColor={t.subtext} />
-            <Text style={lbl}>Message shown to users</Text>
-            <TextInput style={{ ...input, minHeight: 72, textAlignVertical: 'top', paddingTop: 12 }} multiline value={upd.updateMessage} onChangeText={(v) => setUpd({ ...upd, updateMessage: v })} />
-            <Pressable onPress={saveUpdate} style={{ minHeight: 48, borderRadius: 24, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#fff', fontWeight: '700' }}>{savedMsg || 'Save update settings'}</Text>
-            </Pressable>
-          </View>
+        <Section title="Account" />
+        <Row
+          icon="log-out-outline" label="Logout" sub={user.name} danger
+          onPress={() => Alert.alert('Logout', 'Is phone se logout karein?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Logout', style: 'destructive', onPress: () => { logout(); } }])}
+        />
 
-          <Text style={{ ...head, color: t.danger }}>Danger zone</Text>
-          <View style={{ ...card, padding: 16, borderWidth: 1, borderColor: t.danger }}>
-            <Text style={{ color: t.text, fontSize: 15, fontWeight: '600' }}>Reset app data</Text>
-            <Text style={{ color: t.subtext, fontSize: 12, marginTop: 4 }}>
-              Saare messages, tasks, check-ins, groups aur DMs hamesha ke liye delete. Users, PINs, settings, All Team aur check-in chats bachte hain. Pehle full backup banta hai.
-            </Text>
-            <Pressable onPress={() => { setResetText(''); setResetOpen(true); }} style={{ marginTop: 12, minHeight: 48, borderRadius: 24, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#fff', fontWeight: '700' }}>Reset app data...</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
-      )}
-      <Modal visible={resetOpen} transparent animationType="fade" onRequestClose={() => setResetOpen(false)} statusBarTranslucent>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }}>
-          <View style={{ backgroundColor: t.card, borderRadius: 20, padding: 20 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="warning" size={22} color={t.danger} />
-              <Text style={{ color: t.text, fontSize: 18, fontWeight: '700', marginLeft: 8 }}>Sab data delete?</Text>
-            </View>
-            <Text style={{ color: t.subtext, fontSize: 14, marginTop: 10 }}>Ye wapas nahi hoga. Confirm karne ke liye RESET likhiye.</Text>
-            <TextInput
-              value={resetText} onChangeText={setResetText} autoCapitalize="characters" autoCorrect={false} placeholder="RESET" placeholderTextColor={t.subtext}
-              style={{ backgroundColor: t.soft, color: t.text, borderRadius: 12, paddingHorizontal: 14, minHeight: 48, fontSize: 16, marginTop: 14, letterSpacing: 2 }}
-            />
-            <View style={{ flexDirection: 'row', marginTop: 16 }}>
-              <Pressable onPress={() => setResetOpen(false)} style={{ flex: 1, minHeight: 48, borderRadius: 24, borderWidth: 1, borderColor: t.border, alignItems: 'center', justifyContent: 'center', marginRight: 8 }}>
-                <Text style={{ color: t.text, fontWeight: '600' }}>Cancel</Text>
-              </Pressable>
+        <Section title="Chats" />
+        <Row icon="contrast-outline" label="Theme" />
+        <View style={{ flexDirection: 'row', paddingHorizontal: 20, paddingBottom: 8 }}>
+          {THEMES.map((o) => {
+            const on = prefs.theme === o.k;
+            return (
               <Pressable
-                onPress={doReset} disabled={resetText.trim() !== 'RESET' || resetting}
-                style={{ flex: 1, minHeight: 48, borderRadius: 24, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center', opacity: resetText.trim() === 'RESET' && !resetting ? 1 : 0.4 }}
+                key={o.k} onPress={() => setPref('theme', o.k)}
+                style={{ flex: 1, height: 40, marginRight: o.k === 'dark' ? 0 : 8, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? t.chip : t.surface, borderWidth: on ? 1.5 : 0, borderColor: t.accent }}
               >
-                <Text style={{ color: '#fff', fontWeight: '700' }}>{resetting ? 'Resetting...' : 'Reset'}</Text>
+                <Text style={{ color: on ? t.chipText : t.subtext, fontWeight: on ? '700' : '500' }}>{o.label}</Text>
               </Pressable>
-            </View>
-          </View>
+            );
+          })}
         </View>
-      </Modal>
+        <Row
+          icon="text-outline" label="Auto-show voice transcripts" sub="Voice note ke neeche transcript khud khule"
+          right={<Toggle value={prefs.autoTranscripts} onChange={(v) => setPref('autoTranscripts', v)} />}
+        />
+        <Row
+          icon="download-outline" label="Save photos to gallery" sub="Camera se li photo gallery me save ho"
+          right={<Toggle value={prefs.saveToGallery} onChange={(v) => setPref('saveToGallery', v)} />}
+        />
+
+        <Section title="Notifications" />
+        <View style={{ paddingHorizontal: 16 }}><BackgroundCard /></View>
+
+        <Section title="App update" />
+        <View style={{ paddingHorizontal: 16 }}><AppUpdateCard /></View>
+
+        {user.role === 'boss' && (
+          <>
+            <Section title="Admin" />
+            <Row
+              icon="shield-checkmark-outline" label="Admin panel" sub="Members, reports, AI and server settings"
+              onPress={onOpenAdmin} right={<Ionicons name="chevron-forward" size={20} color={t.subtext} />}
+            />
+          </>
+        )}
+      </ScrollView>
+      <ProfileSheet
+        visible={editing} onClose={() => setEditing(false)} userId={user.id} name={user.name} avatarEmoji={user.avatarEmoji || null}
+      />
     </View>
   );
 }

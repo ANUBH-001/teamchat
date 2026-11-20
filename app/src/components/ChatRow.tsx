@@ -11,15 +11,18 @@ function when(iso: string) {
   if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const y = new Date(now.getTime() - 86400000);
   if (d.toDateString() === y.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString();
+  // Round 4: WhatsApp style - weekday within a week, else dd/mm/yy
+  if (now.getTime() - d.getTime() < 6 * 86400000) return d.toLocaleDateString('en-GB', { weekday: 'long' });
+  return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getFullYear()).slice(2);
 }
 
 function ChatRowBase({ chat, t, meId, onPress, onLongPress }: { chat: Chat; t: Theme; meId: number; onPress: (c: Chat) => void; onLongPress: (c: Chat) => void }) {
   const lm = chat.lastMessage;
   let preview = 'No messages yet';
   if (lm) {
-    const body = lm.deleted ? 'This message was deleted' : lm.text ?? '';
     const kind = lm.type;
+    // Round 4: media previews come from the server as text; fall back to a label when it is empty
+    const body = lm.deleted ? 'This message was deleted' : lm.text || (kind === 'image' ? '📷 Photo' : kind === 'audio' ? '🎤 Voice message' : '');
     const who = kind === 'bot' || kind === 'system' ? '' : lm.senderId === meId ? 'You: ' : chat.type === 'group' || chat.type === 'all' ? lm.senderName + ': ' : '';
     preview = (kind === 'bot' && !lm.deleted ? '📋 ' : '') + who + body;
   }
@@ -51,6 +54,7 @@ function ChatRowBase({ chat, t, meId, onPress, onLongPress }: { chat: Chat; t: T
           >
             {preview}
           </Text>
+          {!!chat.favourite && <Ionicons name="star" size={14} color={t.subtext} style={{ marginLeft: 6 }} />}
           {!!chat.muted && <Ionicons name="volume-mute" size={15} color={t.subtext} style={{ marginLeft: 6 }} />}
           {!!chat.pinned && <Ionicons name="pin" size={15} color={t.subtext} style={{ marginLeft: 6 }} />}
           {chat.unread > 0 && (
@@ -60,7 +64,7 @@ function ChatRowBase({ chat, t, meId, onPress, onLongPress }: { chat: Chat; t: T
                 alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginLeft: 8,
               }}
             >
-              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{chat.unread > 99 ? '99+' : chat.unread}</Text>
+              <Text style={{ color: t.onAccent, fontSize: 12, fontWeight: '700' }}>{chat.unread > 99 ? '99+' : chat.unread}</Text>
             </View>
           )}
         </View>

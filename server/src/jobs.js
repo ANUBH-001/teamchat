@@ -62,6 +62,12 @@ async function runPurge() {
     await pool.query('UPDATE checkin_prompts SET message_id = NULL WHERE message_id IN (?)', [part]);
     await pool.query('DELETE FROM messages WHERE id IN (?)', [part]);
   }
+  // Round 4: media files of purged messages are deleted with them (the dump above keeps media_url for reference), unless a
+  // newer message (a forward shares the file) or a profile photo still uses the same file
+  for (const url of new Set(data.messages.map((m) => m.media_url).filter(Boolean))) {
+    const [[used]] = await pool.query('SELECT (SELECT COUNT(*) FROM messages WHERE media_url = ?) + (SELECT COUNT(*) FROM users WHERE avatar_url = ?) n', [url, url]);
+    if (!Number(used.n)) require('./routes/media').removeFile(url);
+  }
   rt.sendToAll({ type: 'purged' });
   return { deleted: all.length, file: path.basename(file) };
 }
@@ -73,7 +79,7 @@ async function runReminders() {
   if (!days) return { reminded: 0 };
   const [rows] = await pool.query(
     `SELECT t.id FROM tasks t WHERE t.deleted_at IS NULL AND t.status NOT IN ('done', 'closed')
-       AND t.reminded_at IS NULL AND t.created_at <= NOW() - INTERVAL ? DAY ORDER BY t.id`, [days]);
+       AND t.private = 0 AND t.reminded_at IS NULL AND t.created_at <= NOW() - INTERVAL ? DAY ORDER BY t.id`, [days]);
   const [bosses] = await pool.query("SELECT id FROM users WHERE role = 'boss' AND active = 1");
   let n = 0;
   for (const r of rows) {
@@ -90,7 +96,7 @@ async function runReminders() {
       for (const a of pending) {
         const chatId = await checkins.ensureChat(a.id); // null for a boss
         if (chatId) {
-          await bot.postBot(chatId, 'Ye task ' + task.ageDays + ' din se pending hai, complete karo: "' + task.title + '" (#' + task.id + ')',
+          await bot.postBot(chatId, 'Ye task ' + task.ageDays + ' din se pending hai, complete karo: Task ' + task.id + ' - ' + task.title,
             { kind: 'reminder', task, days: task.ageDays, assigneeId: a.id }, null, [a.id]);
         }
       }

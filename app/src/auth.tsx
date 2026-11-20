@@ -6,6 +6,7 @@ import { isUpdateRequired, subscribeUpdate } from './updateStore';
 import { onKick, resetKick } from './sessionStore';
 import { onEvent } from './realtime';
 import { loadUsers, setUser as storeUser } from './userStore';
+import { warmMediaToken, clearMediaToken } from './media';
 
 type Ctx = {
   user: User | null;
@@ -28,6 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const doLogout = async () => {
     await endSession(); // stops socket, alerts, foreground service, reminders
     await clearToken();
+    clearMediaToken();
     setUser(null);
   };
 
@@ -44,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // my own name / emoji changed (PATCH /auth/me here or by the admin)
   useEffect(() => onEvent((e) => {
     const me = userRef.current;
-    if (e && e.type === 'user' && e.user && me && e.user.id === me.id) setUser({ ...me, name: e.user.name, avatarEmoji: e.user.avatarEmoji || null });
+    if (e && e.type === 'user' && e.user && me && e.user.id === me.id) setUser({ ...me, name: e.user.name, avatarEmoji: e.user.avatarEmoji || null, avatarUrl: e.user.avatarUrl !== undefined ? e.user.avatarUrl || null : me.avatarUrl });
   }), []);
 
   useEffect(() => {
@@ -53,6 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         if (await getToken()) {
           const r = await api<{ user: User }>('GET', '/auth/me');
+          await warmMediaToken();
           setUser(r.user);
           loadUsers();
         }
@@ -74,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const finish = async (r: { token: string; user: User }) => {
     await saveToken(r.token);
+    await warmMediaToken();
     resetKick();
     setUser(r.user);
     loadUsers();
@@ -91,7 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!me) return;
       const next = { ...me, ...u };
       setUser(next);
-      storeUser({ id: next.id, name: next.name, avatarEmoji: next.avatarEmoji || null, role: next.role });
+      storeUser({ id: next.id, name: next.name, avatarEmoji: next.avatarEmoji || null, avatarUrl: next.avatarUrl || null, role: next.role });
     },
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

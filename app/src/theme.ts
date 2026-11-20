@@ -1,38 +1,61 @@
+// Round 4: "Midnight Violet" theme (solid accent, no gradient). Old token names kept so old components compile.
+// `header` = top-bar background (white text on it); `primary` is the accent-like text/link color.
 export const light = {
-  primary: '#075E54',
-  accent: '#25D366',
-  bubbleOut: '#DCF8C6',
-  bubbleIn: '#FFFFFF',
-  background: '#ECE5DD',
+  primary: '#6C4CF5',
+  accent: '#6C4CF5',
+  accent2: '#6C4CF5', // sender names / links
+  header: '#6C4CF5',
+  onAccent: '#FFFFFF', // text/icons on accent, bubbleOut, header
+  bubbleOut: '#6C4CF5',
+  bubbleOutText: '#FFFFFF',
+  bubbleIn: '#EEEBFA',
+  background: '#FAFAFF',
+  wallpaper: '#FAFAFF',
   card: '#FFFFFF',
-  text: '#111B21',
-  subtext: '#667781',
-  border: '#E9EDEF',
-  soft: '#F0F2F5',
-  danger: '#E53935',
+  surface: '#F0EEFB',
+  soft: '#F0EEFB',
+  chip: '#E5DFFF',
+  chipText: '#4A2FD0',
+  text: '#14121F',
+  subtext: '#6C6884',
+  border: '#E4E1F2',
+  tickRead: '#6C4CF5',
+  danger: '#E5484D',
 };
 
-export const dark = {
-  primary: '#1F2C34',
-  accent: '#00A884',
-  bubbleOut: '#005C4B',
-  bubbleIn: '#202C33',
-  background: '#0B141A',
-  card: '#111B21',
-  text: '#E9EDEF',
-  subtext: '#8696A0',
-  border: '#222D34',
-  soft: '#1A252C',
-  danger: '#EF5350',
+export const dark: typeof light = {
+  primary: '#9C85FF',
+  accent: '#9C85FF',
+  accent2: '#B4A3FF',
+  header: '#1A1730',
+  onAccent: '#FFFFFF',
+  bubbleOut: '#6C4CF5',
+  bubbleOutText: '#FFFFFF',
+  bubbleIn: '#221E3B',
+  background: '#0E0C1A',
+  wallpaper: '#0E0C1A',
+  card: '#141226',
+  surface: '#1A1730',
+  soft: '#1A1730',
+  chip: '#2E2760',
+  chipText: '#DCD3FF',
+  text: '#EEEBFF',
+  subtext: '#9590B5',
+  border: '#2A2645',
+  tickRead: '#9C85FF',
+  danger: '#FF6369',
 };
 
 export type Theme = typeof light;
 
-export const tickRead = '#53BDEB';
-// 12 well-separated hues so an 11-person team rarely collides.
+export const tickRead = '#9C85FF';
+// Ticks on MY (violet) bubble: light colors so they stay visible on the accent.
+export const tickReadOnBubble = '#8FE9FF';
+export const tickOnBubble = 'rgba(255,255,255,0.7)';
+// 12 well-separated mid-tone hues (readable as name text on light + dark bubbles, and as avatar fills with white text).
 export const senderColors = [
-  '#E5484D', '#F76B15', '#C99A06', '#7FA200', '#30A46C', '#12A594',
-  '#00A2C7', '#0091FF', '#5B5BD6', '#8E4EC6', '#D6409F', '#A18072',
+  '#E0475B', '#E8702A', '#B8860B', '#6E9B00', '#2E9E6B', '#0F9D94',
+  '#0A8FB5', '#2F7DE1', '#8A5CE6', '#B84FC9', '#D6409F', '#A0765F',
 ];
 export const colorFor = (id: number) => senderColors[Math.abs(id) % senderColors.length];
 
@@ -44,3 +67,6 @@ export function tintFor(id: number, isDark: boolean) {
   const k = isDark ? 0.2 : 0.13;
   return '#' + c.map((v, i) => Math.round(v * k + base[i] * (1 - k)).toString(16).padStart(2, '0')).join('');
 }
+
+// Round 4: bottom tab bar style (App.tsx); ChatsScreen hides the bar inside a chat like WhatsApp
+export const tabBarStyleFor = (t: Theme) => ({ backgroundColor: t.card, borderTopColor: t.border, height: 64, paddingBottom: 8, paddingTop: 6 });

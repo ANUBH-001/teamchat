@@ -12,9 +12,9 @@ router.get('/users', async (req, res) => {
   try {
     const self = req.query.includeSelf === '1' || req.query.includeSelf === 'true';
     const [rows] = await pool.query(
-      'SELECT id, name, phone, role, avatar_emoji FROM users WHERE active = 1 AND is_bot = 0' + (self ? '' : ' AND id <> ?') + ' ORDER BY name',
+      'SELECT id, name, phone, role, avatar_emoji, avatar_url, profile_done FROM users WHERE active = 1 AND is_bot = 0' + (self ? '' : ' AND id <> ?') + ' ORDER BY name',
       self ? [] : [req.user.id]);
-    res.json({ users: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, role: r.role, avatarEmoji: r.avatar_emoji || null })) });
+    res.json({ users: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, role: r.role, avatarEmoji: r.avatar_emoji || null, avatarUrl: r.avatar_url || null, profileDone: !!r.profile_done })) });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -42,7 +42,7 @@ router.delete('/messages/:id', async (req, res) => {
     if (!m) return;
     const myEphemeral = m.visible_to === req.user.id;
     if (!myEphemeral) {
-      if (m.sender_id !== req.user.id || m.type !== 'text') return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
+      if (m.sender_id !== req.user.id || !['text', 'image', 'audio'].includes(m.type)) return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
       if (Number(m.age) > EDIT_WINDOW_S) return windowError(res);
     }
     if (!m.deleted_at) {
@@ -65,10 +65,13 @@ router.delete('/messages/:id', async (req, res) => {
 router.patch('/messages/:id', async (req, res) => {
   try {
     const text = String((req.body || {}).text || '').trim();
-    if (!text || text.length > 4000) return res.status(400).json({ error: 'Message is empty or too long' });
+    if (text.length > 4000) return res.status(400).json({ error: 'Message is empty or too long' });
     const m = await ownMessage(req, res);
     if (!m) return;
-    if (m.sender_id !== req.user.id || m.type !== 'text' || m.visible_to) return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
+    // Round 4: own photo / voice note caption can be edited too (caption may become empty); commands are never re-run
+    const isMedia = m.type === 'image' || m.type === 'audio';
+    if (!text && !isMedia) return res.status(400).json({ error: 'Message is empty or too long' });
+    if (m.sender_id !== req.user.id || (m.type !== 'text' && !isMedia) || m.visible_to) return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
     if (m.deleted_at) return res.status(400).json({ error: 'Message was deleted' });
     if (Number(m.age) > EDIT_WINDOW_S) return windowError(res);
     const { MSG_SELECT, formatMessage, resolveMentions, reactionsFor } = require('./chats');
@@ -85,7 +88,7 @@ router.patch('/messages/:id', async (req, res) => {
     res.json({ message });
     // Edit propagation (inside the 10-min window, author only, both enforced above): task title/description/due made
     // by this message, notes from it, and the cards attached to it. Status / assignees are never changed by an edit.
-    if (text !== m.body) {
+    if (text !== m.body && !isMedia) {
       const { tagged } = await resolveMentions(text, m.chat_id, req.body.mentionIds).catch(() => ({ tagged: [] }));
       setImmediate(() => require('../ai/commands').onSourceEdited(message, req.user, { tagged, oldText: m.body })
         .catch((e) => console.error('edit propagation:', e.message)));
@@ -118,7 +121,7 @@ async function sendReactions(m) {
 router.post('/messages/:id/reactions', async (req, res) => {
   try {
     const emoji = String((req.body || {}).emoji || '').trim();
-    if (!emoji || emoji.length > 16 || /\s/.test(emoji)) return res.status(400).json({ error: 'Invalid emoji' });
+    if (!emoji || emoji.length > 16 || /\s/.test(emoji) || /^[\p{L}\p{N}]+$/u.test(emoji)) return res.status(400).json({ error: 'Invalid emoji' });
     const m = await reactionTarget(req, res);
     if (!m) return;
     const [[mine]] = await pool.query(

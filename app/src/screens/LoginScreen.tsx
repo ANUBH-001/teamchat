@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, useColorScheme } from 'react-native';
-import { light, dark } from '../theme';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useTheme } from '../useTheme';
 import { useAuth } from '../auth';
 
 export default function LoginScreen() {
-  const t = useColorScheme() === 'dark' ? dark : light;
+  const t = useTheme();
   const { login, activate } = useAuth();
   const [mode, setMode] = useState<'login' | 'activate'>('login');
   const [phone, setPhone] = useState('');
@@ -47,7 +47,7 @@ export default function LoginScreen() {
       <TextInput style={input} placeholder={mode === 'login' ? 'PIN' : 'New PIN (4-6 digits)'}
         placeholderTextColor={t.subtext} keyboardType="number-pad" secureTextEntry maxLength={6}
         value={pin} onChangeText={setPin} />
-      {!!err && <Text style={{ color: '#D32F2F', marginBottom: 12 }}>{err}</Text>}
+      {!!err && <Text style={{ color: '#E5484D', marginBottom: 12 }}>{err}</Text>}
       <TouchableOpacity onPress={submit} disabled={busy}
         style={{ backgroundColor: t.accent, borderRadius: 24, padding: 14, alignItems: 'center' }}>
         {busy ? <ActivityIndicator color="#fff" /> :

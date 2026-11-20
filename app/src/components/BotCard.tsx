@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Theme } from '../theme';
 import { api } from '../api';
 import { Msg, BotPayload, TaskEventName } from '../chatTypes';
-import { OVERDUE_COLOR, Task, labelOf, colorOf, assigneeIdsOf, assigneeNamesOf, StepStatus } from '../taskTypes';
+import { OVERDUE_COLOR, Task, labelOf, colorOf, assigneeIdsOf, assigneeNamesOf, StepStatus, canTick } from '../taskTypes';
 import { usePublicSettings } from '../publicSettings';
 import { formatDue } from '../dates';
+import { dueLine } from '../taskFormat';
+import { useTaskState, ensureTask, putTask, applyTickTo, isBrief } from '../taskCache';
 import { toast } from '../useVoiceInput';
 import Avatar, { AvatarStack } from './Avatar';
 import Sheet from './Sheet';
-import StatusChips from './StatusChips';
+// Round 4: disabled (simple create->done): import StatusChips from './StatusChips';
+import StatusChips from './DoneChips';
 import TaskActionSheet from './TaskActionSheet';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -39,21 +42,19 @@ const names = (t: Task) => assigneeNamesOf(t).join(', ');
 export function headline(ev: TaskEventName | string, actor: string, t: Task) {
   const who = names(t);
   switch (ev) {
-    case 'created': return actor + ' assigned a task' + (who ? ' to ' + who : '');
-    case 'completed': return actor + ' completed a task';
-    case 'review': case 'testing': return actor + ' moved a task to Testing';
-    case 'planning': return actor + ' moved a task to Planning';
-    case 'coding': return actor + ' moved a task to Coding';
-    case 'change_merged': return actor + ': Change merged';
-    case 'done': return actor + ' ne apna part Done kiya';
-    case 'closed': case 'deleted': return actor + ' closed a task';
+    case 'created': return actor + ' assigned Task ' + t.id + (who ? ' to ' + who : '');
+    case 'completed': return actor + ' completed Task ' + t.id;
+    // Round 4: disabled (simple create->done): step events (testing / planning / coding / change_merged) now read as an update
+    case 'review': case 'testing': case 'planning': case 'coding': case 'change_merged': return actor + ' updated Task ' + t.id;
+    case 'done': return actor + ' ne apna part Done kiya (Task ' + t.id + ')';
+    case 'closed': case 'deleted': return actor + ' closed Task ' + t.id;
     case 'reopened': return actor + ' reopened a task';
     case 'answered': return actor + ' ne jawab diya';
     case 'reassigned': return actor + ' changed the people' + (who ? ': ' + who : '');
     case 'due': return actor + ' changed the due date';
     case 'note': return actor + ' added a note';
     case 'praise': return actor + ' praised ' + (who || 'the work');
-    default: return actor + ' updated a task';
+    default: return actor + ' updated Task ' + t.id;
   }
 }
 
@@ -98,7 +99,7 @@ function TaskLine({ task, t }: { task: Task; t: Theme }) {
         )}
         <Pill status={task.status} />
         <Text style={{ color: task.overdue && task.status !== 'done' ? t.danger : t.subtext, fontSize: 12, marginLeft: 8, flexShrink: 1 }}>
-          {names(task) || 'Unassigned'}{task.dueDate ? '  ·  ' + formatDue(task.dueDate) : ''}  ·  #{task.id}
+          {names(task) || 'Unassigned'}{task.dueDate ? '  ·  ' + dueLine(task).text : ''}  ·  Task {task.id}
         </Text>
       </View>
     </View>
@@ -162,14 +163,22 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
   const [undone, setUndone] = useState(false);
   const [praised, setPraised] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [tick, setTick] = useState<boolean | null>(null); // my checkbox on a task card
   const [picked, setPicked] = useState<number | null>(null);
   const [brief, setBrief] = useState(false); // short info sheet for a task I cannot open
   const [actions, setActions] = useState(false); // TaskActionSheet (ask card "Description")
   const [myStep, setMyStep] = useState<StepStatus | null>(null); // ask card: status I just set
   const p = msg.payload as BotPayload | null | undefined;
+  // Round 4: card shows the CURRENT task (shared cache: ws 'task' events + batched fetch), not the stored snapshot
+  const liveId = p && p.kind === 'task' && !msg.deleted ? p.task.id : null;
+  const live = useTaskState(liveId);
+  useEffect(() => { if (liveId != null) ensureTask(liveId); }, [liveId]);
   const frame = (color: string, body: React.ReactNode, onPress?: () => void) => (
     <Frame t={t} color={color} msg={msg} time={time} onLongPress={onLongPress} onPress={onPress} compact={compact} quote={quote}>{body}</Frame>
   );
+
+  // Round 4: AI answer cards are drawn by Bubble (chat screen), never here
+  if (p && (p as any).kind === 'ai_answer') return (msg.text ? frame(t.accent, <Text style={{ color: t.text, fontSize: 14 }}>{msg.text}</Text>) : null);
 
   if (msg.deleted) {
     return frame(t.border, <Text style={{ color: t.subtext, fontStyle: 'italic', fontSize: 14 }}>This message was deleted</Text>);
@@ -183,7 +192,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
   };
 
   const briefSheet = (task: Task) => (
-    <Sheet visible={brief} onClose={() => setBrief(false)} title={'#' + task.id}>
+    <Sheet visible={brief} onClose={() => setBrief(false)} title={'Task ' + task.id}>
       <View style={{ paddingHorizontal: 20, paddingBottom: 16 }}>
         <Text style={{ color: t.text, fontSize: 17, fontWeight: '700' }}>{task.title}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
@@ -198,7 +207,8 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
   if (p && p.kind === 'task') {
     const ev = eventOf(p);
     const meta = EVENT[ev] ?? EVENT.updated;
-    const task = p.task;
+    // full state when I can view the task; else only the brief's title + status over the snapshot (nothing private)
+    const task: Task = live ? (isBrief(live) ? { ...p.task, title: live.title, status: live.status } : live) : p.task;
     const gone = ev === 'deleted'; // old cards
     const closed = task.status === 'closed';
     const creator = task.createdBy === meId;
@@ -206,8 +216,23 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
     const canOpen = viewable(task, meId, isBoss);
     const canUndo = !undone && !gone && !closed && !['praise', 'note', 'closed', 'reopened', 'answered'].includes(ev) &&
       (ev === 'created' ? isBoss || creator : isBoss || mine);
-    const canPraise = !praised && !gone && ps.praiseEnabled && ['completed', 'done', 'review', 'testing', 'change_merged'].includes(ev) &&
-      (isBoss || creator) && !mine;
+    // Round 4: disabled (simple create->done): praise
+    // const canPraise = !praised && !gone && ps.praiseEnabled && ['completed', 'done', 'review', 'testing', 'change_merged'].includes(ev) && (isBoss || creator) && !mine;
+    const canPraise = false;
+    // Round 4: one Keep-style checkbox (my own tick; the admin who is not on the task ticks it for all)
+    const me_ = { id: meId, role: (isBoss ? 'boss' : 'member') as 'boss' | 'member' };
+    const showTick = !gone && !closed && !['praise', 'note', 'closed', 'reopened', 'answered', 'deleted'].includes(ev) && canTick(task, me_);
+    const myRow = (task.assignees || []).find((a) => a.id === meId);
+    const baseDone = myRow ? myRow.status === 'done' : task.status === 'done';
+    const tickedNow = baseDone;
+    const doTick = () => guard(async () => {
+      const before = task;
+      putTask(applyTickTo(task, myRow ? meId : null, !tickedNow)); // optimistic, shared by every card of this task
+      try {
+        const r = await api<{ task: Task }>('PATCH', '/tasks/' + task.id, { status: tickedNow ? 'todo' : 'done', ...(myRow ? { userId: meId } : {}) });
+        if (r && r.task) putTask(r.task);
+      } catch (e) { putTask(before); throw e; }
+    }, () => {});
     const people = peopleOf(task);
     return (
       <>
@@ -222,9 +247,16 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
                 <Text style={{ color: t.subtext, fontSize: 10, fontWeight: '700', borderWidth: 1, borderColor: t.border, borderRadius: 6, paddingHorizontal: 5, marginLeft: 6 }}>AI</Text>
               )}
             </View>
-            <Text numberOfLines={compact ? 2 : 3} style={{ color: t.text, fontSize: compact ? 14 : 15, fontWeight: '600', marginTop: 4, textDecorationLine: gone ? 'line-through' : 'none' }}>
-              {task.title}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginTop: 4 }}>
+              {showTick && (
+                <Pressable onPress={doTick} hitSlop={8} disabled={busy} style={{ marginRight: 8, marginTop: 1 }}>
+                  <Ionicons name={tickedNow ? 'checkbox' : 'square-outline'} size={22} color={tickedNow ? t.accent : t.subtext} />
+                </Pressable>
+              )}
+              <Text numberOfLines={compact ? 2 : 3} style={{ flex: 1, color: t.text, fontSize: compact ? 14 : 15, fontWeight: '600', textDecorationLine: gone || (showTick && tickedNow) ? 'line-through' : 'none' }}>
+                {task.title}
+              </Text>
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
               {!!task.project && (
                 <View style={{ backgroundColor: t.soft, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginRight: 8 }}>
@@ -234,7 +266,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
               {!gone && <Pill status={task.status} />}
               {people.length > 0 && <View style={{ marginLeft: 8 }}><AvatarStack people={people} size={compact ? 18 : 20} /></View>}
               <Text numberOfLines={1} style={{ color: task.overdue && task.status !== 'done' ? t.danger : t.subtext, fontSize: 12, marginLeft: 6, flexShrink: 1 }}>
-                {names(task) || 'Unassigned'}{task.dueDate ? '  ·  ' + formatDue(task.dueDate) : ''}  ·  #{task.id}
+                {names(task) || 'Unassigned'}{task.dueDate ? '  ·  ' + dueLine(task).text : ''}  ·  Task {task.id}
               </Text>
             </View>
             {!!p.note && (
@@ -284,7 +316,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
           >
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colorOf(x.status), marginRight: 10 }} />
             <Text numberOfLines={2} style={{ flex: 1, color: t.text, fontSize: 14 }}>{x.title}</Text>
-            <Text style={{ color: t.subtext, fontSize: 11, marginLeft: 8 }}>#{x.id}</Text>
+            <Text style={{ color: t.subtext, fontSize: 11, marginLeft: 8 }}>Task {x.id}</Text>
           </Pressable>
         ))}
       </View>
@@ -335,7 +367,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Ionicons name="help-circle" size={16} color="#34B7F1" />
               <Text numberOfLines={2} style={{ flex: 1, color: t.subtext, fontSize: 12, fontWeight: '600', marginLeft: 6 }}>
-                {(p.actorName || 'Someone') + ' ne status poocha' + (names(p.task) ? ' · ' + names(p.task) : '')}
+                {(p.actorName || 'Someone') + ' ne Task ' + p.task.id + ' ka status poocha' + (names(p.task) ? ' · ' + names(p.task) : '')}
               </Text>
             </View>
             <TaskLine task={p.task} t={t} />
@@ -348,7 +380,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
               {canOpen && <Action t={t} label="Open" onPress={() => onOpenTask(p.task.id)} />}
               {mineTask && !!onReply && !!msg.id && <Action t={t} label="Reply" onPress={() => onReply(msg)} />}
               {mineTask && <Action t={t} label="Description" onPress={() => setActions(true)} />}
-              {mineTask && !onReply && !!onPrefill && <Action t={t} label="Update" onPress={() => onPrefill('/update #' + p.task.id + ' ')} />}
+              {mineTask && !onReply && !!onPrefill && <Action t={t} label="Update" onPress={() => onPrefill('/update Task ' + p.task.id + ' ')} />}
             </View>
             {mineTask && <Text style={{ color: t.subtext, fontSize: 11, marginTop: 6 }}>Is card ko reply karke jawab likho (asker ko notification jayega)</Text>}
           </View>
@@ -392,7 +424,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
             <View style={{ flex: 1 }}>
               <Text numberOfLines={1} style={{ color: t.text, fontSize: 14 }}>{x.title}</Text>
               <Text numberOfLines={1} style={{ color: x.overdue && x.status !== 'done' ? t.danger : t.subtext, fontSize: 12 }}>
-                {'#' + x.id + '  ·  ' + (x.assigneeName || 'Unassigned')}{x.dueDate ? '  ·  ' + formatDue(x.dueDate) : ''}
+                {'Task ' + x.id + '  ·  ' + (x.assigneeName || 'Unassigned')}{x.dueDate ? '  ·  ' + formatDue(x.dueDate) : ''}
               </Text>
             </View>
             <Pill status={x.status} />

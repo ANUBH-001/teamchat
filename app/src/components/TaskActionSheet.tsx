@@ -7,7 +7,8 @@ import { canClose, canView, isAssignee, myStatusOf, STATUS_COLOR, STATUS_LABEL, 
 import { formatDue, isoDay, nextDow } from '../dates';
 import { toast } from '../useVoiceInput';
 import Sheet, { SheetRow } from './Sheet';
-import StatusChips from './StatusChips';
+// Round 4: disabled (simple create->done): import StatusChips from './StatusChips';
+import StatusChips from './DoneChips';
 import PeoplePickSheet from './PeoplePickSheet';
 import { AvatarStack } from './Avatar';
 
@@ -84,7 +85,7 @@ export default function TaskActionSheet({ visible, onClose, taskId, task: given,
     <View style={{ paddingHorizontal: 20, paddingBottom: 10 }}>
       <Text style={{ color: t.text, fontSize: 17, fontWeight: '700' }} numberOfLines={3}>{task.title}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
-        <Text style={{ color: t.subtext, fontSize: 12, marginRight: 8 }}>#{task.id}</Text>
+        <Text style={{ color: t.subtext, fontSize: 12, marginRight: 8 }}>Task {task.id}</Text>
         <View style={{ backgroundColor: STATUS_COLOR[task.status], borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginRight: 8 }}>
           <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{STATUS_LABEL[task.status]}</Text>
         </View>
@@ -154,7 +155,7 @@ export default function TaskActionSheet({ visible, onClose, taskId, task: given,
       </Sheet>
       {task && (
         <PeoplePickSheet
-          visible={visible && mode === 'people'} onClose={() => setMode('main')} title={'#' + task.id + ' ke log'} meId={me.id}
+          visible={visible && mode === 'people'} onClose={() => setMode('main')} title={'Task ' + task.id + ' ke log'} meId={me.id}
           initial={(task.assignees || []).map((a) => a.id)}
           onSave={(ids) => patch({ assigneeIds: ids }, 'Saved')}
         />

@@ -53,7 +53,7 @@ export default function NewChatScreen({
 
   return (
     <View style={{ flex: 1, backgroundColor: t.card }}>
-      <View style={{ backgroundColor: t.primary, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ backgroundColor: t.header, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}>
         <Pressable onPress={step === 'name' ? () => setStep('pick') : onBack} hitSlop={10} style={{ paddingRight: 12 }}>
           <Text style={{ color: '#fff', fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
         </Pressable>

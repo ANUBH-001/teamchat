@@ -13,6 +13,7 @@ const provider = require('./provider');
 const { bestMatches, cleanToken } = require('./names');
 const rt = require('../realtime');
 const bot = require('./bot');
+const DT = require('./dueTime');
 
 const CMD_RE = /^\/([a-z][a-z_-]*)(?:\s+([\s\S]*))?$/i;
 const ALIASES = {
@@ -20,28 +21,38 @@ const ALIASES = {
   'reassign-task': 'reassign', review: 'testing', mytask: 'mytasks', 'my-tasks': 'mytasks', list: 'tasks', 'new-task': 'task',
   description: 'desc', start: 'coding', doing: 'coding', plan: 'planning', merge: 'merged', 'change-merged': 'merged',
   change_merged: 'merged', delete: 'close', add: 'assign', remove: 'unassign',
+  re: 'reassign', // Round 4: /re = /reassign
 };
+// Round 4: disabled (simple create->done): /update /planning /coding /testing /merged /status /assign /unassign /ask /desc /close /reopen /due
 const HELP = [
-  { cmd: '/task', args: '@naam [@naam2] <kaam> [due kal|fri|25 nov]', desc: 'Naya task (ek ya zyada log; "khud" / naam nahi = apne liye)' },
-  { cmd: '/update', args: '[#id] <note>', desc: 'Progress note ("plan kar raha" = Planning, "code kar raha" = Coding, "testing baaki" = Testing, "merge ho gaya" = Change merged, "ho gaya" = Done)' },
-  { cmd: '/planning', args: '[#id] [note]', desc: 'Mera status: Planning' },
-  { cmd: '/coding', args: '[#id] [note]', desc: 'Mera status: Coding (/start)' },
-  { cmd: '/testing', args: '[#id] [note]', desc: 'Mera status: Testing' },
-  { cmd: '/merged', args: '[#id] [note]', desc: 'Mera status: Change merged' },
-  { cmd: '/done', args: '[#id] [@naam] [note]', desc: 'Mera part Done (admin/banane wala: sabka, ya sirf @naam ka)' },
-  { cmd: '/status', args: '#id <step>', desc: 'Status badlo (todo, planning, coding, testing, merged, done); step nahi = /ask' },
-  { cmd: '/assign', args: '#id @naam', desc: 'Task mein aur log jodo' },
-  { cmd: '/unassign', args: '#id @naam', desc: 'Task se kisi ko hatao (kam se kam ek bacha rahe)' },
-  { cmd: '/reassign', args: '#id @naam [@naam2]', desc: 'Task naye logon ko do (purane hat jayenge)' },
-  { cmd: '/due', args: '#id <date>', desc: 'Due date badlo (aaj, kal, parso, fri, 25 nov, 2026-11-30, none)' },
-  { cmd: '/close', args: '#id [reason]', desc: 'Task band karo (banane wala ya admin; /delete bhi chalega)' },
-  { cmd: '/reopen', args: '#id', desc: 'Band task wapas kholo' },
-  { cmd: '/ask', args: '#id', desc: 'Jinka task hai unse status poochho (notification jayega; card ko reply karke jawab)' },
-  { cmd: '/desc', args: '#id <text>', desc: 'Task ka description badlo (ya task card ko reply karke "desc: ...")' },
+  { cmd: '/task', args: '@naam [@naam2] <kaam> [due kal 5 pm|fri|25 nov]', desc: 'Naya task (sirf admin). Ek ya zyada log = ek task, sabke naam. Naam nahi = apna private task' },
+  { cmd: '/done', args: '[Task N] [@naam]', desc: 'Task Done (admin: sabke liye ya sirf @naam ka, jiska task hai: apna part)' },
+  { cmd: '/re', args: 'Task N @naam [@naam2]', desc: 'Task kisi aur ko do (sirf admin). Ek insaan ho to badal jata hai; kai hon to "@Anubhav @Uzair" = Anubhav se Uzair ko' },
   { cmd: '/tasks', args: '[naam]', desc: 'Open tasks (sabke ya ek insaan ke)' },
   { cmd: '/mytasks', args: '', desc: 'Mere open tasks' },
-  { cmd: '/help', args: '', desc: 'Saare commands. Task card ya "#12" wale message ko reply = us task ka note (DM ke notes bhi task timeline par dikhte hain)' },
+  { cmd: '/help', args: '', desc: 'Saare commands. Task card ko reply = us task ka note. "@AI <sawal>" ya "/ai <sawal>" = AI se poochho' },
 ];
+// const HELP = [
+//   { cmd: '/task', args: '@naam [@naam2] <kaam> [due kal 5 pm|fri|25 nov]', desc: 'Naya task (ek ya zyada log; "khud" / naam nahi = apne liye)' },
+//   { cmd: '/update', args: '[#id] <note>', desc: 'Progress note ("plan kar raha" = Planning, "code kar raha" = Coding, "testing baaki" = Testing, "merge ho gaya" = Change merged, "ho gaya" = Done)' },
+//   { cmd: '/planning', args: '[#id] [note]', desc: 'Mera status: Planning' },
+//   { cmd: '/coding', args: '[#id] [note]', desc: 'Mera status: Coding (/start)' },
+//   { cmd: '/testing', args: '[#id] [note]', desc: 'Mera status: Testing' },
+//   { cmd: '/merged', args: '[#id] [note]', desc: 'Mera status: Change merged' },
+//   { cmd: '/done', args: '[#id] [@naam] [note]', desc: 'Mera part Done (admin/banane wala: sabka, ya sirf @naam ka)' },
+//   { cmd: '/status', args: '#id <step>', desc: 'Status badlo (todo, planning, coding, testing, merged, done); step nahi = /ask' },
+//   { cmd: '/assign', args: '#id @naam', desc: 'Task mein aur log jodo' },
+//   { cmd: '/unassign', args: '#id @naam', desc: 'Task se kisi ko hatao (kam se kam ek bacha rahe)' },
+//   { cmd: '/reassign', args: '#id @naam [@naam2]', desc: 'Task naye logon ko do (purane hat jayenge)' },
+//   { cmd: '/due', args: '#id <date>', desc: 'Due date badlo (aaj, kal, parso, fri, 25 nov, 2026-11-30, none)' },
+//   { cmd: '/close', args: '#id [reason]', desc: 'Task band karo (banane wala ya admin; /delete bhi chalega)' },
+//   { cmd: '/reopen', args: '#id', desc: 'Band task wapas kholo' },
+//   { cmd: '/ask', args: '#id', desc: 'Jinka task hai unse status poochho (notification jayega; card ko reply karke jawab)' },
+//   { cmd: '/desc', args: '#id <text>', desc: 'Task ka description badlo (ya task card ko reply karke "desc: ...")' },
+//   { cmd: '/tasks', args: '[naam]', desc: 'Open tasks (sabke ya ek insaan ke)' },
+//   { cmd: '/mytasks', args: '', desc: 'Mere open tasks' },
+//   { cmd: '/help', args: '', desc: 'Saare commands. Task card ya "#12" wale message ko reply = us task ka note (DM ke notes bhi task timeline par dikhte hain)' },
+// ];
 const LABEL = S.LABEL;
 const PERSON_FILLER = new Set(['tumko', 'tumhe', 'tumhein', 'tujhe', 'tum', 'aapko', 'apko', 'aap', 'ko', 'ji', 'bhai', 'sir', 'ne',
   'ka', 'ki', ':', '-', ',']);
@@ -89,7 +100,9 @@ function parseDate(raw) {
   return out && out < today ? realDate(thisYear + 1, m, d) : out;
 }
 
-// Pull "due <date>", "by/till <date>" or "<date> tak" out of free text -> {text, date, bad}. bad = "due" with no date.
+// Pull "due <date> [time]", "by/till <date> [time]" or "<date> [time] tak" out of free text -> {text, date, bad}.
+// date = 'YYYY-MM-DD' or 'YYYY-MM-DD HH:mm' (Round 4: times like "5 baje", "5 pm", "17:30", "subah 10", "shaam 6", "raat 9").
+// bad = "due" with no date.
 function extractDue(text) {
   const w = text.split(/\s+/).filter(Boolean);
   let found = null; let bad = false;
@@ -100,17 +113,38 @@ function extractDue(text) {
         const part = w.slice(i + 1, i + 1 + n);
         if (part.length !== n) continue;
         let end = i + 1 + n;
-        if ((w[end] || '').toLowerCase() === 'tak') end++;
         const date = parseDate(part.join(' '));
-        if (date) { found = { start: i, end, date }; break; }
+        if (!date) continue;
+        const tm = DT.parseTimeAt(w, end);
+        if (tm) end += tm.len;
+        if ((w[end] || '').toLowerCase() === 'tak') end++;
+        found = { start: i, end, date: DT.join(date, tm && tm.time) }; break;
       }
       if (!found && k === 'due') bad = true;
     } else if (k === 'tak' && i > 0) {
-      for (let n = 2; n >= 1; n--) {
-        if (i - n < 0) continue;
-        const date = parseDate(w.slice(i - n, i).join(' '));
-        if (date) { found = { start: i - n, end: i + 1, date }; break; }
+      let tm = null; let e = i; // optional time right before "tak"
+      for (let tl = 3; tl >= 1 && !tm; tl--) {
+        if (i - tl < 1) continue;
+        const r = DT.parseTimeAt(w, i - tl);
+        if (r && r.len === tl) { tm = r; e = i - tl; }
       }
+      for (let n = 2; n >= 1; n--) {
+        if (e - n < 0) continue;
+        const date = parseDate(w.slice(e - n, e).join(' '));
+        if (date) { found = { start: e - n, end: i + 1, date: DT.join(date, tm && tm.time) }; break; }
+      }
+    }
+  }
+  if (!found && !bad) { // Round 4: trailing "... kal shaam 6 baje" / "... aaj 5 pm" / "... 17:30" without the word "due"
+    const REL = /^(aaj|today|kal|tomorrow|tmrw|parso|parson|monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i;
+    for (let n = 4; n >= 1 && !found; n--) {
+      const s0 = w.length - n;
+      if (s0 < 1) continue; // keep at least one word for the task itself
+      let date = null; let i = s0;
+      if (REL.test(w[s0])) { date = parseDate(w[s0]); i = s0 + 1; }
+      const tm = i < w.length ? DT.parseTimeAt(w, i) : null;
+      if (tm && i + tm.len === w.length) found = { start: s0, end: w.length, date: DT.join(date || T.today(), tm.time) };
+      else if (!tm && date && i === w.length) found = { start: s0, end: w.length, date };
     }
   }
   if (!found) return { text: w.join(' '), date: null, bad };
@@ -341,7 +375,7 @@ async function pickFor(ctx, command, pp, arg, pre) {
 
 // ---------- tasks ----------
 function hashId(args) {
-  const m = args.match(/(^|\s)#(\d{1,9})(?=\s|$)/);
+  const m = args.match(/(^|\s)(?:#|task\s*#?\s*)(\d{1,9})(?=\s|$)/i); // "#22" or "Task 22" (Round 4)
   if (!m) return { id: null, rest: args.trim() };
   return { id: Number(m[2]), rest: (args.slice(0, m.index) + ' ' + args.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim() };
 }
@@ -359,7 +393,7 @@ const info = (ctx, text) => bot.infoCard(ctx.chatId, ctx.user.id, text);
 
 function picker(ctx, command, list, arg) {
   const text = 'Kaunsa task? Tap karein:';
-  const body = text + '\n' + list.map((t) => '#' + t.id + ' ' + t.title).join('\n');
+  const body = text + '\n' + list.map((t) => 'Task ' + t.id + ' - ' + t.title).join('\n');
   return bot.ephemeral(ctx.chatId, ctx.user.id, body, { kind: 'picker', command, text, tasks: list.map(brief), ...(arg ? { arg } : {}) });
 }
 
@@ -414,12 +448,18 @@ async function cmdTask(ctx, args) {
   const pp = await peopleIn(ctx, words, true);
   const again = () => pp.rest.join(' ') + (due.date ? ' due ' + due.date : '');
   if (pp.problem) return pickFor(ctx, 'task', pp, again(), '');
-  const assignees = pp.people.length ? pp.people : [meOf(ctx)];
-  const body = (pp.people.length ? pp.rest : words).join(' ').trim();
+  // Round 4: no person recognised = NOT a self task (only me / khud / mujhe ... make one): ask who, with "(Me)" first
+  if (!pp.people.length) {
+    if (!T.canCreate(ctx.user, [ctx.user.id])) return err(ctx, 'NOT_ALLOWED', 'Task sirf admin bana sakta hai. Aap apne tasks ko /done kar sakte hain.');
+    return userPicker(ctx, 'task', cleanToken(words[0] || ''), await everyoneFor(ctx, true), again(), '', true);
+  }
+  const assignees = pp.people;
+  const body = pp.rest.join(' ').trim();
   if (!body) return err(ctx, 'BAD_COMMAND', 'Kaam bhi likhiye. Jaise: /task ' + (pp.people.length ? firstName(pp.people[0].name).toLowerCase() : 'anubhav') + ' login page fix karna hai');
   const ids = assignees.map((p) => p.id);
+  // Round 4: only the admin creates / assigns tasks (members: /done on their own tasks)
   if (!T.canCreate(ctx.user, ids)) {
-    return err(ctx, 'NOT_ALLOWED', 'Dusron ke liye task banane ki permission abhi band hai (Admin Settings). Apne liye bana sakte hain: /task khud <kaam>');
+    return err(ctx, 'NOT_ALLOWED', 'Task sirf admin bana sakta hai. Aap apne tasks ko /done kar sakte hain.');
   }
   const tt = await provider.taskTitle(body);
   const task = await T.createTask({
@@ -456,7 +496,7 @@ async function cmdWork(ctx, args, command) {
   if (command === 'update' && !rest) return err(ctx, 'BAD_COMMAND', 'Note bhi likhiye. Jaise: /update #12 filter laga diya, testing baaki hai');
   const task = await resolveTask(ctx, command, id, rest);
   if (!task) return;
-  if (task.status === 'closed') return info(ctx, 'Task #' + task.id + ' closed hai. /reopen #' + task.id + ' se wapas kholiye.');
+  if (task.status === 'closed') return info(ctx, 'Task ' + task.id + ' closed hai.');
   if (!T.canWork(task, ctx.user) && !T.canDescribe(task, ctx.user)) throw new T.TaskError(403, 'Not allowed');
   const f = {};
   if (rest) f.note = rest.slice(0, 1000);
@@ -465,10 +505,10 @@ async function cmdWork(ctx, args, command) {
     f.status = status;
     if (who.length) f.userIds = who.map((p) => p.id);
   } else if (forced) throw new T.TaskError(403, 'Not allowed');
-  if (!Object.keys(f).length) return info(ctx, 'Task #' + task.id + ': kuch badla nahi.');
+  if (!Object.keys(f).length) return info(ctx, 'Task ' + task.id + ': kuch badla nahi.');
   const r = await T.applyUpdate(task.id, f, ctx.user, 'command', ctx.message.id);
   await link(ctx, task.id);
-  if (!r.changed) return info(ctx, 'Task #' + task.id + ' pehle se ' + (LABEL[status] || status) + ' hai.');
+  if (!r.changed) return info(ctx, 'Task ' + task.id + ' pehle se ' + (LABEL[status] || status) + ' hai.');
   await card(ctx, r, rest ? { note: rest.slice(0, 1000) } : {});
 }
 
@@ -482,10 +522,29 @@ async function cmdPeople(ctx, args, command) {
   if (pp.problem) return pickFor(ctx, command, pp, '', '#' + task.id);
   if (!pp.people.length) return userPicker(ctx, command, rest.slice(0, 40), await everyoneFor(ctx, true), '', '#' + task.id, true);
   const ids = pp.people.map((p) => p.id);
+  if (command === 'reassign') return reassign(ctx, task, pp.people);
   const f = command === 'assign' ? { addAssigneeIds: ids } : command === 'unassign' ? { removeAssigneeIds: ids } : { assigneeIds: ids };
   const r = await T.applyUpdate(task.id, f, ctx.user, 'command', ctx.message.id);
   await link(ctx, task.id);
-  if (!r.changed) return info(ctx, 'Task #' + task.id + ' mein koi badlaav nahi hua (log pehle se wahi hain).');
+  if (!r.changed) return info(ctx, 'Task ' + task.id + ' mein koi badlaav nahi hua (log pehle se wahi hain).');
+  await card(ctx, r);
+}
+
+// Round 4 /re: "/re Task 22 @Uzair" = the only assignee is replaced; with several assignees "@Anubhav @Uzair" = move
+// from Anubhav (a current assignee) to Uzair. Admin only (tasks.js canManage). Others stay as they are.
+async function reassign(ctx, task, named) {
+  if (!T.canManage(task, ctx.user)) throw new T.TaskError(403, 'Not allowed');
+  const cur = task.assignees.map((a) => a.id);
+  let from = named.filter((p) => cur.includes(p.id));
+  const to = named.filter((p) => !cur.includes(p.id));
+  if (!from.length && cur.length === 1) from = task.assignees;
+  if (!to.length) return info(ctx, 'Task ' + task.id + ': kisko dena hai? Jaise /re Task ' + task.id + ' @naam');
+  if (!from.length) {
+    return info(ctx, 'Task ' + task.id + ' ke kai log hain (' + task.assignees.map((a) => a.name).join(', ') + '). Kisse hatana hai? Jaise /re Task ' + task.id + ' @' + firstName(task.assignees[0].name) + ' @' + firstName(to[0].name));
+  }
+  const r = await T.applyUpdate(task.id, { addAssigneeIds: to.map((p) => p.id), removeAssigneeIds: from.map((p) => p.id) }, ctx.user, 'command', ctx.message.id);
+  await link(ctx, task.id);
+  if (!r.changed) return info(ctx, 'Task ' + task.id + ' mein koi badlaav nahi hua.');
   await card(ctx, r);
 }
 
@@ -530,7 +589,7 @@ async function cmdDesc(ctx, args) {
   if (!task) return;
   const r = await T.applyUpdate(task.id, { description: rest.slice(0, 4000) }, ctx.user, 'command', ctx.message.id);
   await link(ctx, task.id);
-  if (!r.changed) return info(ctx, 'Task #' + task.id + ' ka description pehle se yahi hai.');
+  if (!r.changed) return info(ctx, 'Task ' + task.id + ' ka description pehle se yahi hai.');
   await card(ctx, r, { note: 'Description: ' + rest.slice(0, 300) });
 }
 
@@ -541,16 +600,16 @@ async function cmdAsk(ctx, args) {
   if (!id) return err(ctx, 'BAD_COMMAND', 'Task number likhiye: /ask #12 (ya @ button se person chuniye)');
   const task = await T.getTask(id);
   if (!T.canView(task, ctx.user)) throw new T.TaskError(403, 'Not allowed');
-  if (task.status === 'closed') return info(ctx, 'Task #' + id + ' closed hai.');
+  if (task.status === 'closed') return info(ctx, 'Task ' + id + ' closed hai.');
   const targets = task.assignees.filter((a) => a.status !== 'done' && a.id !== ctx.user.id);
-  if (!targets.length) return info(ctx, task.status === 'done' ? 'Task #' + id + ' pehle se Done hai.' : 'Task #' + id + ' aapka hi hai.');
+  if (!targets.length) return info(ctx, task.status === 'done' ? 'Task ' + id + ' pehle se Done hai.' : 'Task ' + id + ' aapka hi hai.');
   const askId = await T.event(task.id, ctx.user, 'ask', null, targets.map((a) => a.name).join(', '), 'command', ctx.message.id);
   await link(ctx, task.id);
   const inChat = []; const outChat = [];
   for (const a of targets) ((await rt.isChatMember(ctx.chatId, a.id)) ? inChat : outChat).push(a);
   const base = { kind: 'ask', task, actorId: ctx.user.id, actorName: ctx.user.name, askId, askerId: ctx.user.id };
   const text = (list) => list.map((a) => '@' + firstName(a.name)).join(' ') + ', ' + ctx.user.name + ' pooch rahe hain: "' + task.title +
-    '" (#' + id + ') ka status kya hai?';
+    '" (Task ' + id + ') ka status kya hai?';
   if (inChat.length) {
     await bot.postBot(ctx.chatId, text(inChat), { ...base, assigneeId: inChat[0].id, assigneeIds: inChat.map((a) => a.id), replyTo: ctx.message.id },
       null, inChat.map((a) => a.id));
@@ -568,7 +627,7 @@ function listCard(ctx, title, tasks) {
   const lines = [title + ' (' + tasks.length + ')'];
   for (const t of tasks) {
     const who = namesOf(t);
-    lines.push('#' + t.id + ' ' + t.title + (who ? ' - ' + who : '') + ' [' + (LABEL[t.status] || t.status) + ']' + (t.dueDate ? ' due ' + t.dueDate : ''));
+    lines.push('Task ' + t.id + ' - ' + t.title + (who ? ' - ' + who : '') + ' [' + (LABEL[t.status] || t.status) + ']' + (t.dueDate ? ' due ' + DT.fmtDue(t.dueDate, t.dueAt) : ''));
   }
   if (!tasks.length) lines.push('Koi open task nahi.');
   const slim = tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, assigneeName: namesOf(t) || null, dueDate: t.dueDate || null,
@@ -600,11 +659,11 @@ function cmdHelp(ctx) {
   return bot.ephemeral(ctx.chatId, ctx.user.id, body, { kind: 'help', commands: HELP });
 }
 
-const HANDLERS = {
-  task: cmdTask, update: cmdWork, done: cmdWork, testing: cmdWork, planning: cmdWork, coding: cmdWork, merged: cmdWork, status: cmdWork,
-  assign: cmdPeople, unassign: cmdPeople, reassign: cmdPeople, due: cmdDue, close: cmdClose, reopen: cmdReopen,
-  desc: cmdDesc, ask: cmdAsk, tasks: cmdTasks, mytasks: cmdMyTasks, help: cmdHelp,
-};
+// Round 4: disabled (simple create->done): update, testing, planning, coding, merged, status, assign, unassign, due, close, reopen, desc, ask
+// const HANDLERS = { task: cmdTask, update: cmdWork, done: cmdWork, testing: cmdWork, planning: cmdWork, coding: cmdWork, merged: cmdWork,
+//   status: cmdWork, assign: cmdPeople, unassign: cmdPeople, reassign: cmdPeople, due: cmdDue, close: cmdClose, reopen: cmdReopen,
+//   desc: cmdDesc, ask: cmdAsk, tasks: cmdTasks, mytasks: cmdMyTasks, help: cmdHelp };
+const HANDLERS = { task: cmdTask, done: cmdWork, reassign: cmdPeople, tasks: cmdTasks, mytasks: cmdMyTasks, help: cmdHelp };
 
 function friendly(e) {
   if (e.status === 403) return 'Ye aap nahi kar sakte (sirf admin, task banane wala ya jiska task hai).';
@@ -748,7 +807,7 @@ async function refreshCards(sourceId, taskIds) {
     p.task = task;
     p.edited = true;
     const who = task.assignees.map((a) => a.name).join(', ');
-    const body = (bot.EVENT_TEXT[p.event] || 'Task') + ': ' + task.title + ' #' + task.id + (who ? ' (' + who + ')' : '') + (p.note ? '\n' + p.note : '');
+    const body = (bot.EVENT_TEXT[p.event] || 'Task') + ': Task ' + task.id + ' - ' + task.title + (who ? ' (' + who + ')' : '') + (p.note ? '\n' + p.note : '');
     await pool.query('UPDATE messages SET payload = ?, body = ? WHERE id = ?', [JSON.stringify(p), body.slice(0, 4000), c.id]);
     const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [c.id]);
     const ev = { type: 'edited', chatId: c.chat_id, message: formatMessage(row, { role: 'member' }) };

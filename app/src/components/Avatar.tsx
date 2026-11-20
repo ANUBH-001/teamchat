@@ -1,7 +1,9 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import { colorFor } from '../theme';
+import { Image } from 'expo-image';
 import { useUser } from '../userStore';
+import { useMediaSrc } from '../media';
 
 export function initials(name: string) {
   const first = (w?: string) => Array.from(w ?? '').find((c) => /[\p{L}\p{N}]/u.test(c)) ?? '';
@@ -15,16 +17,19 @@ function AvatarBase({ name, id, size = 48, userId, emoji }: { name: string; id: 
   const u = useUser(userId || null);
   const e = (u && u.avatarEmoji) || emoji || null;
   const label = (u && u.name) || name;
+  const photo = useMediaSrc((u && u.avatarUrl) || null); // Round 4: DP photo wins over emoji / initials
   return (
     <View
       style={{
         width: size, height: size, borderRadius: size / 2,
-        backgroundColor: e ? colorFor(userId || id) + '33' : colorFor(userId || id), alignItems: 'center', justifyContent: 'center',
+        overflow: 'hidden', backgroundColor: photo ? 'transparent' : e ? colorFor(userId || id) + '33' : colorFor(userId || id), alignItems: 'center', justifyContent: 'center',
       }}
     >
-      {e
+      {photo
+        ? <Image source={{ uri: photo }} style={{ width: size, height: size, borderRadius: size / 2 }} contentFit="cover" />
+        : e
         ? <Text style={{ fontSize: size * 0.55 }}>{e}</Text>
-        : <Text style={{ color: '#fff', fontWeight: '600', fontSize: size * 0.38 }}>{initials(label)}</Text>}
+        : <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: size * 0.38 }}>{initials(label)}</Text>}
     </View>
   );
 }
@@ -38,11 +43,11 @@ export function AvatarStack({ people, size = 22, max = 3 }: { people: { id: numb
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
       {shown.map((p, i) => (
-        <View key={p.id} style={{ marginLeft: i ? -size * 0.3 : 0, borderRadius: size, borderWidth: 1.5, borderColor: '#fff' }}>
+        <View key={p.id} style={{ marginLeft: i ? -size * 0.3 : 0, borderRadius: size, borderWidth: 1.5, borderColor: '#FFFFFF' }}>
           <AvatarBase name={p.name} id={p.id} userId={p.id} emoji={p.avatarEmoji || null} size={size} />
         </View>
       ))}
-      {more > 0 && <Text style={{ fontSize: 11, color: '#8696A0', marginLeft: 4 }}>+{more}</Text>}
+      {more > 0 && <Text style={{ fontSize: 11, color: '#9590B5', marginLeft: 4 }}>+{more}</Text>}
     </View>
   );
 }

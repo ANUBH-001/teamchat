@@ -5,13 +5,15 @@ import { useTheme } from '../useTheme';
 import { api } from '../api';
 import { CheckinToday, DayTask } from '../chatTypes';
 import { OVERDUE_COLOR, StepStatus, STATUS_COLOR } from '../taskTypes';
-import StatusChips from './StatusChips';
+// Round 4: disabled (simple create->done): import StatusChips from './StatusChips';
+import StatusChips from './DoneChips';
 import { formatDue } from '../dates';
 import { loadCheckinToday, onCheckinToday, peekCheckinToday } from '../checkinStore';
 import { useLiveRefresh } from '../useLive';
 
 // Old keys (old payloads) are shown as their new step.
-const norm = (st: string): StepStatus => (st === 'in_progress' ? 'coding' : st === 'review' ? 'testing' : st === 'closed' ? 'done' : (st as StepStatus));
+// Round 4: disabled (simple create->done): old 6-step mapping. Now only Done / Not done.
+const norm = (st: string): StepStatus => (st === 'done' || st === 'closed' ? 'done' : 'todo');
 
 export function Flags({ task }: { task: DayTask }) {
   const t = useTheme();
@@ -23,7 +25,7 @@ export function Flags({ task }: { task: DayTask }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
       <Text style={{ color: task.overdue ? t.danger : t.subtext, fontSize: 12 }}>
-        #{task.id}{task.project ? '  ·  ' + task.project : ''}{task.dueDate ? '  ·  ' + formatDue(task.dueDate) : ''}
+        Task {task.id}{task.project ? '  ·  ' + task.project : ''}{task.dueDate ? '  ·  ' + formatDue(task.dueDate) : ''}
       </Text>
       {!!task.overdue && tag('Overdue', OVERDUE_COLOR)}
       {!!task.stale && tag((task.ageDays ?? 6) + '+ din', '#F5A623')}

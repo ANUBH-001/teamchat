@@ -6,10 +6,10 @@ let cache = null;
 let loading = null;
 
 async function load() {
-  const [rows] = await pool.query('SELECT id, name, role, active, is_bot, avatar_emoji FROM users');
+  const [rows] = await pool.query('SELECT id, name, role, active, is_bot, avatar_emoji, avatar_url, profile_done FROM users');
   const m = new Map();
   for (const r of rows) {
-    m.set(r.id, { id: r.id, name: r.name, role: r.role, active: !!r.active, isBot: !!r.is_bot, avatarEmoji: r.avatar_emoji || null });
+    m.set(r.id, { id: r.id, name: r.name, role: r.role, active: !!r.active, isBot: !!r.is_bot, avatarEmoji: r.avatar_emoji || null, avatarUrl: r.avatar_url || null, profileDone: !!r.profile_done });
   }
   return m;
 }
@@ -56,6 +56,7 @@ function cleanEmoji(v) {
 }
 
 // {name?, avatarEmoji?} -> {sets, vals, changes} for UPDATE users (throws UserError).
+const fileExists = (f) => !!f && require('fs').existsSync(f);
 async function profileUpdate(body, userId) {
   const sets = []; const vals = []; const changes = {};
   if (body.name !== undefined) {
@@ -67,14 +68,25 @@ async function profileUpdate(body, userId) {
     const e = cleanEmoji(body.avatarEmoji);
     sets.push('avatar_emoji = ?'); vals.push(e); changes.avatarEmoji = e;
   }
+  if (body.avatarUrl !== undefined) { // Round 4: uploaded photo (POST /media) or null to clear
+    const u = body.avatarUrl;
+    if (u !== null && !(typeof u === 'string' && u.startsWith('/media/f/') && u.length <= 255 && fileExists(require('./routes/media').resolvePath(u)))) {
+      throw new UserError(400, 'Invalid avatarUrl', 'BAD_AVATAR');
+    }
+    sets.push('avatar_url = ?'); vals.push(u); changes.avatarUrl = u;
+  }
+  // Round 4 onboarding: name / avatar saved from the onboarding screen, or an explicit {profileDone:true}, finishes it
+  if (body.profileDone === true || (body.onboarding === true && (body.name !== undefined || body.avatarUrl !== undefined || body.avatarEmoji !== undefined))) {
+    sets.push('profile_done = 1'); changes.profileDone = true;
+  }
   return { sets, vals, changes };
 }
 
-// After a profile change: refresh cache and tell everyone (ws {type:'user', user:{id, name, avatarEmoji}}).
+// After a profile change: refresh cache and tell everyone (ws {type:'user', user:{id, name, avatarEmoji, avatarUrl, profileDone}}).
 async function broadcast(userId) {
   invalidate();
   const u = await get(userId);
-  if (u) require('./realtime').sendToAll({ type: 'user', user: { id: u.id, name: u.name, avatarEmoji: u.avatarEmoji } });
+  if (u) require('./realtime').sendToAll({ type: 'user', user: { id: u.id, name: u.name, avatarEmoji: u.avatarEmoji, avatarUrl: u.avatarUrl, profileDone: u.profileDone } });
 }
 
 module.exports = { all, get, invalidate, bossIds, cleanName, cleanEmoji, assertNameFree, profileUpdate, broadcast, UserError };

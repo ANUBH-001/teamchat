@@ -207,7 +207,7 @@ function cardBody(kind, name, d, nudge) {
   }
   return [(nudge ? 'Reminder: ' : '') + name + ', aaj ka sign-off karo.',
     'Aaj diye: ' + d.counts.given + ' · Done: ' + d.counts.done + ' · Baaki: ' + d.counts.left,
-    'Har task ka status chuniye (Todo / Planning / Coding / Testing / Change merged / Done), phir "Submit sign-off".'].join('\n');
+    'Har task ka status chuniye (Done / Not done), phir "Submit sign-off".'].join('\n'); // Round 4: was Todo / Planning / Coding / Testing / Change merged / Done
 }
 
 const cardPayload = (kind, date, d, nudge) => ({
@@ -331,7 +331,7 @@ async function signoff(user, body) {
   const existing = await getSignoff(user.id, date);
   const lines = ['Sign-off' + (existing ? ' (update)' : '') + ': Done ' + d.counts.done + ' · Baaki ' + d.counts.left + ' · Aaj diye ' + d.counts.given];
   for (const t of d.doneToday) lines.push('✓ ' + t.title);
-  for (const t of d.open) lines.push((t.status === 'todo' ? '○ ' : '◐ ') + t.title + ' [' + (S.LABEL[t.status] || t.status) + ']');
+  for (const t of d.open) lines.push('○ ' + t.title + ' [Not done]'); // Round 4: only Done / Not done
   if (note) lines.push(note);
   const message = await postMemberMessage(chatId, user, lines.join('\n'));
   await pool.query(

@@ -67,7 +67,7 @@ export default function DmTasksSheet({ visible, onClose, otherUserId, name, chat
               <View style={{ flex: 1 }}>
                 <Text numberOfLines={2} style={{ color: t.text, fontSize: 15 }}>{x.title}</Text>
                 <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 12 }}>
-                  {'#' + x.id + '  ·  ' + labelOf(x.status) + '  ·  ' + (assigneeNamesOf(x).join(', ') || 'Unassigned')}
+                  {'Task ' + x.id + '  ·  ' + labelOf(x.status) + '  ·  ' + (assigneeNamesOf(x).join(', ') || 'Unassigned')}
                 </Text>
               </View>
               {brief

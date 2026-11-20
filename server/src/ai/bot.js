@@ -1,6 +1,7 @@
 // 'Team Assistant' system user + shared helpers that post bot / system messages.
 // The bot user is inactive (active = 0) with no PIN, so it can never log in and is left out of people lists,
 // summaries and task assignment. Created lazily (and by seed.js).
+const DT = require('./dueTime');
 const crypto = require('crypto');
 const pool = require('../db');
 const rt = require('../realtime');
@@ -62,10 +63,11 @@ function taskCard(chatId, event, task, actor, extra = {}) {
     action: event === 'created' || event === 'completed' ? event : 'updated',
   };
   const who = namesOf(task);
-  let body = (EVENT_TEXT[event] || 'Task') + ': ' + task.title + ' #' + task.id + (who ? ' (' + who + ')' : '');
+  // Round 4: "Task 22" code (= tasks.id); a private (admin's own) task card is visible to its creator only
+  let body = (EVENT_TEXT[event] || 'Task') + ': Task ' + task.id + ' - ' + task.title + (who ? ' (' + who + ')' : '');
   if (extra.note) body += '\n' + extra.note;
-  if (event === 'due') body += ' - ' + (task.dueDate || 'no date');
-  return postBot(chatId, body, payload);
+  if (event === 'due') body += ' - ' + (task.dueDate ? DT.fmtDue(task.dueDate, task.dueAt) : 'no date');
+  return postBot(chatId, body, payload, task.private ? actor.id : null);
 }
 
 // Ephemeral cards for one user.

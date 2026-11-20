@@ -4,6 +4,7 @@
 // validation -> src/tasks.js (source 'ai') -> public task card. Quiet by design: low confidence, no open tasks or
 // nothing to change = no reply at all; questions back (clarify), summaries and errors are ephemeral (sender only).
 // The model only suggests; every permission and task id is checked here and again in tasks.js.
+const DT = require('./dueTime');
 const pool = require('../db');
 const T = require('../tasks');
 const settings = require('../settings');
@@ -16,6 +17,53 @@ const MAX_OPEN_TASKS = 60;
 const TASK_RE = /(task|kaam|karna|karni|karo|kar do|kar dena|kar diya|kar di|bhej|bana|dekh|chahiye|assign|deadline|\bdue\b|\btak\b|ho gaya|ho gayi|ho gya|ho gyi|ho gai|hogaya|hogayi|complete|\bdone\b|finish|khatam|shuru|start|working on|kar raha|kar rahi|pending|status|baaki|baki|testing|merge|planning|coding|काम|टास्क|करना|करनी|करो|कर दो|कर दिया|हो गया|हो गई|हो गयी|पूरा|खत्म|शुरू|बाकी|भेज|बना|तक)/i;
 const S = require('../status');
 const LABEL = S.LABEL;
+const TZ = (() => { try { new Intl.DateTimeFormat('en-US', { timeZone: process.env.TZ }); return process.env.TZ || 'Asia/Kolkata'; } catch (e) { return 'Asia/Kolkata'; } })();
+const WHEN = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+
+// Round 4 context: last ~30 chat lines "Name (20 Nov, 16:32): text" (voice notes = transcript, photos = caption), oldest first.
+async function recentLines(chatId, viewerId, n = 30) {
+  const [rows] = await pool.query(
+    `SELECT m.type, m.body, m.media, m.created_at, u.name FROM messages m JOIN users u ON u.id = m.sender_id
+     WHERE m.chat_id = ? AND m.deleted_at IS NULL AND m.type IN ('text', 'image', 'audio') AND (m.visible_to IS NULL OR m.visible_to = ?)
+     ORDER BY m.id DESC LIMIT ?`, [chatId, viewerId, n]);
+  return rows.reverse().map((r) => {
+    let text = r.body || '';
+    if (r.type === 'audio') {
+      let m = null; try { m = JSON.parse(r.media); } catch (e) { /* none */ }
+      text = (m && m.transcript) || '[voice note]';
+    } else if (r.type === 'image' && !text) text = '[photo]';
+    return r.name + ' (' + WHEN.format(new Date(r.created_at)) + '): ' + String(text).slice(0, 300);
+  });
+}
+
+// "Task N - title - names - due" (names / due may be missing for a member's brief view)
+const taskLine = (t) => {
+  const names = (t.assignees ? t.assignees.map((a) => a.name) : t.assigneeNames || []).join(', ');
+  return 'Task ' + t.id + ' - ' + t.title + (names ? ' - ' + names : '') + (t.dueDate ? ' - due ' + DT.fmtDue(t.dueDate, t.dueAt) : '');
+};
+
+// "@AI <question>" in any text message, or "/ai <question>": answer as a bot message (Round 4). Returns true when handled.
+// The asker only sees tasks they may view (private tasks only for their creator; then the answer is shown to the asker alone).
+async function answerIfAsked(message, user) {
+  if (!message || (message.type && message.type !== 'text') || !message.text) return false;
+  const t = message.text.trim();
+  let q;
+  if (/^\/ai(\s|$)/i.test(t)) q = t.replace(/^\/ai\s*/i, '');
+  else if (/(^|\s)@ai\b/i.test(t)) q = t.replace(/(^|\s)@ai\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  else return false;
+  const chatId = message.chatId;
+  if (!(await settings.forChat(chatId)).botEnabled) return false;
+  if (!q) { await bot.infoCard(chatId, user.id, 'AI se kuch poochhiye. Jaise: @AI aaj ke pending tasks batao'); return true; }
+  const { chatType, members } = await chatContext(chatId);
+  const tasks = await T.listTasks({ scope: user.role === 'boss' ? 'all' : 'everyone', status: 'open' }, user);
+  const r = await provider.answer(q, {
+    asker: user.name, chat_type: chatType, members: members.map((m) => m.name),
+    recent_messages: await recentLines(chatId, user.id), open_tasks: tasks.slice(0, 60).map(taskLine),
+  });
+  const priv = tasks.some((x) => x.private);
+  await bot.postBot(chatId, r.text, { kind: 'ai_answer', replyTo: message.id }, priv ? user.id : null);
+  return true;
+}
 
 // Ephemeral question back to the sender only.
 function clarify(chatId, userId, replyTo, text, options = []) {
@@ -58,8 +106,15 @@ async function onMessage(message, user) {
   const openTasks = (boss ? await T.listTasks({ scope: 'all', status: 'open' }, user)
     : (await T.assignedTo(user.id)).filter((t) => t.myStatus !== 'done').map((t) => ({ ...t, status: t.myStatus })))
     .slice(0, MAX_OPEN_TASKS);
+  // A "Task N" / "#N" named in the message must be visible to the model even when the board is longer than MAX_OPEN_TASKS
+  for (const n of new Set([...text.matchAll(/(?:task|#)\s*(\d{1,9})/gi)].map((x) => parseInt(x[1], 10)).slice(0, 3))) {
+    if (openTasks.some((t) => t.id === n)) continue;
+    const hit = boss ? (await T.listTasks({ scope: 'all', status: 'open', q: '#' + n }, user)).find((t) => t.id === n)
+      : (await T.assignedTo(user.id)).filter((t) => t.myStatus !== 'done').map((t) => ({ ...t, status: t.myStatus })).find((t) => t.id === n);
+    if (hit) openTasks.unshift(hit);
+  }
 
-  const d = await provider.decide({ message: text, sender, members, openTasks });
+  const d = await provider.decide({ message: text, sender, members, openTasks, recent: await recentLines(chatId, user.id) });
   if (d.action === 'none') return;
   const replyTo = message.id;
 
@@ -88,22 +143,24 @@ async function onMessage(message, user) {
       return;
     }
 
-    if (d.action === 'complete_task' || d.action === 'update_task' || d.action === 'clarify') {
+    if (d.action === 'complete_task') {
       if (!openTasks.length || d.confidence < MIN_CONFIDENCE) return; // never a public "no open task"
       // task_id must be one of the allowed open tasks (own for members, any for boss)
       const task = openTasks.find((t) => t.id === d.task_id);
       // plain chat that we can't tie to one task: stay silent (slash commands are the explicit route)
-      if (d.action === 'clarify' || !task) return;
+      if (!task) return;
       if (d.action === 'complete_task') {
         const r = await T.applyUpdate(task.id, { status: 'done' }, user, 'ai', message.id);
         if (!r.changed) return;
         return bot.taskCard(chatId, r.event, r.task, user, { byAi: true, replyTo, undo: 'status' });
       }
+      // Round 4: disabled (simple create->done): update_task (step / due / title / assignee changes by chat)
+      /*
       const f = {};
       const st = S.norm(d.status);
       if (st && st !== task.status) f.status = st;
       if (boss) {
-        if (d.due_date && d.due_date !== task.dueDate) f.dueDate = d.due_date;
+        if (d.due_date && d.due_date !== (task.dueAt || task.dueDate)) f.dueDate = d.due_date;
         if (d.title && d.title !== task.title) f.title = d.title;
         if (d.assignee_name || d.assignee_id) {
           const who = resolvePerson(d.assignee_name, d.assignee_id, members);
@@ -114,6 +171,26 @@ async function onMessage(message, user) {
       const r = await T.applyUpdate(task.id, f, user, 'ai', message.id);
       const statusOnly = Object.keys(f).length === 1 && f.status;
       return bot.taskCard(chatId, r.event, r.task, user, { byAi: true, replyTo, undo: statusOnly ? 'status' : null });
+      */
+    }
+
+    if (d.action === 'reassign_task') {
+      // boss only; new person from assignee_name, old person from from_name (needed only when the task has several people)
+      if (!boss || d.confidence < MIN_CONFIDENCE) return;
+      const task = openTasks.find((t) => t.id === d.task_id);
+      if (!task) return;
+      const [everyone] = await pool.query('SELECT id, name FROM users WHERE active = 1 AND is_bot = 0');
+      const to = resolvePerson(d.assignee_name, d.assignee_id, everyone);
+      if (!to) return clarify(chatId, user.id, replyTo, 'Task ' + task.id + ' kisko dena hai? Likhiye: /re Task ' + task.id + ' @naam');
+      const cur = task.assignees || [];
+      let from = d.from_name ? resolvePerson(d.from_name, null, cur) : null;
+      if (!from && cur.length === 1) from = cur[0];
+      if (!from || cur.some((a) => a.id === to.id)) {
+        return clarify(chatId, user.id, replyTo, 'Task ' + task.id + ' kis se hatana hai? Likhiye: /re Task ' + task.id + ' @purana @naya');
+      }
+      const r = await T.applyUpdate(task.id, { addAssigneeIds: [to.id], removeAssigneeIds: [from.id] }, user, 'ai', message.id);
+      if (!r.changed) return;
+      return bot.taskCard(chatId, r.event, r.task, user, { byAi: true, replyTo });
     }
 
     if (d.action === 'list_tasks') {
@@ -124,15 +201,16 @@ async function onMessage(message, user) {
         if (!who) return;
         target = who;
       }
-      const s = await T.mySummary(target.id);
+      const s = await T.mySummary(target.id, user.id);
       const cut = (list) => list.slice(0, 10);
-      const ORDER = ['done', 'change_merged', 'testing', 'coding', 'planning', 'todo'];
+      // Round 4: disabled (simple create->done): ['done', 'change_merged', 'testing', 'coding', 'planning', 'todo']
+      const ORDER = ['done', 'todo'];
       const payload = { kind: 'summary', replyTo, userId: target.id, userName: target.name, counts: {} };
       for (const k of ORDER) { payload.counts[k] = s[k].length; payload[k] = cut(s[k]); }
       const lines = [target.name + ' ke tasks:'];
       for (const k of ORDER) {
         lines.push(LABEL[k] + ' (' + s[k].length + ')');
-        for (const t of payload[k]) lines.push('• ' + t.title + (t.dueDate ? ' - ' + t.dueDate : ''));
+        for (const t of payload[k]) lines.push('• ' + t.title + (t.dueDate ? ' - ' + DT.fmtDue(t.dueDate, t.dueAt) : ''));
       }
       return bot.ephemeral(chatId, user.id, lines.join('\n'), payload);
     }
@@ -142,4 +220,4 @@ async function onMessage(message, user) {
   }
 }
 
-module.exports = { onMessage };
+module.exports = { onMessage, answerIfAsked, recentLines };

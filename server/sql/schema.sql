@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
   is_bot TINYINT(1) NOT NULL DEFAULT 0, -- 'Team Assistant' system user (inactive, cannot log in)
   avatar_emoji VARCHAR(16) NULL,
   session_id CHAR(32) NULL, -- current login (JWT sv); a new login rotates it and logs the old device out
+  avatar_url VARCHAR(255) NULL, -- round 4: /media/f/... profile photo
+  profile_done TINYINT NOT NULL DEFAULT 0, -- round 4: onboarding seen (bots = 1)
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -48,6 +50,7 @@ CREATE TABLE IF NOT EXISTS chat_members (
   last_delivered_message_id BIGINT NULL,
   muted TINYINT(1) NOT NULL DEFAULT 0,
   pinned TINYINT(1) NOT NULL DEFAULT 0,
+  favourite TINYINT NOT NULL DEFAULT 0, -- round 4
   PRIMARY KEY (chat_id, user_id),
   FOREIGN KEY (chat_id) REFERENCES chats(id),
   FOREIGN KEY (user_id) REFERENCES users(id)
@@ -62,13 +65,15 @@ CREATE TABLE IF NOT EXISTS messages (
   edited_at TIMESTAMP NULL,
   deleted_at TIMESTAMP NULL,
   client_id VARCHAR(64) NULL,
-  type VARCHAR(20) NOT NULL DEFAULT 'text', -- text | bot | system | checkin_prompt
+  type VARCHAR(20) NOT NULL DEFAULT 'text', -- text | bot | system | checkin_prompt | image | audio
   payload TEXT NULL, -- JSON for bot messages (task card / summary / clarify)
   reply_to_id BIGINT NULL, -- swipe-to-reply: quoted message in the same chat
   visible_to INT NULL, -- ephemeral bot reply: only this user ever receives it
   mentions TEXT NULL, -- JSON array of mentioned user ids
   source_message_id BIGINT NULL, -- bot card: the human message that caused it (no FK: purge hard-deletes)
   task_id INT NULL, -- card / command / #N message / reply in a task reply chain
+  media_url VARCHAR(255) NULL, -- round 4: /media/f/... (image / audio)
+  media TEXT NULL, -- round 4: JSON {kind, w, h, durationMs, waveform, lat, lng, address, takenAt, transcript, transcriptStatus}
   INDEX idx_chat_created (chat_id, created_at),
   INDEX idx_msg_source (source_message_id),
   INDEX idx_msg_task (task_id),
@@ -108,6 +113,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   reminded_at TIMESTAMP NULL, -- 6-day pending reminder sent (once)
   closed_at TIMESTAMP NULL,
   closed_by INT NULL,
+  private TINYINT NOT NULL DEFAULT 0, -- round 4: admin's own task, only the creator boss sees it
   INDEX idx_tasks_created (created_at),
   INDEX idx_tasks_assignee_status (assignee_id, status),
   CONSTRAINT fk_tasks_closed_by FOREIGN KEY (closed_by) REFERENCES users(id),

@@ -29,7 +29,7 @@ function TaskRowBase({ task, onPress, onLongPress }: { task: Task; onPress: (t: 
           {task.title}
         </Text>
         <Text numberOfLines={1} style={{ color: late ? t.danger : t.subtext, fontSize: 12, marginTop: 3 }}>
-          #{task.id}{task.project ? '  ·  ' + task.project : ''}{!people.length ? '  ·  ' + (assigneeNamesOf(task)[0] || 'Unassigned') : ''}{task.dueDate ? '  ·  ' + formatDue(task.dueDate) : ''}
+          Task {task.id}{task.project ? '  ·  ' + task.project : ''}{!people.length ? '  ·  ' + (assigneeNamesOf(task)[0] || 'Unassigned') : ''}{task.dueDate ? '  ·  ' + formatDue(task.dueDate) : ''}
         </Text>
       </View>
       {!!task.stale && !closed && (

@@ -102,6 +102,14 @@ const preview = (s: string) => {
   return t.length > 100 ? t.slice(0, 97) + '...' : t;
 };
 
+// Round 4: notification text of a message (media shows "📷 Photo" / "🎤 Voice note" + caption)
+const textOf = (m: any) => {
+  const cap = String(m.text || '').replace(/^↪ Forwarded\n?/, '');
+  if (m.type === 'image') return (m.media && m.media.kind === 'geo_image' ? '📍 Photo' : '📷 Photo') + (cap ? ': ' + cap : '');
+  if (m.type === 'audio') return '🎤 Voice note';
+  return String(m.text || '');
+};
+
 // reply: the message the notification's "Reply" action answers
 type ReplyTarget = { messageId: number; senderName: string; preview: string };
 const notify = (title: string, body: string, chatId: number | null | undefined, channelId: 'messages' | 'tasks', reply?: ReplyTarget | null) => {
@@ -197,11 +205,11 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
       if (AppState.currentState === 'active') {
         if (m.chatId !== activeChatId) {
           Vibration.vibrate(150);
-          if (mentioned) showBanner({ chatId: m.chatId, title: m.senderName + ' mentioned you', body: preview(String(m.text || '')), messageId: m.id });
+          if (mentioned) showBanner({ chatId: m.chatId, title: m.senderName + ' mentioned you', body: preview(textOf(m)), messageId: m.id });
         }
         return;
       }
-      const body = preview(String(m.text || ''));
+      const body = preview(textOf(m));
       notify(mentioned ? m.senderName + ' mentioned you' : m.senderName, body, m.chatId, 'messages',
         mentioned && m.id ? { messageId: m.id, senderName: String(m.senderName || ''), preview: body } : null);
     } catch (err) {}

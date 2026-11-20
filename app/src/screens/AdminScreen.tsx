@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList, Alert, Share, Switch, useColorScheme, RefreshControl, ActivityIndicator,
+  View, Text, TextInput, TouchableOpacity, FlatList, Alert, Share, Switch, RefreshControl, ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { light, dark } from '../theme';
+import { BackHandler } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+// Round 4: no longer a tab; it is the "Admin panel" view inside Settings (boss only), so it draws its own header.
 import { api } from '../api';
+import { useTheme } from '../useTheme';
 import { useAuth } from '../auth';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
 import ReportsScreen, { CheckinSettingsScreen } from './ReportsScreen';
-import SettingsScreen from './SettingsScreen';
+import AdminSettingsScreen from './AdminSettingsScreen';
 import BackgroundCard from '../components/BackgroundCard';
 import AppUpdateCard from '../components/AppUpdateCard';
 import Avatar from '../components/Avatar';
@@ -16,8 +19,9 @@ import ProfileSheet from '../components/ProfileSheet';
 
 type Row = { id: number; phone: string; name: string; role: string; active: boolean; activated: boolean; avatarEmoji?: string | null };
 
-export default function AdminScreen() {
-  const t = useColorScheme() === 'dark' ? dark : light;
+export default function AdminScreen({ onBack }: { onBack: () => void }) {
+  const insets = useSafeAreaInsets();
+  const t = useTheme();
   const { user, logout } = useAuth();
   const [users, setUsers] = useState<Row[]>([]);
   const [name, setName] = useState('');
@@ -28,9 +32,11 @@ export default function AdminScreen() {
   const [editing, setEditing] = useState<{ id: number; name: string; avatarEmoji: string | null } | null>(null);
   const [sub, setSub] = useState<'main' | 'reports' | 'settings' | 'app'>('main');
   const toMain = useCallback(() => setSub('main'), []);
-  const nav = useNavigation();
-  // sub-views draw their own header, so hide the tab header while one is open
-  useEffect(() => { nav.setOptions({ headerShown: sub === 'main' }); }, [nav, sub]);
+  // Android back: sub-views handle their own back; from the main Admin list go back to Settings
+  useEffect(() => {
+    const h = BackHandler.addEventListener('hardwareBackPress', () => { if (sub === 'main') { onBack(); return true; } return false; });
+    return () => h.remove();
+  }, [sub, onBack]);
 
   const load = useCallback(async () => {
     try {
@@ -102,7 +108,7 @@ export default function AdminScreen() {
   ) : null;
 
   const logoutBtn = (
-    <TouchableOpacity onPress={logout} style={{ ...btn, backgroundColor: t.primary, marginTop: 12 }}>
+    <TouchableOpacity onPress={logout} style={{ ...btn, backgroundColor: t.header, marginTop: 12 }}>
       <Text style={{ color: '#fff', fontWeight: '600' }}>Log out ({user?.name})</Text>
     </TouchableOpacity>
   );
@@ -120,11 +126,16 @@ export default function AdminScreen() {
 
   if (sub === 'reports') return <ReportsScreen onBack={toMain} />;
   if (sub === 'settings') return <CheckinSettingsScreen onBack={toMain} />;
-  if (sub === 'app') return <SettingsScreen onBack={toMain} />;
+  if (sub === 'app') return <AdminSettingsScreen onBack={toMain} />;
 
   return (
-    <View style={{ flex: 1, padding: 16, backgroundColor: t.background }}>
+    <View style={{ flex: 1, backgroundColor: t.background }}>
+      <View style={{ backgroundColor: t.header, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}>
+        <TouchableOpacity onPress={onBack} hitSlop={10} style={{ paddingHorizontal: 6 }}><Ionicons name="arrow-back" size={24} color={t.onAccent} /></TouchableOpacity>
+        <Text style={{ color: t.onAccent, fontSize: 20, fontWeight: '700', marginLeft: 8 }}>Admin panel</Text>
+      </View>
       <FlatList
+        style={{ padding: 16 }}
         data={users}
         keyExtractor={(u) => String(u.id)}
         keyboardShouldPersistTaps="handled"
@@ -144,7 +155,7 @@ export default function AdminScreen() {
               <TouchableOpacity onPress={() => setSub('reports')} style={{ ...btn, flex: 1, marginRight: 8 }}>
                 <Text style={{ color: '#fff', fontWeight: '600' }}>Reports</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setSub('settings')} style={{ ...btn, flex: 1, backgroundColor: t.primary }}>
+              <TouchableOpacity onPress={() => setSub('settings')} style={{ ...btn, flex: 1, backgroundColor: t.header }}>
                 <Text style={{ color: '#fff', fontWeight: '600' }}>Check-in settings</Text>
               </TouchableOpacity>
             </View>
@@ -155,7 +166,7 @@ export default function AdminScreen() {
             <TouchableOpacity onPress={add} style={btn}>
               <Text style={{ color: '#fff', fontWeight: '600' }}>Add and get invite code</Text>
             </TouchableOpacity>
-            {!!err && <Text style={{ color: '#D32F2F', marginTop: 8 }}>{err}</Text>}
+            {!!err && <Text style={{ color: '#E5484D', marginTop: 8 }}>{err}</Text>}
             {invite && (
               <View style={{ backgroundColor: t.bubbleOut, borderRadius: 8, padding: 12, marginTop: 12 }}>
                 <Text style={{ color: t.text }}>Invite code for {invite.label} (shown once):</Text>
@@ -205,7 +216,8 @@ export default function AdminScreen() {
             </View>
           </View>
         )}
-        ListFooterComponent={<View><BackgroundCard />{profileBtn}<AppUpdateCard />{logoutBtn}</View>}
+        // Round 4: Background alerts / profile / app update / logout moved to the new SettingsScreen
+        ListFooterComponent={<View style={{ height: 40 }} />}
       />
       {sheet}
     </View>

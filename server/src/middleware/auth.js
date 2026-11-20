@@ -17,7 +17,7 @@ async function requireAuth(req, res, next) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     const [[u]] = await pool.query(
-      'SELECT id, phone, name, role, active, avatar_emoji, session_id FROM users WHERE id = ?', [payload.id]);
+      'SELECT id, phone, name, role, active, avatar_emoji, avatar_url, profile_done, session_id FROM users WHERE id = ?', [payload.id]);
     if (!u || !u.active) return res.status(401).json({ error: 'Not authenticated' });
     if (!sessionOk(u, payload)) {
       return res.status(401).json({ error: 'Aap kisi aur phone par login ho gaye', code: 'SESSION_REPLACED' });

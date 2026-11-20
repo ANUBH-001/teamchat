@@ -13,7 +13,8 @@ import { emitEvent } from '../realtime';
 import { Assignee, DetailEvent, OVERDUE_COLOR, StepStatus, Task, canClose, colorOf, isAssignee, labelOf } from '../taskTypes';
 import { describeEvent, ago, agoText, EVENT_ICON } from '../taskEvents';
 import Avatar from '../components/Avatar';
-import StatusChips from '../components/StatusChips';
+// Round 4: disabled (simple create->done): import StatusChips from '../components/StatusChips';
+import StatusChips from '../components/DoneChips';
 import StatusPill from '../components/StatusPill';
 import PeoplePickSheet from '../components/PeoplePickSheet';
 import { copyText, formatDue, isoDay as isoDayD } from '../dates';
@@ -63,7 +64,8 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
   const manage = !!task && (isBoss || creator || mine) && !closed; // title / people / due (server re-checks)
   const bossOrCreator = !!task && (isBoss || creator);
   const myRow = task ? (task.assignees || []).find((a) => a.id === me.id) : null;
-  const canPraise = !!task && ps.praiseEnabled && bossOrCreator && !mine && ['testing', 'change_merged', 'done'].includes(task.status);
+  // Round 4: disabled (simple create->done): praise
+  const canPraise = false;
 
   const patch = async (body: object) => {
     if (busy) return;
@@ -122,7 +124,7 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
 
   return (
     <View style={{ flex: 1, backgroundColor: t.background }}>
-      <View style={{ backgroundColor: t.primary, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ backgroundColor: t.header, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }}>
         <Pressable onPress={onBack} hitSlop={10} style={{ paddingRight: 12 }}>
           <Text style={{ color: '#fff', fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
         </Pressable>

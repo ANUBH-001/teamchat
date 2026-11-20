@@ -4,7 +4,7 @@
 A WhatsApp-style team chat for an 11-person team (Indian phone numbers), Android only. The chat also manages tasks, so nobody needs a separate task tool. All history is kept forever (delete = hidden only). Works from anywhere: public HTTPS server.
 
 ## The team
-11 people: 1 boss (Rishit) + 10 members (Anubhav, Arushit, Tushar, Member 5..11 in the seed). Only numbers the boss adds can log in. One pinned "All Team" chat with everyone, plus DMs and custom groups.
+11 people: 1 boss + 10 members (Anubhav, Arushit, Tushar, Member 5..11 in the seed). Only numbers the boss adds can log in. One pinned "All Team" chat with everyone, plus DMs and custom groups.
 
 ## Features
 - **Chat:** groups (add/remove/rename/leave, Group Info), DMs, All Team, realtime, history, ticks, typing, soft delete, offline queue, swipe-to-reply, reactions, @mentions, pinned message, mute/pin chats, voice input (mic, on-device speech).

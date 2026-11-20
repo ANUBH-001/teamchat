@@ -7,6 +7,7 @@ const bot = require('../ai/bot');
 
 const router = express.Router();
 router.use(requireAuth);
+router.param('id', (req, res, next, v) => (/^\d{1,10}$/.test(v) ? next() : res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' }))); // junk chat id: 404, not 500
 
 // Shape a messages row (joined with sender name) for the API. Boss still gets text of deleted ones.
 // reactions are filled by withReactions() (REST reads); new messages have none.
@@ -36,7 +37,21 @@ function formatMessage(r, viewer) {
     reactions: [],
     sourceMessageId: r.source_message_id ? Number(r.source_message_id) : null,
     taskId: r.task_id || null,
+    mediaUrl: deleted && viewer.role !== 'boss' ? null : (r.media_url || null), // Round 4: /media/f/... (image / audio)
+    media: deleted && viewer.role !== 'boss' ? null : parsePayload(r.media),
+    senderAvatarUrl: r.sender_avatar_url || null,
   };
+}
+
+// Round 4: chat-list preview text of a media message ("📷 Photo", "📍 Photo · <address>", "🎤 Voice note (0:14)").
+function mediaPreview(type, media) {
+  const m = media || {};
+  if (type === 'audio') {
+    const sec = Math.max(0, Math.round((Number(m.durationMs) || 0) / 1000));
+    return '🎤 Voice note (' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') + ')';
+  }
+  if (m.kind === 'geo_image') return '📍 Photo' + (m.address ? ' · ' + String(m.address).slice(0, 80) : '');
+  return '📷 Photo';
 }
 
 function parsePayload(s) {
@@ -46,7 +61,7 @@ function parsePayload(s) {
 
 const MSG_SELECT =
   'SELECT m.id, m.chat_id, m.sender_id, m.body, m.created_at, m.edited_at, m.deleted_at, m.client_id, m.type, m.payload, m.reply_to_id, ' +
-  'm.visible_to, m.mentions, m.source_message_id, m.task_id, u.name sender_name, u.avatar_emoji sender_emoji, rm.body reply_body, rm.deleted_at reply_deleted_at, ru.name reply_sender_name ' +
+  'm.visible_to, m.mentions, m.source_message_id, m.task_id, m.media_url, m.media, u.name sender_name, u.avatar_emoji sender_emoji, u.avatar_url sender_avatar_url, rm.body reply_body, rm.deleted_at reply_deleted_at, ru.name reply_sender_name ' +
   'FROM messages m JOIN users u ON u.id = m.sender_id ' +
   'LEFT JOIN messages rm ON rm.id = m.reply_to_id LEFT JOIN users ru ON ru.id = rm.sender_id ';
 // Ephemeral filter for every message read (one placeholder: the viewer id).
@@ -91,8 +106,8 @@ async function statusFor(chatId, userId) {
 // Chat list rows for a user (optionally just one chat). Ephemeral messages of other users are never counted/shown.
 async function chatSummaries(user, onlyChatId) {
   const [rows] = await pool.query(
-    `SELECT c.id, c.type, c.name, c.created_by, cm.muted, cm.pinned, cm.last_read_message_id my_last_read,
-       lm.id lm_id, lm.body lm_body, lm.type lm_type, lm.sender_id lm_sender_id, lm.created_at lm_at, lm.deleted_at lm_deleted,
+    `SELECT c.id, c.type, c.name, c.created_by, cm.muted, cm.pinned, cm.favourite, cm.last_read_message_id my_last_read,
+       lm.id lm_id, lm.body lm_body, lm.type lm_type, lm.media lm_media, lm.sender_id lm_sender_id, lm.created_at lm_at, lm.deleted_at lm_deleted,
        su.name lm_sender, pm.id pm_id, pm.body pm_body, pu.name pm_sender,
        (SELECT COUNT(*) FROM chat_members x WHERE x.chat_id = c.id AND x.left_at IS NULL) members,
        (SELECT COUNT(*) FROM messages un WHERE un.chat_id = c.id AND un.id > COALESCE(cm.last_read_message_id, 0)
@@ -110,7 +125,7 @@ async function chatSummaries(user, onlyChatId) {
   const others = {};
   if (dmIds.length) {
     const [o] = await pool.query(
-      'SELECT cm.chat_id, u.id, u.name, u.avatar_emoji FROM chat_members cm JOIN users u ON u.id = cm.user_id ' +
+      'SELECT cm.chat_id, u.id, u.name, u.avatar_emoji, u.avatar_url FROM chat_members cm JOIN users u ON u.id = cm.user_id ' +
       'WHERE cm.chat_id IN (?) AND cm.user_id <> ?', [dmIds, user.id]);
     for (const r of o) others[r.chat_id] = r;
   }
@@ -120,18 +135,20 @@ async function chatSummaries(user, onlyChatId) {
     name: r.type === 'dm' ? (others[r.id] ? others[r.id].name : 'Chat') : r.name,
     otherUserId: r.type === 'dm' && others[r.id] ? others[r.id].id : null,
     otherUserEmoji: r.type === 'dm' && others[r.id] ? others[r.id].avatar_emoji || null : null,
+    otherUserAvatarUrl: r.type === 'dm' && others[r.id] ? others[r.id].avatar_url || null : null,
     createdBy: r.created_by,
     membersCount: Number(r.members),
     unread: Number(r.unread),
     muted: !!r.muted,
     pinned: !!r.pinned,
+    favourite: !!r.favourite,
     myLastRead: r.my_last_read ? Number(r.my_last_read) : null,
     pinnedMessage: r.pm_id ? { id: Number(r.pm_id), body: String(r.pm_body || '').slice(0, 200), senderName: r.pm_sender } : null,
     lastMessage: r.lm_id ? {
       id: Number(r.lm_id),
       senderId: r.lm_sender_id,
       senderName: r.lm_sender,
-      text: r.lm_deleted && user.role !== 'boss' ? null : r.lm_body,
+      text: r.lm_deleted && user.role !== 'boss' ? null : (r.lm_type === 'image' || r.lm_type === 'audio') ? mediaPreview(r.lm_type, parsePayload(r.lm_media)) : r.lm_body,
       type: r.lm_type || 'text',
       deleted: !!r.lm_deleted,
       createdAt: r.lm_at,
@@ -152,9 +169,9 @@ async function chatSummaries(user, onlyChatId) {
 // Current members (no bot), check-in guard applied.
 async function memberList(chatId, createdBy) {
   const [rows] = await pool.query(
-    'SELECT u.id, u.name, u.role, u.phone, u.avatar_emoji ' + rt.MEMBER_FROM + 'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND u.is_bot = 0 AND ' +
+    'SELECT u.id, u.name, u.role, u.phone, u.avatar_emoji, u.avatar_url ' + rt.MEMBER_FROM + 'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND u.is_bot = 0 AND ' +
     rt.MEMBER_OK + ' ORDER BY u.name', [chatId]);
-  return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, phone: u.phone, avatarEmoji: u.avatar_emoji || null, isCreator: u.id === createdBy }));
+  return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, phone: u.phone, avatarEmoji: u.avatar_emoji || null, avatarUrl: u.avatar_url || null, isCreator: u.id === createdBy }));
 }
 
 // Group management guard: member + group chat (+ creator or boss when manage). -> chat row, or sends the error.
@@ -224,7 +241,7 @@ router.get('/:id', async (req, res) => {
     if (!chat) return res.status(404).json({ error: 'Chat not found', code: 'NOT_FOUND' });
     // open tasks made in this chat (brief for tasks the viewer cannot open); DMs also show tasks shared by the two people
     const T = require('../tasks');
-    const [trows] = await pool.query(T.SELECT + " AND t.chat_id = ? AND t.status NOT IN ('done', 'closed') ORDER BY t.id DESC LIMIT 50", [chatId]);
+    const [trows] = await pool.query(T.SELECT + " AND t.chat_id = ? AND t.status NOT IN ('done', 'closed') AND (t.private = 0 OR t.created_by = ?) ORDER BY t.id DESC LIMIT 50", [chatId, req.user.id]);
     let tasks = await T.shapeRows(trows);
     if (chat.type === 'dm' && chat.otherUserId) {
       const shared = (await T.listTasks({ with: chat.otherUserId, status: 'open' }, req.user)).filter((t) => !tasks.some((x) => x.id === t.id));
@@ -305,13 +322,13 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// My own chat flags: mute / pin to top of the chat list.
+// My own chat flags: mute / pin to top of the chat list / favourite (Round 4).
 router.patch('/:id/me', async (req, res) => {
   try {
     const chatId = parseInt(req.params.id, 10);
     if (!(await isMember(chatId, req.user.id))) return res.status(403).json({ error: 'Not allowed', code: 'NOT_ALLOWED' });
     const sets = []; const vals = [];
-    for (const k of ['muted', 'pinned']) {
+    for (const k of ['muted', 'pinned', 'favourite']) {
       if (req.body[k] === undefined) continue;
       if (typeof req.body[k] !== 'boolean') return res.status(400).json({ error: k + ' must be true or false' });
       sets.push(k + ' = ?'); vals.push(req.body[k] ? 1 : 0);
@@ -357,7 +374,7 @@ router.get('/:id/messages', async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 200);
     const me = req.user.id;
     // kind: all (default) | ai = bot cards only | chat = human text messages only
-    const kind = req.query.kind === 'ai' ? "AND m.type = 'bot' " : req.query.kind === 'chat' ? "AND m.type = 'text' " : '';
+    const kind = req.query.kind === 'ai' ? "AND m.type = 'bot' " : req.query.kind === 'chat' ? "AND m.type IN ('text', 'image', 'audio') " : '';
     let rows;
     let hasMore = false;
     if (after) {
@@ -417,13 +434,84 @@ async function hashTask(text, user) {
   } catch (e) { return null; }
 }
 
+// ---------- Round 4 helpers: media JSON, quote, message pipeline, voice notes ----------
+const num = (v, lo, hi) => (typeof v === 'number' && isFinite(v) && v >= lo && v <= hi ? v : undefined);
+const short = (v, n) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : undefined);
+
+// Whitelist of media fields from the client; transcript fields are server-owned.
+function cleanMedia(type, raw) {
+  const m = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const kind = type === 'audio' ? 'audio' : m.kind === 'geo_image' ? 'geo_image' : 'image';
+  const out = { kind, w: num(m.w, 1, 20000), h: num(m.h, 1, 20000), durationMs: num(m.durationMs, 0, 3600000),
+    lat: num(m.lat, -90, 90), lng: num(m.lng, -180, 180), address: short(m.address, 300), takenAt: short(m.takenAt, 40) };
+  if (Array.isArray(m.waveform)) out.waveform = m.waveform.slice(0, 200).map((x) => (typeof x === 'number' && isFinite(x) ? Math.round(x * 1000) / 1000 : 0));
+  if (type === 'audio') out.transcriptStatus = 'pending';
+  for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+  return out;
+}
+
+// payload.quote for "Reply privately": {chatId, messageId, senderName, text}
+function cleanQuote(q) {
+  if (!q || typeof q !== 'object') return null;
+  const chatId = parseInt(q.chatId, 10); const messageId = parseInt(q.messageId, 10);
+  if (!chatId || !messageId) return null;
+  return { chatId, messageId, senderName: String(q.senderName || '').slice(0, 100), text: String(q.text || '').slice(0, 300) };
+}
+
+// @AI answer, then slash command, then task-linked reply, then the natural-language task engine.
+async function runPipeline(message, user, tagged) {
+  try {
+    const cmd = require('../ai/commands');
+    const engine = require('../ai/engine');
+    if (await engine.answerIfAsked(message, user)) return;
+    if (await cmd.handle(message, user, { tagged })) return;
+    if (await cmd.handleLinked(message, user)) return;
+    await engine.onMessage(message, user);
+  } catch (e) { console.error('ai engine:', e.message); }
+}
+
+// Audio message: transcribe in the background, store + broadcast the transcript (ws 'edited', same as edits), then treat the
+// transcript like typed text (commands, @AI, task engine, check-in text).
+async function voiceNote(message, user, chatId, checkinChat) {
+  try {
+    const r = await require('../ai/transcribe').transcribe(message.mediaUrl);
+    const media = { ...(message.media || {}), kind: 'audio' };
+    if (r.text) { media.transcript = r.text; media.transcriptStatus = 'done'; } else media.transcriptStatus = 'failed';
+    await pool.query('UPDATE messages SET media = ? WHERE id = ?', [JSON.stringify(media), message.id]);
+    const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.id = ?', [message.id]);
+    const fresh = formatMessage(row, user);
+    fresh.reactions = (await reactionsFor([fresh.id])).get(fresh.id) || [];
+    await rt.sendToChat(chatId, { type: 'edited', chatId, message: fresh });
+    if (!r.text) return;
+    // A forwarded voice note is never run again as the forwarder's command / task text.
+    const cap = String(message.text || '').trim();
+    if (cap.startsWith('↪ Forwarded')) return;
+    // Typed command + spoken rest: caption "/task @Anubhav" + transcript "site visit roster" -> one command.
+    const spoken = cap.startsWith('/') && !r.text.startsWith('/') ? cap + ' ' + r.text : r.text;
+    const { tagged } = await resolveMentions(spoken, chatId, message.mentions || []).catch(() => ({ tagged: [] }));
+    const asText = { ...fresh, type: 'text', text: spoken };
+    await runPipeline(asText, user, tagged);
+    if (checkinChat && !spoken.startsWith('/')) await checkins.onChatMessage(asText, user);
+  } catch (e) { console.error('voice note:', e.message); }
+}
+
 router.post('/:id/messages', async (req, res) => {
   try {
     const chatId = parseInt(req.params.id, 10);
     if (!(await isMember(chatId, req.user.id))) return res.status(403).json({ error: 'Not allowed' });
-    const text = String(req.body.text || '').trim();
+    const mtype = req.body.type === 'image' || req.body.type === 'audio' ? req.body.type : 'text';
+    const text = String(req.body.text != null ? req.body.text : req.body.body || '').trim(); // media: optional caption
     const clientId = String(req.body.clientId || '').slice(0, 64);
-    if (!text || text.length > 4000) return res.status(400).json({ error: 'Message is empty or too long' });
+    if ((!text && mtype === 'text') || text.length > 4000) return res.status(400).json({ error: 'Message is empty or too long' });
+    // Round 4: media message {type, mediaUrl (/media/f/...), media {...}, text = caption} and payload.quote ("Reply privately")
+    let mediaUrl = null; let media = null;
+    if (mtype !== 'text') {
+      mediaUrl = String(req.body.mediaUrl || '');
+      const file = mediaUrl.startsWith('/media/f/') && mediaUrl.length <= 255 ? require('./media').resolvePath(mediaUrl) : null;
+      if (!file || !require('fs').existsSync(file)) return res.status(400).json({ error: 'Invalid mediaUrl', code: 'BAD_REQUEST' });
+      media = cleanMedia(mtype, req.body.media);
+    }
+    const quote = cleanQuote(req.body.payload && req.body.payload.quote);
     if (!clientId) return res.status(400).json({ error: 'clientId is required' });
     let replyToId = null;
     let taskId = null;
@@ -435,7 +523,7 @@ router.post('/:id/messages', async (req, res) => {
       if (!orig) return res.status(400).json({ error: 'Replied message not found in this chat' });
       taskId = orig.task_id || null; // reply chain: a reply to a task-linked message is linked to the same task
     }
-    if (!taskId && !text.startsWith('/')) taskId = await hashTask(text, req.user);
+    if (!taskId && mtype === 'text' && !text.startsWith('/')) taskId = await hashTask(text, req.user);
 
     const find = async () => {
       const [[row]] = await pool.query(MSG_SELECT + 'WHERE m.sender_id = ? AND m.client_id = ?', [req.user.id, clientId]);
@@ -447,8 +535,9 @@ router.post('/:id/messages', async (req, res) => {
     let id;
     try {
       const [r] = await pool.query(
-        'INSERT INTO messages (chat_id, sender_id, body, client_id, reply_to_id, mentions, task_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [chatId, req.user.id, text, clientId, replyToId, mentions.length ? JSON.stringify(mentions) : null, taskId]);
+        'INSERT INTO messages (chat_id, sender_id, body, client_id, reply_to_id, mentions, task_id, type, payload, media_url, media) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [chatId, req.user.id, text, clientId, replyToId, mentions.length ? JSON.stringify(mentions) : null, taskId, mtype,
+          quote ? JSON.stringify({ quote }) : null, mediaUrl, media ? JSON.stringify(media) : null]);
       id = r.insertId;
     } catch (e) {
       if (e.code === 'ER_DUP_ENTRY') {
@@ -480,16 +569,13 @@ router.post('/:id/messages', async (req, res) => {
     res.status(201).json({ message });
     // Slash command first, then a task-linked message (card reply / reply chain / #N: note, "desc:", answer), else the
     // natural-language AI engine. Runs after the reply, never delays or fails the send.
-    setImmediate(async () => {
-      try {
-        const cmd = require('../ai/commands');
-        if (await cmd.handle(message, req.user, { tagged })) return;
-        if (await cmd.handleLinked(message, req.user)) return;
-        await require('../ai/engine').onMessage(message, req.user);
-      } catch (e) { console.error('ai engine:', e.message); }
+    setImmediate(() => {
+      if (mtype === 'audio') return voiceNote(message, req.user, chatId, checkinChat);
+      if (mtype !== 'text') return; // photos: nothing to parse
+      runPipeline(message, req.user, tagged);
     });
     // A typed/voice reply in the member's own check-in chat is also stored as today's check-in text (not commands).
-    if (checkinChat && !text.startsWith('/')) {
+    if (checkinChat && mtype === 'text' && !text.startsWith('/')) {
       setImmediate(() => checkins.onChatMessage(message, req.user).catch((e) => console.error('checkin:', e.message)));
     }
   } catch (e) {

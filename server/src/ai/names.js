@@ -55,7 +55,7 @@ function tier(q, n) {
   if (q.length >= 3 && n.startsWith(q)) return 2;
   if (q.length >= 3 && q[0] === n[0]) {
     if (skeleton(q) === skeleton(n)) return 1.5; // same sounds ("rishith" -> Rishit) beats a typo-distance match (Rishabh)
-    if (dl(q, n) <= (Math.max(q.length, n.length) <= 5 ? 1 : 2)) return 1;
+    if (q.length >= 4 && dl(q, n) <= (Math.max(q.length, n.length) <= 5 ? 1 : 2)) return 1; // typos only for words of 4+ letters (not "E2E", "fix")
   }
   return 0;
 }

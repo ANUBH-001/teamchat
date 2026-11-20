@@ -14,7 +14,7 @@ const PIN_RE = /^\d{4,6}$/;
 const DUMMY_HASH = bcrypt.hashSync('dummy-pin-0000', 10);
 
 const hashCode = (code) => crypto.createHash('sha256').update(String(code).trim().toUpperCase()).digest('hex');
-const publicUser = (u) => ({ id: u.id, phone: u.phone, name: u.name, role: u.role, avatarEmoji: u.avatar_emoji || null });
+const publicUser = (u) => ({ id: u.id, phone: u.phone, name: u.name, role: u.role, avatarEmoji: u.avatar_emoji || null, avatarUrl: u.avatar_url || null, profileDone: !!u.profile_done });
 // Indian numbers are stored as plain 10 digits: "+91 98712 72058", "919871272058", "09871272058" -> "9871272058"
 function normPhone(p) {
   let s = String(p || '').replace(/[\s()-]+/g, '');
@@ -109,14 +109,15 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
 
-// PATCH /auth/me {name?, avatarEmoji?}: own profile. Name 2-60, unique (409 NAME_TAKEN); emoji or null.
+// PATCH /auth/me {name?, avatarEmoji?, avatarUrl?, profileDone?, onboarding?}: own profile. Name 2-60, unique (409 NAME_TAKEN); emoji or null;
+// avatarUrl = /media/f/... or null. Onboarding: send {onboarding:true, name?, avatarUrl?} (or {profileDone:true}) -> profile_done = 1.
 router.patch('/me', requireAuth, async (req, res) => {
   try {
     const { sets, vals } = await users.profileUpdate(req.body || {}, req.user.id);
     if (!sets.length) return res.status(400).json({ error: 'Nothing to update', code: 'BAD_REQUEST' });
     await pool.query('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ?', [...vals, req.user.id]);
     await users.broadcast(req.user.id);
-    const [[u]] = await pool.query('SELECT id, phone, name, role, avatar_emoji FROM users WHERE id = ?', [req.user.id]);
+    const [[u]] = await pool.query('SELECT id, phone, name, role, avatar_emoji, avatar_url, profile_done FROM users WHERE id = ?', [req.user.id]);
     res.json({ user: publicUser(u) });
   } catch (e) {
     if (e instanceof users.UserError) return res.status(e.status).json({ error: e.message, code: e.code });

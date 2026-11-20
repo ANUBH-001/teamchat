@@ -34,7 +34,7 @@ const Pill = React.memo(function Pill({ label, status }: { label: string; status
 function TopBar({ t, title, onBack }: { t: Theme; title: string; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={{ backgroundColor: t.primary, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, margin: -16, marginBottom: 12, flexDirection: 'row', alignItems: 'center' }}>
+    <View style={{ backgroundColor: t.header, paddingTop: insets.top + 10, paddingBottom: 12, paddingHorizontal: 12, margin: -16, marginBottom: 12, flexDirection: 'row', alignItems: 'center' }}>
       <Pressable onPress={onBack} hitSlop={10} style={{ paddingRight: 12 }}>
         <Text style={{ color: '#fff', fontSize: 28, lineHeight: 30 }}>{'‹'}</Text>
       </Pressable>

@@ -100,3 +100,11 @@ Rollback: min `0`, restore the pre-009 dump, `git checkout <previous hash>`, res
 4. Rollback: server par latest timestamp folder delete (app pichhla/embedded code le legi).
 5. Nayi APK tab bhi chahiye jab native dependency/plugin badle: `runtimeVersion` (app.json) badhao (jaise "2"), nayi APK build + upload, min version badhao. Purane runtime ke phones ko naye runtime ka update nahi milta.
 6. Optional env `PUBLIC_BASE_URL=https://apps.landauditors.com/team_chat` (Apache /team_chat prefix hatata hai, isliye asset URLs me prefix is se aata hai). `server/updates/` git-ignored hai.
+
+## Round 4 update (BUILT, NOT deployed: deploy only when the owner says)
+Needs the new APK (runtime 2) first; Phase 1 server is backward-compatible for old chat clients but old task UI will not match.
+1. DB backup, then BEFORE the new server starts: `mysql -u team_chat_user -p team_chat_db < /opt/node/team-chat/server/sql/migrate_010.sql` (avatar_url, profile_done, favourite, media columns, tasks.private).
+2. `mkdir -p /opt/node/team-chat/server/uploads` (owned by the pm2 user; NOT in backups, size). Apache `LimitRequestBody` must allow >= 16 MB for /team_chat/media.
+3. `git pull`, `npm install --omit=dev` (adds multer), set `.env`: `AI_PROVIDER=gemini`, `AI_API_KEY`, `AI_MODEL` (Gemini Flash), optional `GOOGLE_MAPS_API_KEY` (Static Maps; without it OpenStreetMap tiles are used). Never paste keys in chat.
+4. `pm2 restart team-chat-backend --update-env`, health check. Then upload APK 0.6.0, Admin > Settings latest/min version.
+Rollback: restore the pre-010 dump, `git checkout <previous hash>`, restart (uploads/ can stay).
