@@ -83,7 +83,7 @@ function closeUser(userId, code = 4401, reason = 'Not authenticated') {
 }
 
 function attach(server) {
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 }) // clients only send tiny typing / ping frames; bigger = closed 1009;
   wss.on('connection', async (ws, req) => {
     let user;
     try {
