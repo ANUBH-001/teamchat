@@ -61,6 +61,15 @@ function createApp() {
   app.use('/chats', require('./routes/chats'));
   app.use('/tasks', require('./routes/tasks'));
   app.use('/', require('./routes/misc'));
+  // B-21: last resort, always JSON (never the default HTML stack page)
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON', code: 'BAD_JSON' });
+    if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'Request too large', code: 'TOO_LARGE' });
+    console.error('unhandled route error:', err && err.message);
+    res.status(500).json({ error: 'Server error' });
+  });
   return app;
 }
 

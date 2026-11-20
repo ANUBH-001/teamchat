@@ -3,6 +3,9 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'change-me') {
   console.error('Set a real JWT_SECRET in server/.env');
   process.exit(1);
 }
+// B-21: log instead of dying silently or with a bare stack; an uncaught exception leaves unknown state, so exit and let pm2 restart
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e && e.stack ? e.stack : e));
+process.on('uncaughtException', (e) => { console.error('uncaughtException:', e && e.stack ? e.stack : e); process.exit(1); });
 const http = require('http');
 const { createApp } = require('./app');
 
