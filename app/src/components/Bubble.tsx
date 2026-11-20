@@ -127,6 +127,7 @@ function BubbleBase({
       >
         <Pressable
           onLongPress={() => onLongPress(msg)}
+          onPress={status === 'failed' ? () => onLongPress(msg) : undefined} // failed: a tap opens Retry / Delete
           style={{
             maxWidth: '80%', paddingHorizontal: isImg ? 4 : 9, paddingVertical: isImg ? 4 : 6, borderRadius: 10,
             backgroundColor: mine ? t.bubbleOut : tinted ? tintFor(msg.senderId, t === dark) : t.bubbleIn,
