@@ -8,6 +8,7 @@ const KEY = 'token';
 export type User = {
   id: number; phone: string; name: string; role: 'boss' | 'member'; avatarEmoji?: string | null;
   avatarUrl?: string | null; profileDone?: boolean; // Round 4
+  showAdminLabel?: boolean; // false = the owner hid this admin's "Admin" label in chats
 };
 
 export const getToken = () => SecureStore.getItemAsync(KEY);

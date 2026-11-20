@@ -99,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!me) return;
       const next = { ...me, ...u };
       setUser(next);
-      storeUser({ id: next.id, name: next.name, avatarEmoji: next.avatarEmoji || null, avatarUrl: next.avatarUrl || null, role: next.role });
+      storeUser({ id: next.id, name: next.name, avatarEmoji: next.avatarEmoji || null, avatarUrl: next.avatarUrl || null, role: next.role, showAdminLabel: next.showAdminLabel });
     },
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -100,7 +100,7 @@ export type BotPayload =
   | { kind: 'clarify'; text: string }
   | { kind: 'info'; text: string };
 
-export type Person = { id: number; name: string; phone: string; role?: 'boss' | 'member'; avatarEmoji?: string | null };
+export type Person = { id: number; name: string; phone: string; role?: 'boss' | 'member'; showAdminLabel?: boolean; avatarEmoji?: string | null };
 
 // ---- Daily check-ins (server/src/checkins.js) ----
 // 'day' = morning card (open tasks, pinned, kept live); 'signoff' = evening sign-off; 'morning'/'evening' = old round-1 prompts.

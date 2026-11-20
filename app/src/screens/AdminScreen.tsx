@@ -14,10 +14,11 @@ import ReportsScreen, { CheckinSettingsScreen } from './ReportsScreen';
 import AdminSettingsScreen from './AdminSettingsScreen';
 import BackgroundCard from '../components/BackgroundCard';
 import AppUpdateCard from '../components/AppUpdateCard';
+import { showsAdminLabel } from '../adminLabel';
 import Avatar from '../components/Avatar';
 import ProfileSheet from '../components/ProfileSheet';
 
-type Row = { id: number; phone: string; name: string; role: string; active: boolean; activated: boolean; avatarEmoji?: string | null };
+type Row = { id: number; phone: string; name: string; role: string; active: boolean; activated: boolean; avatarEmoji?: string | null; showAdminLabel?: boolean };
 
 export default function AdminScreen({ onBack }: { onBack: () => void }) {
   const insets = useSafeAreaInsets();
@@ -84,6 +85,7 @@ export default function AdminScreen({ onBack }: { onBack: () => void }) {
     { text: 'Logout', style: 'destructive', onPress: () => run(async () => { await api('POST', '/admin/users/' + u.id + '/logout'); }) },
   ]);
 
+  const toggleAdminLabel = (u: Row) => run(() => api('PUT', '/admin/users/' + u.id + '/admin-label', { show: !showsAdminLabel(u) }));
   const toggle = (u: Row) => run(() => api('PATCH', '/admin/users/' + u.id, { active: !u.active }));
 
   const input = {
@@ -173,7 +175,7 @@ export default function AdminScreen({ onBack }: { onBack: () => void }) {
                 <Text selectable style={{ color: t.text, fontSize: 24, fontWeight: '700', letterSpacing: 3, marginVertical: 6 }}>
                   {invite.code}
                 </Text>
-                <TouchableOpacity onPress={() => Share.share({ message: 'Team Chat invite code: ' + invite.code })}>
+                <TouchableOpacity onPress={() => Share.share({ message: 'KlapChat invite code: ' + invite.code })}>
                   <Text style={{ color: t.primary, fontWeight: '600' }}>Copy / Share</Text>
                 </TouchableOpacity>
               </View>
@@ -204,6 +206,13 @@ export default function AdminScreen({ onBack }: { onBack: () => void }) {
                 </TouchableOpacity>
               )}
             </View>
+            {u.role === 'boss' && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+                <Text style={{ color: t.subtext, flexShrink: 1, marginRight: 8 }}>Show 'Admin' label in chats</Text>
+                <Switch value={showsAdminLabel(u)} onValueChange={() => toggleAdminLabel(u)} accessibilityLabel="Show Admin label in chats"
+                  trackColor={{ true: t.accent, false: t.border }} thumbColor="#fff" />
+              </View>
+            )}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
               <TouchableOpacity onPress={() => reset(u)}>
                 <Text style={{ color: t.primary, fontWeight: '600' }}>Reset PIN / new invite</Text>

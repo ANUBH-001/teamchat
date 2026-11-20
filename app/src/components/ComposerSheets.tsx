@@ -6,8 +6,9 @@ import { COMMANDS, Command } from '../commands';
 import { colorOf, Task } from '../taskTypes';
 import Sheet from './Sheet';
 import Avatar from './Avatar';
+import { showsAdminLabel } from '../adminLabel';
 
-export type PickPerson = { id: number; name: string; phone?: string | null; inChat?: boolean; role?: string };
+export type PickPerson = { id: number; name: string; phone?: string | null; inChat?: boolean; role?: string; showAdminLabel?: boolean };
 export const phoneTail = (p?: string | null) => (p ? '...' + String(p).slice(-4) : '');
 export const firstName = (n: string) => n.trim().split(/\s+/)[0];
 
@@ -66,7 +67,7 @@ export function PeopleSheet({ visible, onClose, title, people, loading, onPick, 
       >
         <Avatar name={p.name} id={p.id} userId={p.id} size={38} />
         <Text numberOfLines={1} style={{ flex: 1, color: t.text, fontSize: 16, marginLeft: 14, fontWeight: label ? '600' : '400' }}>{label || p.name}</Text>
-        {p.role === 'boss' && !label && <Text style={{ color: t.accent, fontSize: 11, fontWeight: '700', marginRight: 10 }}>ADMIN</Text>}
+        {showsAdminLabel(p) && !label && <Text style={{ color: t.accent, fontSize: 11, fontWeight: '700', marginRight: 10 }}>ADMIN</Text>}
         {!label && <Text style={{ color: t.subtext, fontSize: 12 }}>{phoneTail(p.phone)}</Text>}
         {multi && <Ionicons name={on ? 'checkbox' : 'square-outline'} size={22} color={on ? t.accent : t.subtext} style={{ marginLeft: 10 }} />}
       </Pressable>

@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const pool = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const users = require('../users');
+const settings = require('../settings');
 
 const router = express.Router();
 const MAX_ATTEMPTS = 5;
@@ -14,7 +15,7 @@ const PIN_RE = /^\d{4,6}$/;
 const DUMMY_HASH = bcrypt.hashSync('dummy-pin-0000', 10);
 
 const hashCode = (code) => crypto.createHash('sha256').update(String(code).trim().toUpperCase()).digest('hex');
-const publicUser = (u) => ({ id: u.id, phone: u.phone, name: u.name, role: u.role, avatarEmoji: u.avatar_emoji || null, avatarUrl: u.avatar_url || null, profileDone: !!u.profile_done });
+const publicUser = (u, hidden) => ({ id: u.id, phone: u.phone, name: u.name, role: u.role, showAdminLabel: settings.showAdminLabel(u.role, u.id, hidden), avatarEmoji: u.avatar_emoji || null, avatarUrl: u.avatar_url || null, profileDone: !!u.profile_done });
 // Indian numbers are stored as plain 10 digits: "+91 98712 72058", "919871272058", "09871272058" -> "9871272058"
 function normPhone(p) {
   let s = String(p || '').replace(/[\s()-]+/g, '');
@@ -84,7 +85,7 @@ router.post('/activate', rateLimit, async (req, res) => {
     await pool.query('UPDATE users SET pin_hash = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?', [pinHash, u.id]);
     require('../realtime').sendToBosses({ type: 'users' }).catch(() => {});
     await require('../checkins').ensureChat(u.id).catch((e) => console.error('checkin chat:', e.message)); // members: private 'Daily Check-in' chat (no-op for boss)
-    res.json({ token: await startSession(u), user: publicUser(u) });
+    res.json({ token: await startSession(u), user: publicUser(u, await settings.hiddenAdminIds()) });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -101,7 +102,7 @@ router.post('/login', rateLimit, async (req, res) => {
     const ok = await bcrypt.compare(pin, u.pin_hash);
     if (!ok) { await failAttempt(u); return bad(); }
     await pool.query('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?', [u.id]);
-    res.json({ token: await startSession(u), user: publicUser(u) });
+    res.json({ token: await startSession(u), user: publicUser(u, await settings.hiddenAdminIds()) });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -121,8 +122,8 @@ router.post('/logout', requireAuth, async (req, res) => {
   }
 });
 
-router.get('/me', requireAuth, (req, res) => {
-  res.json({ user: publicUser(req.user) });
+router.get('/me', requireAuth, async (req, res) => {
+  res.json({ user: publicUser(req.user, await settings.hiddenAdminIds()) });
 });
 
 // PATCH /auth/me {name?, avatarEmoji?, avatarUrl?, profileDone?, onboarding?}: own profile. Name 2-60, unique (409 NAME_TAKEN); emoji or null;
@@ -134,7 +135,7 @@ router.patch('/me', requireAuth, async (req, res) => {
     await pool.query('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ?', [...vals, req.user.id]);
     await users.broadcast(req.user.id);
     const [[u]] = await pool.query('SELECT id, phone, name, role, avatar_emoji, avatar_url, profile_done FROM users WHERE id = ?', [req.user.id]);
-    res.json({ user: publicUser(u) });
+    res.json({ user: publicUser(u, await settings.hiddenAdminIds()) });
   } catch (e) {
     if (e instanceof users.UserError) return res.status(e.status).json({ error: e.message, code: e.code });
     res.status(500).json({ error: 'Server error' });

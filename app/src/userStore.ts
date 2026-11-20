@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 import { api } from './api';
 import { onEvent } from './realtime';
 
-export type StoreUser = { id: number; name: string; avatarEmoji: string | null; avatarUrl?: string | null; role?: 'boss' | 'member'; phone?: string };
+export type StoreUser = { id: number; name: string; avatarEmoji: string | null; avatarUrl?: string | null; role?: 'boss' | 'member'; showAdminLabel?: boolean; phone?: string };
 
 let map = new Map<number, StoreUser>();
 let list: StoreUser[] = [];

@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const rt = require('../realtime');
 const checkins = require('../checkins');
 const bot = require('../ai/bot');
+const settings = require('../settings');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -168,10 +169,11 @@ async function chatSummaries(user, onlyChatId) {
 
 // Current members (no bot), check-in guard applied.
 async function memberList(chatId, createdBy) {
+  const hidden = await settings.hiddenAdminIds();
   const [rows] = await pool.query(
     'SELECT u.id, u.name, u.role, u.phone, u.avatar_emoji, u.avatar_url ' + rt.MEMBER_FROM + 'WHERE cm.chat_id = ? AND cm.left_at IS NULL AND u.is_bot = 0 AND ' +
     rt.MEMBER_OK + ' ORDER BY u.name', [chatId]);
-  return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, phone: u.phone, avatarEmoji: u.avatar_emoji || null, avatarUrl: u.avatar_url || null, isCreator: u.id === createdBy }));
+  return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, showAdminLabel: settings.showAdminLabel(u.role, u.id, hidden), phone: u.phone, avatarEmoji: u.avatar_emoji || null, avatarUrl: u.avatar_url || null, isCreator: u.id === createdBy }));
 }
 
 // Group management guard: member + group chat (+ creator or boss when manage). -> chat row, or sends the error.

@@ -40,6 +40,7 @@ import TaskModal from '../components/TaskModal';
 import DmTasksSheet from '../components/DmTasksSheet';
 import InAppBanner from '../components/InAppBanner';
 import { ChatRevealContext, revealDelta } from '../keepVisible';
+import { showsAdminLabel } from '../adminLabel';
 import { toast } from '../useVoiceInput'; // Round 4: useVoiceInput is no longer used (voice notes use expo-av)
 
 type Item =
@@ -58,7 +59,7 @@ const plainText = (m: Msg) => (m.text || '').replace(/^↪ Forwarded\n?/, '');
 const previewOf = (m: Msg) => plainText(m) || mediaLabel(m);
 const TASK_CMD_ME = /^\/(task|assign|unassign|reassign|re)\b/i; // inline "@" offers me only after these
 const idsOfAny = (x: AnyTask) => (isBrief(x) ? x.assigneeIds : assigneeIdsOf(x));
-type Member = { id: number; name: string; role: 'boss' | 'member'; isCreator: boolean; phone?: string };
+type Member = { id: number; name: string; role: 'boss' | 'member'; showAdminLabel?: boolean; isCreator: boolean; phone?: string };
 type MentionRef = { id: number; label: string }; // "@Rishit" inserted from a picker, sent as structured mentionIds
 const EDIT_MS = 10 * 60 * 1000; // server allows edit/delete of own messages for 10 minutes
 
@@ -405,11 +406,11 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const pickList: PickPerson[] = useMemo(() => {
     const inChat = new Set(members.map((m) => m.id));
     const byId = new Map<number, PickPerson>();
-    for (const m of members) if (m.id !== me.id) byId.set(m.id, { id: m.id, name: m.name, phone: m.phone, role: m.role, inChat: true });
-    for (const u of storeUsers) if (u.id !== me.id && !byId.has(u.id)) byId.set(u.id, { id: u.id, name: u.name, phone: u.phone, role: u.role, inChat: inChat.has(u.id) });
+    for (const m of members) if (m.id !== me.id) byId.set(m.id, { id: m.id, name: m.name, phone: m.phone, role: m.role, showAdminLabel: m.showAdminLabel, inChat: true });
+    for (const u of storeUsers) if (u.id !== me.id && !byId.has(u.id)) byId.set(u.id, { id: u.id, name: u.name, phone: u.phone, role: u.role, showAdminLabel: u.showAdminLabel, inChat: inChat.has(u.id) });
     return [...byId.values()];
   }, [members, storeUsers, me.id]);
-  const mePerson: PickPerson = useMemo(() => ({ id: me.id, name: me.name, phone: me.phone, role: me.role, inChat: true }), [me.id, me.name, me.phone, me.role]);
+  const mePerson: PickPerson = useMemo(() => ({ id: me.id, name: me.name, phone: me.phone, role: me.role, showAdminLabel: me.showAdminLabel, inChat: true }), [me.id, me.name, me.phone, me.role, me.showAdminLabel]);
   // includeMe: task / assign / reassign / tasks pickers offer "Me (khud)" first (bug 1)
   const openPeople = (title: string, onPick: (p: PickPerson) => void, includeMe = false, src: PickPerson[] | null = null) => {
     setPeopleSrc(src);
@@ -892,13 +893,13 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       // me only right after /task /assign /unassign /reassign (task for myself)
       const withMe = TASK_CMD_ME.test(text);
       const meRow = withMe && (!q || 'me khud'.includes(q) || me.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)))
-        ? [{ id: me.id, name: me.name, role: me.role, isCreator: false, phone: me.phone } as Member] : [];
+        ? [{ id: me.id, name: me.name, role: me.role, showAdminLabel: me.showAdminLabel, isCreator: false, phone: me.phone } as Member] : [];
       return [...meRow, ...members
         .filter((m) => m.id !== me.id && (!q || m.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q))))]
         .slice(0, 6)
         .map((m) => ({
           key: 'm' + m.id, title: m.id === me.id ? 'Me (khud)' : m.name,
-          sub: [m.role === 'boss' ? 'Admin' : '', phoneTail(m.phone)].filter(Boolean).join('  ·  ') || undefined,
+          sub: [showsAdminLabel(m) ? 'Admin' : '', phoneTail(m.phone)].filter(Boolean).join('  ·  ') || undefined,
           left: <Avatar name={m.name} id={m.id} userId={m.id} size={32} />,
           onPress: () => {
             refs.current = [...refs.current, { id: m.id, label: '@' + firstName(m.name) }];
