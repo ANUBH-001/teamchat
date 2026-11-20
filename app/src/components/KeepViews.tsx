@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../useTheme';
-import { BUCKETS, Line, Bucket, bucketOf, byDoneDesc, byDue, dateTimeOf, dayYear, dueLine, localYmd, timeOf } from '../taskFormat';
+import { Line, byDoneDesc, byNewest, dateTimeOf, dayYear, localYmd, timeOf } from '../taskFormat';
 import Avatar from './Avatar';
 
 // Google-Keep style building blocks of the Tasks tab (Round 4): a checkbox line, a card with a collapsible
@@ -13,7 +13,6 @@ export function LineRow({ line, onTick, onOpen, canTick, showPerson }: {
 }) {
   const t = useTheme();
   const { task } = line;
-  const due = dueLine(task, line.done);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 6 }}>
       <Pressable onPress={() => canTick && onTick(line)} hitSlop={8} disabled={!canTick} style={{ paddingTop: 1, paddingRight: 8, opacity: canTick ? 1 : 0.45 }}>
@@ -24,11 +23,7 @@ export function LineRow({ line, onTick, onOpen, canTick, showPerson }: {
           {showPerson ? line.name + ' · ' : ''}Task {task.id} · {task.title}
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
-          {line.done ? (
-            <Text style={{ color: t.subtext, fontSize: 11 }}>{line.doneAt ? 'Done ' + dateTimeOf(line.doneAt) : 'Done'}</Text>
-          ) : (
-            <Text style={{ color: due.late ? t.danger : t.subtext, fontSize: 11, fontWeight: due.late ? '700' : '400' }}>{due.text}</Text>
-          )}
+          {line.done && <Text style={{ color: t.subtext, fontSize: 11 }}>{line.doneAt ? 'Done ' + dateTimeOf(line.doneAt) : 'Done'}</Text>}
           {line.others > 0 && (
             <View style={{ backgroundColor: t.chip, borderRadius: 8, paddingHorizontal: 6, marginLeft: 8 }}>
               <Text style={{ color: t.chipText, fontSize: 10, fontWeight: '700' }}>+{line.others}</Text>
@@ -43,25 +38,25 @@ export function LineRow({ line, onTick, onOpen, canTick, showPerson }: {
 export const estHeight = (lines: Line[]) => 60 + lines.length * 46;
 
 // One card: title row (avatar / lock, tap = full list), open lines, collapsible Completed (n).
-export function KeepCard({ title, userId, lock, lines, me, isBoss, onTick, onOpen, onTitle, showPerson, late }: {
+export function KeepCard({ title, userId, lock, lines, me, isBoss, onTick, onOpen, onTitle, showPerson }: {
   title: string; userId?: number | null; lock?: boolean; lines: Line[]; me: number; isBoss: boolean;
-  onTick: (l: Line) => void; onOpen: (l: Line) => void; onTitle?: () => void; showPerson?: boolean; late?: boolean;
+  onTick: (l: Line) => void; onOpen: (l: Line) => void; onTitle?: () => void; showPerson?: boolean;
 }) {
   const t = useTheme();
   const [showDone, setShowDone] = useState(false);
-  const open = lines.filter((l) => !l.done).sort(byDue);
+  const open = lines.filter((l) => !l.done).sort(byNewest);
   const done = lines.filter((l) => l.done).sort(byDoneDesc);
   const can = (l: Line) => isBoss || l.userId === me;
   return (
-    <View style={{ backgroundColor: t.card, borderRadius: 14, borderWidth: 1, borderColor: late ? t.danger : t.border, padding: 12, marginBottom: 10 }}>
+    <View style={{ backgroundColor: t.card, borderRadius: 14, borderWidth: 1, borderColor: t.border, padding: 12, marginBottom: 10 }}>
       <Pressable onPress={onTitle} disabled={!onTitle} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
         {userId ? <Avatar name={title} id={userId} userId={userId} size={24} /> : null}
-        <Text numberOfLines={1} style={{ flex: 1, color: late ? t.danger : t.text, fontWeight: '700', fontSize: 15, marginLeft: userId ? 8 : 0 }}>
+        <Text numberOfLines={1} style={{ flex: 1, color: t.text, fontWeight: '700', fontSize: 15, marginLeft: userId ? 8 : 0 }}>
           {title}{lock ? ' 🔒' : ''}
         </Text>
         {!!onTitle && <Ionicons name="chevron-forward" size={16} color={t.subtext} />}
       </Pressable>
-      {!open.length && !done.length && <Text style={{ color: t.subtext, fontSize: 12 }}>Koi task nahi</Text>}
+      {!open.length && !done.length && <Text style={{ color: t.subtext, fontSize: 12 }}>No tasks</Text>}
       {open.map((l) => <LineRow key={l.task.id + '-' + l.userId} line={l} onTick={onTick} onOpen={onOpen} canTick={can(l)} showPerson={showPerson} />)}
       {done.length > 0 && (
         <>
@@ -88,34 +83,6 @@ export function Masonry({ items }: { items: { key: string; h: number; node: Reac
     <View style={{ flexDirection: 'row', paddingHorizontal: 12, alignItems: 'flex-start' }}>
       <View style={{ flex: 1, marginRight: 5 }}>{cols[0].nodes}</View>
       <View style={{ flex: 1, marginLeft: 5 }}>{cols[1].nodes}</View>
-    </View>
-  );
-}
-
-// Mine: my lines grouped Overdue / Today / Tomorrow / Upcoming / No date (one card each), Completed (n) at the bottom.
-export function MineList({ lines, me, isBoss, onTick, onOpen }: {
-  lines: Line[]; me: number; isBoss: boolean; onTick: (l: Line) => void; onOpen: (l: Line) => void;
-}) {
-  const t = useTheme();
-  const [showDone, setShowDone] = useState(false);
-  const open = lines.filter((l) => !l.done);
-  const done = lines.filter((l) => l.done).sort(byDoneDesc);
-  const g: Record<Bucket, Line[]> = { Overdue: [], Today: [], Tomorrow: [], Upcoming: [], 'No date': [] };
-  open.forEach((l) => g[bucketOf(l.task)].push(l));
-  return (
-    <View style={{ paddingHorizontal: 12 }}>
-      {BUCKETS.filter((b) => g[b].length).map((b) => (
-        <KeepCard key={b} title={b === 'Overdue' ? 'Overdue · ' + g[b].length : b} late={b === 'Overdue'} lines={g[b]} me={me} isBoss={isBoss} onTick={onTick} onOpen={onOpen} />
-      ))}
-      {done.length > 0 && (
-        <View style={{ backgroundColor: t.card, borderRadius: 14, borderWidth: 1, borderColor: t.border, padding: 12, marginBottom: 10 }}>
-          <Pressable onPress={() => setShowDone((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name={showDone ? 'chevron-down' : 'chevron-forward'} size={16} color={t.subtext} />
-            <Text style={{ color: t.subtext, fontWeight: '700', fontSize: 14, marginLeft: 4 }}>Completed ({done.length})</Text>
-          </Pressable>
-          {showDone && done.map((l) => <LineRow key={l.task.id + '-' + l.userId} line={l} onTick={onTick} onOpen={onOpen} canTick={isBoss || l.userId === me} />)}
-        </View>
-      )}
     </View>
   );
 }
@@ -159,7 +126,7 @@ export function ChecklistCard({ title, lines, me, isBoss, onTick, onOpen, done, 
   title: string; lines: Line[]; me: number; isBoss: boolean; onTick: (l: Line) => void; onOpen: (l: Line) => void; done?: boolean; onTitle?: () => void;
 }) {
   const t = useTheme();
-  const shown = lines.filter((l) => (done ? l.done : !l.done)).sort(done ? byDoneDesc : byDue);
+  const shown = lines.filter((l) => (done ? l.done : !l.done)).sort(done ? byDoneDesc : byNewest);
   return (
     <View testID="checklist-card" style={{ backgroundColor: t.card, borderRadius: 12, borderWidth: 1, borderColor: t.border, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, marginBottom: 10 }}>
       <Pressable onPress={onTitle} disabled={!onTitle}>

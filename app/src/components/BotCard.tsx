@@ -4,10 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Theme } from '../theme';
 import { api } from '../api';
 import { Msg, BotPayload, TaskEventName } from '../chatTypes';
-import { OVERDUE_COLOR, Task, labelOf, colorOf, assigneeIdsOf, assigneeNamesOf, StepStatus, canTick } from '../taskTypes';
+import { STALE_COLOR, Task, labelOf, colorOf, assigneeIdsOf, assigneeNamesOf, StepStatus, canTick } from '../taskTypes';
 import { usePublicSettings } from '../publicSettings';
-import { formatDue } from '../dates';
-import { dueLine } from '../taskFormat';
 import { useTaskState, ensureTask, putTask, applyTickTo, isBrief } from '../taskCache';
 import { toast } from '../useVoiceInput';
 import Avatar, { AvatarStack } from './Avatar';
@@ -31,7 +29,7 @@ export const EVENT: Record<string, { icon: IconName; color: string }> = {
   reopened: { icon: 'refresh', color: '#F5A623' },
   answered: { icon: 'chatbubbles', color: '#34B7F1' },
   reassigned: { icon: 'swap-horizontal', color: '#34B7F1' },
-  due: { icon: 'calendar', color: '#F5A623' },
+  due: { icon: 'calendar', color: '#F5A623' }, // old cards only (due dates were removed)
   deleted: { icon: 'close-circle', color: '#6B7280' },
   note: { icon: 'chatbubble-ellipses', color: '#34B7F1' },
   praise: { icon: 'heart', color: '#E5484D' },
@@ -46,12 +44,12 @@ export function headline(ev: TaskEventName | string, actor: string, t: Task) {
     case 'completed': return actor + ' completed Task ' + t.id;
     // Round 4: disabled (simple create->done): step events (testing / planning / coding / change_merged) now read as an update
     case 'review': case 'testing': case 'planning': case 'coding': case 'change_merged': return actor + ' updated Task ' + t.id;
-    case 'done': return actor + ' ne apna part Done kiya (Task ' + t.id + ')';
+    case 'done': return actor + ' marked their part Done (Task ' + t.id + ')';
     case 'closed': case 'deleted': return actor + ' closed Task ' + t.id;
     case 'reopened': return actor + ' reopened a task';
-    case 'answered': return actor + ' ne jawab diya';
+    case 'answered': return actor + ' replied';
     case 'reassigned': return actor + ' changed the people' + (who ? ': ' + who : '');
-    case 'due': return actor + ' changed the due date';
+    case 'due': return actor + ' updated Task ' + t.id;
     case 'note': return actor + ' added a note';
     case 'praise': return actor + ' praised ' + (who || 'the work');
     default: return actor + ' updated Task ' + t.id;
@@ -98,8 +96,8 @@ function TaskLine({ task, t }: { task: Task; t: Theme }) {
           </View>
         )}
         <Pill status={task.status} />
-        <Text style={{ color: task.overdue && task.status !== 'done' ? t.danger : t.subtext, fontSize: 12, marginLeft: 8, flexShrink: 1 }}>
-          {names(task) || 'Unassigned'}{task.dueDate ? '  ·  ' + dueLine(task).text : ''}  ·  Task {task.id}
+        <Text style={{ color: t.subtext, fontSize: 12, marginLeft: 8, flexShrink: 1 }}>
+          {names(task) || 'Unassigned'}  ·  Task {task.id}
         </Text>
       </View>
     </View>
@@ -199,7 +197,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
           <Pill status={task.status} />
           <Text style={{ color: t.subtext, fontSize: 13, marginLeft: 8, flex: 1 }}>{names(task) || 'Unassigned'}</Text>
         </View>
-        <Text style={{ color: t.subtext, fontSize: 12, marginTop: 10 }}>Is task ki details sirf admin, banane wala aur assignees dekh sakte hain.</Text>
+        <Text style={{ color: t.subtext, fontSize: 12, marginTop: 10 }}>Only the admin, the creator and the assignees can see this task's details.</Text>
       </View>
     </Sheet>
   );
@@ -265,8 +263,8 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
               )}
               {!gone && <Pill status={task.status} />}
               {people.length > 0 && <View style={{ marginLeft: 8 }}><AvatarStack people={people} size={compact ? 18 : 20} /></View>}
-              <Text numberOfLines={1} style={{ color: task.overdue && task.status !== 'done' ? t.danger : t.subtext, fontSize: 12, marginLeft: 6, flexShrink: 1 }}>
-                {names(task) || 'Unassigned'}{task.dueDate ? '  ·  ' + dueLine(task).text : ''}  ·  Task {task.id}
+              <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 12, marginLeft: 6, flexShrink: 1 }}>
+                {names(task) || 'Unassigned'}  ·  Task {task.id}
               </Text>
             </View>
             {!!p.note && (
@@ -367,7 +365,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Ionicons name="help-circle" size={16} color="#34B7F1" />
               <Text numberOfLines={2} style={{ flex: 1, color: t.subtext, fontSize: 12, fontWeight: '600', marginLeft: 6 }}>
-                {(p.actorName || 'Someone') + ' ne Task ' + p.task.id + ' ka status poocha' + (names(p.task) ? ' · ' + names(p.task) : '')}
+                {(p.actorName || 'Someone') + ' asked for the status of Task ' + p.task.id + (names(p.task) ? ' · ' + names(p.task) : '')}
               </Text>
             </View>
             <TaskLine task={p.task} t={t} />
@@ -382,7 +380,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
               {mineTask && <Action t={t} label="Description" onPress={() => setActions(true)} />}
               {mineTask && !onReply && !!onPrefill && <Action t={t} label="Update" onPress={() => onPrefill('/update Task ' + p.task.id + ' ')} />}
             </View>
-            {mineTask && <Text style={{ color: t.subtext, fontSize: 11, marginTop: 6 }}>Is card ko reply karke jawab likho (asker ko notification jayega)</Text>}
+            {mineTask && <Text style={{ color: t.subtext, fontSize: 11, marginTop: 6 }}>Reply to this card to answer (the asker will be notified)</Text>}
           </View>
         ), !canOpen ? () => setBrief(true) : undefined)}
         {brief && briefSheet(p.task)}
@@ -393,12 +391,12 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
 
   if (p && p.kind === 'reminder') {
     const mineTask = p.assigneeId === meId || assigneeIdsOf(p.task).includes(meId);
-    return frame(OVERDUE_COLOR, (
+    return frame(STALE_COLOR, (
       <View>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Ionicons name="alarm" size={16} color={OVERDUE_COLOR} />
-          <Text style={{ flex: 1, color: OVERDUE_COLOR, fontSize: 12, fontWeight: '700', marginLeft: 6 }}>
-            Ye task {p.days} din se pending hai, complete karo
+          <Ionicons name="alarm" size={16} color={STALE_COLOR} />
+          <Text style={{ flex: 1, color: STALE_COLOR, fontSize: 12, fontWeight: '700', marginLeft: 6 }}>
+            This task has been pending for {p.days} days. Please complete it.
           </Text>
         </View>
         <TaskLine task={p.task} t={t} />
@@ -423,8 +421,8 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
           >
             <View style={{ flex: 1 }}>
               <Text numberOfLines={1} style={{ color: t.text, fontSize: 14 }}>{x.title}</Text>
-              <Text numberOfLines={1} style={{ color: x.overdue && x.status !== 'done' ? t.danger : t.subtext, fontSize: 12 }}>
-                {'Task ' + x.id + '  ·  ' + (x.assigneeName || 'Unassigned')}{x.dueDate ? '  ·  ' + formatDue(x.dueDate) : ''}
+              <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 12 }}>
+                {'Task ' + x.id + '  ·  ' + (x.assigneeName || 'Unassigned')}
               </Text>
             </View>
             <Pill status={x.status} />
@@ -472,7 +470,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
       <View>
         <Text style={{ color: t.text, fontSize: 14, fontWeight: '700', marginBottom: 2 }}>{p.userName}'s tasks</Text>
         {keys.map((k) => {
-          const list = p[k] as { id: number; title: string; dueDate?: string | null }[];
+          const list = p[k] as { id: number; title: string }[];
           return (
             <View key={k} style={{ marginTop: 6 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -480,7 +478,7 @@ function BotCardBase({ msg, t, meId, isBoss, time, onLongPress, onOpenTask, onSe
                 <Text style={{ color: t.subtext, fontSize: 12, fontWeight: '600' }}>{labelOf(k)} ({counts[k] ?? list.length})</Text>
               </View>
               {list.map((i) => (
-                <Text key={i.id} style={{ color: t.text, fontSize: 13 }}>{'• ' + i.title + (i.dueDate ? '  (' + formatDue(i.dueDate) + ')' : '')}</Text>
+                <Text key={i.id} style={{ color: t.text, fontSize: 13 }}>{'• ' + i.title}</Text>
               ))}
             </View>
           );

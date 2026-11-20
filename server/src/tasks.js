@@ -4,9 +4,9 @@
 // (stored on the event with its chat id and a text snapshot, shown on the task timeline).
 // Round 3 model: task_assignees = one row per person with their OWN status; tasks.status = aggregate (lowest step of the
 // active assignees, 'done' only when all are done) or 'closed' (close replaces delete). tasks.assignee_id = primary.
-// Permissions: view = boss, an active assignee or the creator. Own status = that assignee; anyone's status = boss or
-// creator (creator needs membersCanAssign). Title/project/due/assignees = boss, or (membersCanAssign) creator/assignee.
-// Description/note = boss, assignee or creator. Create = boss / membersCanAssign / a self-task. Close/reopen = boss or creator.
+// Permissions: view = boss, an active assignee or the creator. Status (done/undo/any step) = that assignee for their own
+// step, or the boss for anyone's; nobody else, not even the creator (R-06). Title/project/assignees = boss, or (membersCanAssign) creator/assignee.
+// Description/note = boss, assignee or creator. Create = boss / membersCanAssign / a self-task. Close/reopen/delete = boss only (R-06).
 const pool = require('./db');
 const rt = require('./realtime');
 const settings = require('./settings');
@@ -32,15 +32,10 @@ const isBoss = (u) => !!u && u.role === 'boss';
 const TZ = (() => { try { new Intl.DateTimeFormat('en-US', { timeZone: process.env.TZ }); return process.env.TZ || 'Asia/Kolkata'; } catch (e) { return 'Asia/Kolkata'; } })();
 const DAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
 const today = () => DAY_FMT.format(new Date()); // 'YYYY-MM-DD'
-const NOW_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-// 'YYYY-MM-DD HH:mm' now in TZ (compared as a string with due_at_s)
-const nowStr = () => NOW_FMT.format(new Date()).replace(', ', ' ');
-// Round 4 due scheme: date-only = stored 00:00:00 (hasTime false); with time = 'HH:mm' (a typed 00:00 becomes 00:01).
-const hasTimeOf = (r) => !!r.due_at_s && r.due_at_s.slice(11) !== '00:00';
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }; // compared with completed_at (same mysql2 Date mapping)
 
 const SELECT = `SELECT t.id, t.title, t.description, t.project, t.assignee_id, u.name assignee_name, t.created_by,
-  cu.name created_by_name, t.status, DATE_FORMAT(t.due_at, '%Y-%m-%d') due_date, DATE_FORMAT(t.due_at, '%Y-%m-%d %H:%i') due_at_s, t.chat_id, t.source_message_id,
+  cu.name created_by_name, t.status, t.chat_id, t.source_message_id,
   t.completed_at, t.created_at, t.updated_at, t.reminded_at, t.closed_at, t.closed_by, t.private
   FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users cu ON cu.id = t.created_by WHERE t.deleted_at IS NULL`;
 const ASSIGNED = 'EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = ? AND ta.removed_at IS NULL)';
@@ -68,13 +63,10 @@ const shape = (r, assignees = []) => {
     id: r.id, title: r.title, description: r.description, project: r.project || null,
     assigneeId: r.assignee_id, assigneeName: r.assignee_name, assignees,
     createdBy: r.created_by, createdByName: r.created_by_name || null,
-    status: r.status, dueDate: r.due_date, chatId: r.chat_id || null,
+    status: r.status, chatId: r.chat_id || null,
     sourceMessageId: r.source_message_id ? Number(r.source_message_id) : null,
     createdAt: r.created_at, updatedAt: r.updated_at, completedAt: r.completed_at,
     closedAt: r.closed_at || null, closedBy: r.closed_by || null, private: !!r.private,
-    dueAt: hasTimeOf(r) ? r.due_at_s : null, hasTime: hasTimeOf(r),
-    // with a time: now > due; date only: date < today
-    overdue: !!(r.due_date && open && (hasTimeOf(r) ? r.due_at_s < nowStr() : r.due_date < today())),
     ageDays: ageOf(r),
     stale: open && settings.get().taskReminderDays > 0 && ageOf(r) >= settings.get().taskReminderDays,
     remindedAt: r.reminded_at || null,
@@ -103,7 +95,8 @@ const canSetAll = (task, actor) => isBoss(actor);
 const canWork = (task, actor) => isAssignee(task, actor) || canSetAll(task, actor);
 const canDescribe = (task, actor) => isBoss(actor) || isAssignee(task, actor) || task.createdBy === actor.id;
 const canManage = (task, actor) => isBoss(actor) || (canAssign(actor) && (task.createdBy === actor.id || isAssignee(task, actor)));
-const canClose = (task, actor) => isBoss(actor) || task.createdBy === actor.id;
+// R-06: delete (= close) and reopen are admin only; the creator no longer may.
+const canClose = (task, actor) => isBoss(actor);
 
 // What a member sees of a task they cannot open (Tasks "Everyone", chat info, DM sheet).
 const brief = (t) => ({
@@ -188,19 +181,6 @@ async function notify(task, ev, actor, source, extraIds = []) {
 }
 
 // ---------- validation ----------
-// 'YYYY-MM-DD' (stored 00:00:00 = no time) or 'YYYY-MM-DD HH:mm' / 'YYYY-MM-DDTHH:mm' (local TZ) -> 'YYYY-MM-DD HH:mm:ss' | null
-function cleanDate(v) {
-  if (v == null || v === '') return null;
-  const m = String(v).trim().match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2})(?::\d{2})?)?$/);
-  const d = m ? new Date(m[1] + 'T00:00:00Z') : null;
-  if (!m || isNaN(d) || d.toISOString().slice(0, 10) !== m[1] || (m[2] !== undefined && (+m[2] > 23 || +m[3] > 59))) {
-    throw new TaskError(400, 'Invalid due date');
-  }
-  if (m[2] === undefined) return m[1] + ' 00:00:00';
-  const hhmm = m[2] + ':' + m[3];
-  return m[1] + ' ' + (hhmm === '00:00' ? '00:01' : hhmm) + ':00';
-}
-
 function cleanProject(v) {
   if (v == null) return null;
   const p = String(v).trim();
@@ -228,21 +208,20 @@ async function checkUsers(ids) {
   if (rows.length !== ids.length) throw new TaskError(400, 'Invalid assignee');
 }
 
-const closedError = () => new TaskError(400, 'Task band (closed) hai, pehle reopen karein', 'TASK_CLOSED');
+const closedError = () => new TaskError(400, 'This task is closed. Reopen it first.', 'TASK_CLOSED');
 
 // ---------- create ----------
-// {title, description?, assigneeIds:[..] | assigneeId, dueDate?, project?, chatId?}
-async function createTask({ title, description, assigneeIds, assigneeId, dueDate, project, chatId }, actor, source = 'manual', messageId = null) {
+// {title, description?, assigneeIds:[..] | assigneeId, project?, chatId?} (a dueDate sent by an old app is ignored, R-07)
+async function createTask({ title, description, assigneeIds, assigneeId, project, chatId }, actor, source = 'manual', messageId = null) {
   await settings.all();
   const ids = cleanIds(assigneeIds !== undefined && assigneeIds !== null ? assigneeIds : [assigneeId]);
   if (!ids.length) throw new TaskError(400, 'Invalid assignee');
-  if (!canCreate(actor, ids)) throw new TaskError(403, 'Sirf admin dusron ko task de sakta hai (aap apne liye bana sakte hain)', 'NOT_ALLOWED');
+  if (!canCreate(actor, ids)) throw new TaskError(403, 'Only an admin can give tasks to others (you can create tasks for yourself)', 'NOT_ALLOWED');
   title = String(title || '').trim();
   if (!title) throw new TaskError(400, 'Title is required');
   if (title.length > 255) throw new TaskError(400, 'Title too long');
   const desc = cleanDesc(description);
   await checkUsers(ids);
-  const due = cleanDate(dueDate);
   const proj = cleanProject(project);
   let chat = parseInt(chatId, 10) || null;
   if (chat && !(await rt.isChatMember(chat, actor.id))) chat = null;
@@ -250,8 +229,8 @@ async function createTask({ title, description, assigneeIds, assigneeId, dueDate
   const priv = isBoss(actor) && ids.length === 1 && ids[0] === actor.id ? 1 : 0; // admin assigns only himself -> private (a member self-task stays visible to admin)
   const id = await tx(async (conn) => {
     const [r] = await conn.query(
-      'INSERT INTO tasks (title, description, project, assignee_id, created_by, due_at, source_message_id, chat_id, private) VALUES (?,?,?,?,?,?,?,?,?)',
-      [title, desc, proj, ids[0], actor.id, due, messageId, chat, priv]);
+      'INSERT INTO tasks (title, description, project, assignee_id, created_by, source_message_id, chat_id, private) VALUES (?,?,?,?,?,?,?,?)',
+      [title, desc, proj, ids[0], actor.id, messageId, chat, priv]);
     await conn.query('INSERT INTO task_assignees (task_id, user_id, added_by) VALUES ?', [ids.map((u) => [r.insertId, u, actor.id])]);
     await writeEvents([evRow(r.insertId, actor, 'created', null, title, source, messageId, src)], conn);
     return r.insertId;
@@ -261,16 +240,15 @@ async function createTask({ title, description, assigneeIds, assigneeId, dueDate
   return task;
 }
 
-// Card/ws event name: reassigned | completed (task done) | <status key> (one person's step) | due | note | updated
+// Card/ws event name: reassigned | completed (task done) | <status key> (one person's step) | note | updated
 function eventFor(changes, task, setStatus) {
   if (changes.has('assignee')) return 'reassigned';
   if (changes.has('status')) return task.status === 'done' ? 'completed' : setStatus && setStatus !== 'todo' ? setStatus : 'updated';
-  if (changes.has('due') && changes.size === 1) return 'due';
   if (changes.has('note') && changes.size === 1) return 'note';
   return 'updated';
 }
 
-const FIELDS = ['status', 'title', 'description', 'project', 'assigneeId', 'assigneeIds', 'addAssigneeIds', 'removeAssigneeIds', 'dueDate', 'note'];
+const FIELDS = ['status', 'title', 'description', 'project', 'assigneeId', 'assigneeIds', 'addAssigneeIds', 'removeAssigneeIds', 'note'];
 const ASSIGNEE_FIELDS = ['assigneeId', 'assigneeIds', 'addAssigneeIds', 'removeAssigneeIds'];
 
 // fields: any of FIELDS (+ userId / userIds = whose status; default me if I am an assignee, else all for boss/creator)
@@ -280,9 +258,13 @@ async function applyUpdate(id, f, actor, source = 'manual', messageId = null, op
   await settings.all();
   f = f && typeof f === 'object' ? f : {};
   const keys = FIELDS.filter((k) => f[k] !== undefined);
-  if (!keys.length) throw new TaskError(400, 'Nothing to update');
+  if (!keys.length && f.dueDate === undefined) throw new TaskError(400, 'Nothing to update');
   const task = await getTask(id);
   if (task.private && task.createdBy !== actor.id) throw new TaskError(403, 'Not allowed'); // Round 4: private = creator only
+  if (!keys.length) { // R-07: an old app sent only a due date; due dates no longer exist, so it is a no-op (not an error)
+    if (!canView(task, actor)) throw new TaskError(403, 'Not allowed');
+    return { task, event: 'updated', changed: false, before: task };
+  }
   const trusted = !!opts.asCreator && task.createdBy === actor.id;
   const allowed = (k) => (k === 'status' ? true
     : k === 'note' || k === 'description' ? trusted || canDescribe(task, actor) || canWork(task, actor) : trusted || canManage(task, actor));
@@ -327,7 +309,7 @@ async function applyUpdate(id, f, actor, source = 'manual', messageId = null, op
   if (f.addAssigneeIds !== undefined) add = [...new Set([...add, ...cleanIds(f.addAssigneeIds).filter((i) => !cur.includes(i))])];
   if (f.removeAssigneeIds !== undefined) remove = [...new Set([...remove, ...cleanIds(f.removeAssigneeIds).filter((i) => cur.includes(i))])];
   const final = [...cur.filter((i) => !remove.includes(i)), ...add];
-  if (!final.length) throw new TaskError(400, 'Kam se kam ek assignee chahiye', 'LAST_ASSIGNEE');
+  if (!final.length) throw new TaskError(400, 'At least one assignee is required', 'LAST_ASSIGNEE');
   if (final.length > MAX_ASSIGNEES) throw new TaskError(400, 'Max ' + MAX_ASSIGNEES + ' assignees');
   await checkUsers(add);
 
@@ -348,12 +330,6 @@ async function applyUpdate(id, f, actor, source = 'manual', messageId = null, op
   if (f.project !== undefined) {
     const p = cleanProject(f.project);
     if (p !== task.project) { set.push('project = ?'); vals.push(p); E('project', task.project, p); changes.add('project'); }
-  }
-  if (f.dueDate !== undefined) {
-    const due = cleanDate(f.dueDate);
-    const d = due ? (due.slice(11, 16) === '00:00' ? due.slice(0, 10) : due.slice(0, 16)) : null; // 'YYYY-MM-DD' or '... HH:mm'
-    const curD = task.dueAt || task.dueDate;
-    if (d !== curD) { set.push('due_at = ?'); vals.push(due); E('due', curD, d); changes.add('due'); }
   }
   // Round 4: a private task given to someone else becomes a normal (visible) task
   if (task.private && final.some((i) => i !== task.createdBy)) set.push('private = 0');
@@ -429,7 +405,7 @@ async function closeTask(id, actor, source = 'manual', messageId = null, reason 
   const task = await getTask(id);
   if (task.private && task.createdBy !== actor.id) throw new TaskError(403, 'Not allowed'); // Round 4: private = creator only
   if (!canClose(task, actor)) throw new TaskError(403, 'Not allowed');
-  if (task.status === 'closed') throw new TaskError(400, 'Task pehle se closed hai', 'ALREADY_CLOSED');
+  if (task.status === 'closed') throw new TaskError(400, 'Task is already closed', 'ALREADY_CLOSED');
   const why = reason == null ? null : String(reason).trim();
   if (why && why.length > 300) throw new TaskError(400, 'Reason too long (max 300)');
   const src = await msgInfo(messageId);
@@ -446,7 +422,7 @@ async function reopenTask(id, actor, source = 'manual', messageId = null) {
   const task = await getTask(id);
   if (task.private && task.createdBy !== actor.id) throw new TaskError(403, 'Not allowed'); // Round 4: private = creator only
   if (!canClose(task, actor)) throw new TaskError(403, 'Not allowed');
-  if (task.status !== 'closed') throw new TaskError(400, 'Task closed nahi hai', 'NOT_CLOSED');
+  if (task.status !== 'closed') throw new TaskError(400, 'Task is not closed', 'NOT_CLOSED');
   const src = await msgInfo(messageId);
   await tx(async (conn) => {
     await conn.query("UPDATE tasks SET status = 'todo', closed_at = NULL, closed_by = NULL WHERE id = ?", [id]);
@@ -620,7 +596,7 @@ async function listTasks(query, actor) {
   }
   const before = parseInt(q.before, 10) || 0;
   if (before) { sql += ' AND t.id < ?'; vals.push(before); }
-  sql += before ? ' ORDER BY t.id DESC' : " ORDER BY t.status IN ('done', 'closed'), t.due_at IS NULL, t.due_at, t.id DESC";
+  sql += before ? ' ORDER BY t.id DESC' : " ORDER BY t.status IN ('done', 'closed'), t.id DESC";
   sql += ' LIMIT ?'; vals.push(limit);
   const [rows] = await pool.query(sql, vals);
   const tasks = await shapeRows(rows);
@@ -631,7 +607,7 @@ async function listTasks(query, actor) {
 async function assignedTo(userId, viewerId = userId) {
   const [rows] = await pool.query(SELECT + " AND (t.private = 0 OR t.created_by = " + (parseInt(viewerId, 10) || 0) + ") AND t.status <> 'closed' AND " + ASSIGNED +
     ` AND (t.status <> 'done' OR COALESCE(t.completed_at, t.updated_at) >= NOW() - INTERVAL ${RECENT_DAYS} DAY)` +
-    " ORDER BY t.status = 'done', t.due_at IS NULL, t.due_at, t.id DESC LIMIT 500", [userId]);
+    " ORDER BY t.status = 'done', t.id DESC LIMIT 500", [userId]);
   const tasks = await shapeRows(rows);
   return tasks.map((t) => {
     const me = t.assignees.find((a) => a.id === userId);
@@ -646,25 +622,23 @@ async function summary(actor) {
   const sums = STATUSES.map((s) => `COALESCE(SUM(ta.status = '${s}'), 0) ${s}`).join(', ');
   const [rows] = await pool.query(
     `SELECT u.id, u.name, u.avatar_emoji, COUNT(ta.task_id) total, ${sums},
-       COALESCE(SUM(ta.status <> 'done' AND t.due_at IS NOT NULL AND DATE_FORMAT(t.due_at, '%Y-%m-%d') < ?), 0) overdue,
        COALESCE(SUM(ta.status = 'done' AND ta.completed_at >= ?), 0) done_today
      FROM users u
      LEFT JOIN task_assignees ta ON ta.user_id = u.id AND ta.removed_at IS NULL
        AND EXISTS (SELECT 1 FROM tasks t2 WHERE t2.id = ta.task_id AND t2.deleted_at IS NULL AND t2.status <> 'closed' AND (t2.private = 0 OR t2.created_by = ?))
      LEFT JOIN tasks t ON t.id = ta.task_id
-     WHERE u.active = 1 AND u.is_bot = 0 GROUP BY u.id, u.name, u.avatar_emoji ORDER BY u.name`, [today(), startOfToday(), actor ? actor.id : 0]);
+     WHERE u.active = 1 AND u.is_bot = 0 GROUP BY u.id, u.name, u.avatar_emoji ORDER BY u.name`, [startOfToday(), actor ? actor.id : 0]);
   let list = rows.map((r) => {
-    const o = { id: r.id, name: r.name, avatarEmoji: r.avatar_emoji || null, total: Number(r.total), overdue: Number(r.overdue),
+    const o = { id: r.id, name: r.name, avatarEmoji: r.avatar_emoji || null, total: Number(r.total), overdue: 0, // overdue: always 0, kept so old apps that read it still work (R-07)
       doneToday: Number(r.done_today) };
     for (const s of STATUSES) o[s] = Number(r[s]);
     return o;
   });
   const [[tt]] = await pool.query(
     `SELECT ${STATUSES.map((s) => `COALESCE(SUM(status = '${s}'), 0) ${s}`).join(', ')}, COALESCE(SUM(status = 'closed'), 0) closed,
-       COALESCE(SUM(status NOT IN ('done', 'closed') AND due_at IS NOT NULL AND DATE_FORMAT(due_at, '%Y-%m-%d') < ?), 0) overdue,
        COALESCE(SUM(status = 'done' AND completed_at >= ?), 0) done_today
-     FROM tasks WHERE deleted_at IS NULL AND (private = 0 OR created_by = ?)`, [today(), startOfToday(), actor ? actor.id : 0]);
-  const totals = { open: 0, doneToday: Number(tt.done_today), overdue: Number(tt.overdue), closed: Number(tt.closed) };
+     FROM tasks WHERE deleted_at IS NULL AND (private = 0 OR created_by = ?)`, [startOfToday(), actor ? actor.id : 0]);
+  const totals = { open: 0, doneToday: Number(tt.done_today), overdue: 0, closed: Number(tt.closed) };
   for (const s of STATUSES) { totals[s] = Number(tt[s]); if (s !== 'done') totals.open += totals[s]; }
   if (actor && !isBoss(actor)) list = list.filter((u) => u.id === actor.id);
   const overall = {};
@@ -677,7 +651,7 @@ async function mySummary(userId, viewerId = userId) {
   const tasks = await assignedTo(userId, viewerId);
   const out = {};
   for (const s of STATUSES) {
-    out[s] = tasks.filter((t) => t.myStatus === s).map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate }));
+    out[s] = tasks.filter((t) => t.myStatus === s).map((t) => ({ id: t.id, title: t.title }));
   }
   return out;
 }
@@ -691,5 +665,5 @@ module.exports = {
   TaskError, STATUSES, createTask, updateTask, applyUpdate, updateTaskStatus, deleteTask, closeTask, reopenTask, undoTask,
   praiseTask, listTasks, assignedTo, summary, mySummary, getTask, taskDetail, activity, canAssign, canCreate, canWork, canManage,
   canDescribe, canView, canClose, canSetAll, isAssignee, brief, forViewer, today, startOfToday, SELECT, shape, shapeRows, event,
-  notify, linkMessage, cleanDate,
+  notify, linkMessage,
 };

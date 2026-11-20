@@ -32,7 +32,7 @@ export default function DmTasksSheet({ visible, onClose, otherUserId, name, chat
       ? '/tasks?with=' + otherUserId
       : '/tasks?scope=' + (me.role === 'boss' ? 'all' : 'everyone') + '&assignee=' + otherUserId;
     try { setTasks((await api<{ tasks: AnyTask[] }>('GET', path)).tasks || []); }
-    catch (e: any) { setErr(e.message || 'Load nahi hua'); setTasks([]); }
+    catch (e: any) { setErr(e.message || 'Could not load'); setTasks([]); }
   }, [seg, otherUserId, me.role]);
 
   useEffect(() => { if (visible && !actionId && !creating) load(); }, [visible, seg]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -55,7 +55,7 @@ export default function DmTasksSheet({ visible, onClose, otherUserId, name, chat
         </View>
         {!tasks && <ActivityIndicator color={t.accent} style={{ margin: 20 }} />}
         {!!err && <Text style={{ color: t.danger, paddingHorizontal: 20, paddingBottom: 6 }}>{err}</Text>}
-        {tasks && !tasks.length && !err && <Text style={{ color: t.subtext, padding: 20, textAlign: 'center' }}>Koi task nahi</Text>}
+        {tasks && !tasks.length && !err && <Text style={{ color: t.subtext, padding: 20, textAlign: 'center' }}>No tasks</Text>}
         {(tasks || []).map((x) => {
           const brief = isBrief(x);
           return (
@@ -81,7 +81,7 @@ export default function DmTasksSheet({ visible, onClose, otherUserId, name, chat
           style={{ flexDirection: 'row', margin: 16, minHeight: 48, borderRadius: 24, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}
         >
           <Ionicons name="add" size={20} color="#fff" />
-          <Text style={{ color: '#fff', fontWeight: '700', marginLeft: 6 }}>Naya task for {first}</Text>
+          <Text style={{ color: '#fff', fontWeight: '700', marginLeft: 6 }}>New task for {first}</Text>
         </Pressable>
       </Sheet>
       {!!actionId && (
@@ -93,7 +93,7 @@ export default function DmTasksSheet({ visible, onClose, otherUserId, name, chat
       )}
       {creating && (
         <TaskModal
-          visible={creating} meId={me.id} initialAssigneeIds={[otherUserId]} chatId={chatId} title={'Naya task for ' + first}
+          visible={creating} meId={me.id} initialAssigneeIds={[otherUserId]} chatId={chatId} title={'New task for ' + first}
           onClose={() => setCreating(false)}
           onDone={() => { setCreating(false); load(); }}
         />

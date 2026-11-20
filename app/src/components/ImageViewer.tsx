@@ -71,8 +71,8 @@ export default function ImageViewer({ visible, url, caption, title, onClose }: {
     setSaving(true);
     try {
       const f = await FileSystem.downloadAsync(full, (FileSystem.cacheDirectory || '') + 'tc_' + Date.now() + '.jpg');
-      setNote((await saveToGallery(f.uri)) ? 'Gallery me save ho gaya' : 'Save nahi hua (permission?)');
-    } catch (e) { setNote('Save nahi hua'); }
+      setNote((await saveToGallery(f.uri)) ? 'Saved to gallery' : 'Could not save (permission?)');
+    } catch (e) { setNote('Could not save'); }
     setSaving(false);
   };
 

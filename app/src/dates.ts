@@ -1,21 +1,6 @@
 import { Share } from 'react-native';
 import { toast } from './useVoiceInput';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-// 'YYYY-MM-DD' -> "Today" / "Tomorrow" / "Yesterday" / "18 Nov" (+ year when not the current year)
-export function formatDue(ymd?: string | null): string {
-  if (!ymd) return '';
-  const [y, m, d] = ymd.slice(0, 10).split('-').map(Number);
-  if (!y || !m || !d) return ymd;
-  const now = new Date();
-  const days = Math.round((Date.UTC(y, m - 1, d) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Tomorrow';
-  if (days === -1) return 'Yesterday';
-  return d + ' ' + MONTHS[m - 1] + (y !== now.getFullYear() ? ' ' + y : '');
-}
-
 // Copy to clipboard; falls back to the share sheet when the native module is missing (older dev build).
 export function copyText(text: string) {
   try {
@@ -26,11 +11,3 @@ export function copyText(text: string) {
     Share.share({ message: text }).catch(() => {});
   }
 }
-
-// Local 'YYYY-MM-DD' for today + offset days.
-export const isoDay = (offset: number) => {
-  const d = new Date(Date.now() + offset * 86400000);
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-};
-// Next given weekday (0 = Sun .. 6 = Sat), never today.
-export const nextDow = (dow: number) => isoDay(((dow - new Date().getDay() + 7) % 7) || 7);

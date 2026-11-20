@@ -28,8 +28,8 @@ export default function ProfileSetupScreen() {
 
   const next = async () => {
     const n = name.trim();
-    if (n.length < 2 || n.length > 60) { setErr('Naam 2 se 60 akshar ka hona chahiye'); return; }
-    if (/[@#/]/.test(n)) { setErr('Naam mein @ # / nahi chalega'); return; }
+    if (n.length < 2 || n.length > 60) { setErr('Name must be 2 to 60 characters'); return; }
+    if (/[@#/]/.test(n)) { setErr('Name cannot contain @ # /'); return; }
     setBusy(true); setErr('');
     try {
       let avatarUrl: string | null = removed ? null : user.avatarUrl || null;
@@ -41,7 +41,7 @@ export default function ProfileSetupScreen() {
       setUser({ id: user.id, name: n, avatarEmoji: emoji, avatarUrl });
       updateMe({ name: n, avatarEmoji: emoji, avatarUrl, profileDone: true }); // lifts the onboarding gate
     } catch (e: any) {
-      setErr(e.code === 'NAME_TAKEN' || /NAME_TAKEN/.test(e.message || '') ? 'Ye naam pehle se kisi ka hai, doosra naam chuniye' : e.message || 'Error');
+      setErr(e.code === 'NAME_TAKEN' || /NAME_TAKEN/.test(e.message || '') ? 'This name is already taken. Please choose another' : e.message || 'Error');
       setBusy(false);
     }
   };
@@ -50,7 +50,7 @@ export default function ProfileSetupScreen() {
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.background }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, paddingTop: insets.top + 48, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
         <Text style={{ color: t.text, fontSize: 24, fontWeight: '700' }}>Profile info</Text>
-        <Text style={{ color: t.subtext, fontSize: 15, marginTop: 8, textAlign: 'center' }}>Apna naam aur photo set karo</Text>
+        <Text style={{ color: t.subtext, fontSize: 15, marginTop: 8, textAlign: 'center' }}>Set your name and photo</Text>
         <Pressable onPress={() => setPicker(true)} style={{ marginTop: 32 }}>
           {shown
             ? <Image source={{ uri: shown }} style={{ width: 140, height: 140, borderRadius: 70 }} />
@@ -60,7 +60,7 @@ export default function ProfileSetupScreen() {
           </View>
         </Pressable>
         <TextInput
-          value={name} onChangeText={(v) => { setName(v); setErr(''); }} maxLength={60} placeholder="Aapka naam" placeholderTextColor={t.subtext}
+          value={name} onChangeText={(v) => { setName(v); setErr(''); }} maxLength={60} placeholder="Your name" placeholderTextColor={t.subtext}
           style={{ alignSelf: 'stretch', marginTop: 36, backgroundColor: t.card, color: t.text, borderColor: err ? t.danger : t.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 17 }}
         />
         {!!err && <Text style={{ color: t.danger, alignSelf: 'stretch', marginTop: 8 }}>{err}</Text>}

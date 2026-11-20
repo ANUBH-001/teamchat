@@ -35,11 +35,11 @@ function CheckinCardBase({ msg, t, time, onLongPress, onOpenTask }: Props) {
   let icon: keyof typeof Ionicons.glyphMap = 'today';
   let body: React.ReactNode;
   if (p.kind === 'day') {
-    title = 'Aaj ke tasks · ' + p.tasks.length;
+    title = "Today's tasks · " + p.tasks.length;
     icon = 'sunny';
     body = (
       <View>
-        {!p.tasks.length && <Text style={{ color: t.subtext, fontSize: 14, marginTop: 6 }}>Koi open task nahi. Badhiya!</Text>}
+        {!p.tasks.length && <Text style={{ color: t.subtext, fontSize: 14, marginTop: 6 }}>No open tasks. Great job!</Text>}
         {p.tasks.map((x, i) => (
           <Pressable
             key={x.id} onPress={() => setSheetId(x.id)}
@@ -55,7 +55,7 @@ function CheckinCardBase({ msg, t, time, onLongPress, onOpenTask }: Props) {
         ))}
         {isToday && user?.role === 'boss' && (
           <Pressable onPress={() => setCreating(true)} style={{ alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: t.accent, marginTop: 8 }}>
-            <Text style={{ color: t.accent, fontWeight: '600', fontSize: 13 }}>+ Naya task</Text>
+            <Text style={{ color: t.accent, fontWeight: '600', fontSize: 13 }}>+ New task</Text>
           </Pressable>
         )}
       </View>
@@ -66,14 +66,14 @@ function CheckinCardBase({ msg, t, time, onLongPress, onOpenTask }: Props) {
     body = isToday ? <MyDay compact /> : (
       <View>
         {!!p.counts && <Counts c={p.counts} />}
-        <Text style={{ color: t.subtext, fontSize: 12, fontStyle: 'italic', marginTop: 8 }}>Purana sign-off ({p.date})</Text>
+        <Text style={{ color: t.subtext, fontSize: 12, fontStyle: 'italic', marginTop: 8 }}>Old sign-off ({p.date})</Text>
       </View>
     );
   } else {
     body = (
       <View>
         <Text style={{ color: t.text, fontSize: 14 }}>{msg.text}</Text>
-        <Text style={{ color: t.subtext, fontSize: 12, fontStyle: 'italic', marginTop: 6 }}>Purana check-in ({p.date})</Text>
+        <Text style={{ color: t.subtext, fontSize: 12, fontStyle: 'italic', marginTop: 6 }}>Old check-in ({p.date})</Text>
       </View>
     );
   }

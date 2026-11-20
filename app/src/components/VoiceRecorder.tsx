@@ -124,7 +124,7 @@ export function LiveWave({ levels, color, height = 26 }: { levels: number[]; col
   );
 }
 
-const leftText = (leftMs: number | null) => (leftMs == null ? null : fmtMs(leftMs) + ' baaki, phir apne aap jayega');
+const leftText = (leftMs: number | null) => (leftMs == null ? null : fmtMs(leftMs) + ' left, then it sends automatically');
 
 // Unlocked recording: red dot + timer + live waveform, "< Slide to cancel" under it (follows the finger).
 export function RecordingBar({ t, ms, levels, dragX, starting, leftMs }: {
@@ -140,7 +140,7 @@ export function RecordingBar({ t, ms, levels, dragX, starting, leftMs }: {
       <Text style={{ color: t.text, fontSize: 16, marginLeft: 6, minWidth: 40, fontVariant: ['tabular-nums'] }}>{fmtLive(ms)}</Text>
       <View style={{ flex: 1, marginLeft: 4 }}>
         {starting ? (
-          <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 13 }}>Mic shuru ho raha hai…</Text>
+          <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 13 }}>Starting the mic…</Text>
         ) : (
           <LiveWave levels={levels} color={t.accent} height={20} />
         )}

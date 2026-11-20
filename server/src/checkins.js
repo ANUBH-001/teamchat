@@ -182,7 +182,7 @@ async function postMemberMessage(chatId, user, body) {
 // ---------- today's tasks ----------
 // status = the member's OWN status on the task (multi-assignee); taskStatus = the task's aggregate
 const item = (t) => ({
-  id: t.id, title: t.title, status: t.myStatus, taskStatus: t.status, dueDate: t.dueDate, project: t.project, overdue: t.overdue,
+  id: t.id, title: t.title, status: t.myStatus, taskStatus: t.status, project: t.project,
   stale: t.stale, ageDays: t.ageDays, assigneeCount: t.assignees.length, createdBy: t.createdBy, description: t.description || null,
 });
 const userTasks = (userId) => T.assignedTo(userId);
@@ -198,16 +198,16 @@ async function dayTasks(userId) {
   return { open, doneToday, counts: { given, done: doneToday.length, left: open.length } };
 }
 
-const flag = (t) => (t.overdue ? ' (overdue)' : '') + (t.stale ? ' (' + t.ageDays + ' din se pending)' : '');
+const flag = (t) => (t.stale ? ' (pending for ' + t.ageDays + ' days)' : '');
 
 function cardBody(kind, name, d, nudge) {
   if (kind === 'day') {
-    return ['Good morning ' + name + '! Aaj ke tasks (' + d.open.length + '):',
-      ...(d.open.length ? d.open.map((t) => '• ' + t.title + flag(t)) : ['Koi open task nahi.'])].join('\n');
+    return ['Good morning ' + name + "! Today's tasks (" + d.open.length + '):',
+      ...(d.open.length ? d.open.map((t) => '• ' + t.title + flag(t)) : ['No open tasks.'])].join('\n');
   }
-  return [(nudge ? 'Reminder: ' : '') + name + ', aaj ka sign-off karo.',
-    'Aaj diye: ' + d.counts.given + ' · Done: ' + d.counts.done + ' · Baaki: ' + d.counts.left,
-    'Har task ka status chuniye (Done / Not done), phir "Submit sign-off".'].join('\n'); // Round 4: was Todo / Planning / Coding / Testing / Change merged / Done
+  return [(nudge ? 'Reminder: ' : '') + name + ', time for your sign-off.',
+    'Given today: ' + d.counts.given + ' · Done: ' + d.counts.done + ' · Left: ' + d.counts.left,
+    'Mark each task Done or Not done, then tap "Submit sign-off".'].join('\n'); // Round 4: was Todo / Planning / Coding / Testing / Change merged / Done
 }
 
 const cardPayload = (kind, date, d, nudge) => ({
@@ -329,7 +329,7 @@ async function signoff(user, body) {
   const d = await dayTasks(user.id);
   const summary = { counts: d.counts, tasks: [...d.doneToday, ...d.open].map((t) => ({ id: t.id, title: t.title, status: t.status })) };
   const existing = await getSignoff(user.id, date);
-  const lines = ['Sign-off' + (existing ? ' (update)' : '') + ': Done ' + d.counts.done + ' · Baaki ' + d.counts.left + ' · Aaj diye ' + d.counts.given];
+  const lines = ['Sign-off' + (existing ? ' (update)' : '') + ': Done ' + d.counts.done + ' · Left ' + d.counts.left + ' · Given today ' + d.counts.given];
   for (const t of d.doneToday) lines.push('✓ ' + t.title);
   for (const t of d.open) lines.push('○ ' + t.title + ' [Not done]'); // Round 4: only Done / Not done
   if (note) lines.push(note);

@@ -1,4 +1,3 @@
-import { formatDue } from './dates';
 import { labelOf, TaskEvent } from './taskTypes';
 
 const st = (v: string | null) => (v ? labelOf(v) : '');
@@ -21,7 +20,7 @@ export function describeEvent(e: Ev, who: string) {
     case 'title': return who + ' renamed the task';
     case 'description': return who + ' changed the description';
     case 'project': return who + ' changed the project';
-    case 'due': return who + ' set due date ' + (e.newValue ? formatDue(e.newValue) : 'none');
+    case 'due': return who + ' changed the task'; // old rows from when due dates existed
     case 'note': return who + ' added a note';
     case 'note_edited': return who + ' edited a note';
     case 'note_deleted': return who + ' deleted a note';

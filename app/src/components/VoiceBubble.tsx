@@ -90,7 +90,7 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
   const retryTranscript = async () => {
     rerender((n) => n + 1);
     const r = await requestTranscript(msg);
-    if (r === 'error') toast('Transcript nahi maanga ja saka, baad mein try karo');
+    if (r === 'error') toast('Could not request the transcript. Try again later');
     rerender((n) => n + 1);
   };
 
@@ -120,12 +120,12 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
         </Pressable>
       </View>
       {outbox === 'sending' && (
-        <Text style={{ color: sub, fontSize: 12, fontStyle: 'italic', marginTop: 4 }}>Bhej rahe hain…</Text>
+        <Text style={{ color: sub, fontSize: 12, fontStyle: 'italic', marginTop: 4 }}>Sending…</Text>
       )}
       {outbox === 'failed' && (
         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
           <Ionicons name="alert-circle" size={16} color={mine ? t.onAccent : t.danger} />
-          <Text style={{ color: main, fontSize: 12, fontWeight: '700', marginLeft: 4, flex: 1 }}>Nahi gaya</Text>
+          <Text style={{ color: main, fontSize: 12, fontWeight: '700', marginLeft: 4, flex: 1 }}>Not sent</Text>
           <Pressable
             onPress={() => { sendQueuedVoice(msg.clientId).catch(() => {}); }} hitSlop={6} accessibilityLabel="Retry voice note"
             style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.18)' }}
@@ -146,10 +146,10 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
           <Text style={{ color: sub, fontSize: 12, fontStyle: 'italic', flexShrink: 1 }}>{tv.text}{tv.reason ? ': ' + tv.reason : ''}</Text>
           {tv.canRetry && (
             <Pressable
-              onPress={retryTranscript} hitSlop={6} accessibilityLabel="Transcript dobara try karo"
+              onPress={retryTranscript} hitSlop={6} accessibilityLabel="Retry transcript"
               style={{ marginLeft: 8, paddingHorizontal: 8, height: 24, borderRadius: 12, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.18)' }}
             >
-              <Text style={{ color: main, fontSize: 12, fontWeight: '700' }}>Dobara try karo</Text>
+              <Text style={{ color: main, fontSize: 12, fontWeight: '700' }}>Try again</Text>
             </Pressable>
           )}
         </View>

@@ -80,7 +80,7 @@ export function PeopleSheet({ visible, onClose, title, people, loading, onPick, 
       <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 6, backgroundColor: t.soft, borderRadius: 22, paddingHorizontal: 14, minHeight: 44 }}>
         <Ionicons name="search" size={18} color={t.subtext} />
         <TextInput
-          value={q} onChangeText={setQ} placeholder="Naam ya phone" placeholderTextColor={t.subtext}
+          value={q} onChangeText={setQ} placeholder="Name or phone" placeholderTextColor={t.subtext}
           style={{ flex: 1, color: t.text, fontSize: 15, marginLeft: 8, paddingVertical: 8 }}
         />
       </View>
@@ -90,28 +90,27 @@ export function PeopleSheet({ visible, onClose, title, people, loading, onPick, 
           style={{ marginHorizontal: 16, marginBottom: 6, minHeight: 44, borderRadius: 22, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', opacity: sel.length ? 1 : 0.5 }}
         >
           <Text style={{ color: '#fff', fontWeight: '700' }}>
-            {sel.length ? 'Done (' + sel.map((x) => (me && x.id === me.id ? 'Me' : firstName(x.name))).join(', ') + ')' : 'Log chuno'}
+            {sel.length ? 'Done (' + sel.map((x) => (me && x.id === me.id ? 'Me' : firstName(x.name))).join(', ') + ')' : 'Choose people'}
           </Text>
         </Pressable>
       )}
       {loading && !people.length && <ActivityIndicator color={t.accent} style={{ margin: 20 }} />}
       {showMe && me && row(me, 'Me (khud)')}
-      {inChat.length > 0 && rest.length > 0 && head('IS CHAT MEIN')}
+      {inChat.length > 0 && rest.length > 0 && head('IN THIS CHAT')}
       {inChat.map((p) => row(p))}
-      {inChat.length > 0 && rest.length > 0 && head('BAAKI TEAM')}
+      {inChat.length > 0 && rest.length > 0 && head('REST OF THE TEAM')}
       {rest.map((p) => row(p))}
-      {!loading && !list.length && !showMe && <Text style={{ color: t.subtext, padding: 20, textAlign: 'center' }}>Koi nahi mila</Text>}
+      {!loading && !list.length && !showMe && <Text style={{ color: t.subtext, padding: 20, textAlign: 'center' }}>No one found</Text>}
     </Sheet>
   );
 }
 
-export type PersonAction = 'ask' | 'update' | 'done' | 'reassign' | 'due' | 'desc' | 'task' | 'mention';
+export type PersonAction = 'ask' | 'update' | 'done' | 'reassign' | 'desc' | 'task' | 'mention';
 const TASK_ACTIONS: { key: PersonAction; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: 'ask', label: 'Status poochho', icon: 'help-circle-outline' },
+  { key: 'ask', label: 'Ask for status', icon: 'help-circle-outline' },
   { key: 'update', label: 'Update', icon: 'create-outline' },
   { key: 'done', label: 'Done', icon: 'checkmark-circle-outline' },
   { key: 'reassign', label: 'Reassign', icon: 'swap-horizontal-outline' },
-  { key: 'due', label: 'Due date', icon: 'calendar-outline' },
   { key: 'desc', label: 'Description', icon: 'document-text-outline' },
 ];
 
@@ -153,7 +152,7 @@ export function PersonSheet({ visible, onClose, person, tasks, onAction }: {
       </Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, paddingBottom: 6 }}>
         {!tasks && <ActivityIndicator color={t.accent} style={{ margin: 8 }} />}
-        {tasks && !tasks.length && <Text style={{ color: t.subtext, fontSize: 13, padding: 4 }}>Koi open task nahi</Text>}
+        {tasks && !tasks.length && <Text style={{ color: t.subtext, fontSize: 13, padding: 4 }}>No open tasks</Text>}
         {(tasks || []).map((x) => {
           const on = x.id === sel;
           return (
@@ -173,7 +172,7 @@ export function PersonSheet({ visible, onClose, person, tasks, onAction }: {
       </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12 }}>
         {TASK_ACTIONS.map((a) => btn(a.key, a.label, a.icon, true))}
-        {btn('task', 'Naya task', 'add-circle-outline', false)}
+        {btn('task', 'New task', 'add-circle-outline', false)}
         {btn('mention', 'Mention', 'at-outline', false)}
       </View>
     </Sheet>

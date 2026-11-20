@@ -30,13 +30,13 @@ export default function BackgroundCard() {
           </Text>
         </>
       ) : (
-        <Text style={{ color: t.subtext }}>Is app build mein background service nahi hai (Expo Go). Alerts sirf app khuli ho tab.</Text>
+        <Text style={{ color: t.subtext }}>This app build has no background service (Expo Go). Alerts only arrive while the app is open.</Text>
       )}
       <Text style={{ color: t.subtext, marginTop: 8, lineHeight: 19 }}>
-        App band hone par bhi messages ke alerts aayein, iske liye: niche button dabao aur TeamChat ko "Allow" / Battery
-        "Unrestricted" karo. OnePlus/Oppo/Realme (zaroori, warna screen off hote hi alerts ruk jaate hain): App info {'>'}
-        Battery usage {'>'} "Allow background activity" chuno ("Smart mode" nahi).
-        Xiaomi/Redmi: App info {'>'} Autostart ON aur Battery saver {'>'} No restrictions. Recents mein app ko lock bhi kar sakte ho.
+        To keep getting message alerts when the app is closed, tap the button below and set TeamChat to "Allow" / Battery
+        "Unrestricted". OnePlus/Oppo/Realme (required, otherwise alerts stop as soon as the screen turns off): App info {'>'}
+        Battery usage {'>'} "Allow background activity" (not "Smart mode").
+        Xiaomi/Redmi: App info {'>'} Autostart ON and Battery saver {'>'} No restrictions. You can also lock the app in Recents.
       </Text>
       <TouchableOpacity onPress={open} style={{ backgroundColor: t.accent, borderRadius: 20, paddingVertical: 10, alignItems: 'center', marginTop: 10 }}>
         <Text style={{ color: '#fff', fontWeight: '600' }}>Battery settings</Text>

@@ -19,7 +19,7 @@ export function UpdateScreen() {
       </View>
       <Text style={{ color: t.text, fontSize: 22, fontWeight: '700', marginTop: 24 }}>Update required</Text>
       <Text style={{ color: t.subtext, fontSize: 15, textAlign: 'center', marginTop: 8, maxWidth: 320 }}>
-        {info?.message || 'TeamChat ka naya version install karein. Purana version ab kaam nahi karega.'}
+        {info?.message || 'Please install the new version of TeamChat. The old version will no longer work.'}
       </Text>
       <Text style={{ color: t.subtext, fontSize: 12, marginTop: 12 }}>
         Installed {VERSION_NAME}{info?.latestVersionName ? '  ·  Latest ' + info.latestVersionName : ''}
@@ -32,7 +32,7 @@ export function UpdateScreen() {
           <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Download update</Text>
         </Pressable>
       ) : (
-        <Text style={{ color: t.subtext, fontSize: 13, textAlign: 'center', marginTop: 24 }}>Download link not set yet. Admin se APK link maangein.</Text>
+        <Text style={{ color: t.subtext, fontSize: 13, textAlign: 'center', marginTop: 24 }}>Download link not set yet. Ask an admin for the APK link.</Text>
       )}
       <Pressable onPress={() => checkVersion()} style={{ marginTop: 16, minHeight: 44, justifyContent: 'center', paddingHorizontal: 16 }}>
         <Text style={{ color: t.accent, fontWeight: '600' }}>Check again</Text>
@@ -83,7 +83,7 @@ export function OtaBanner() {
         backgroundColor: t.card, borderRadius: 14, paddingLeft: 14, minHeight: 52, borderLeftWidth: 4, borderLeftColor: t.accent,
       }}
     >
-      <Text style={{ flex: 1, color: t.text, fontSize: 14, fontWeight: '600' }}>Naya update ready hai</Text>
+      <Text style={{ flex: 1, color: t.text, fontSize: 14, fontWeight: '600' }}>A new update is ready</Text>
       <Pressable onPress={() => { applyNow(); }} style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 10 }}>
         <Text style={{ color: t.accent, fontWeight: '700' }}>Restart</Text>
       </Pressable>

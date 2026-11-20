@@ -31,7 +31,7 @@ class UserError extends Error {
 function cleanName(v) {
   const name = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
   if (name.length < 2 || name.length > 60 || /[@#/\\\n\r]/.test(String(v))) {
-    throw new UserError(400, 'Naam 2-60 letters ka ho, @ # / ke bina', 'BAD_NAME');
+    throw new UserError(400, 'Name must be 2-60 characters, without @ # /', 'BAD_NAME');
   }
   return name;
 }
@@ -40,7 +40,7 @@ function cleanName(v) {
 async function assertNameFree(name, exceptId) {
   const [[dup]] = await pool.query(
     'SELECT id FROM users WHERE active = 1 AND is_bot = 0 AND LOWER(TRIM(name)) = LOWER(?) AND id <> ? LIMIT 1', [name, exceptId || 0]);
-  if (dup) throw new UserError(409, 'Ye naam pehle se kisi ka hai, thoda alag naam rakhiye', 'NAME_TAKEN');
+  if (dup) throw new UserError(409, 'This name is already taken. Please choose a slightly different name', 'NAME_TAKEN');
 }
 
 // Emoji avatar: one emoji (<= 16 UTF-16 units, pictographic, no spaces) or null to clear.

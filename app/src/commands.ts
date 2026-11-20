@@ -6,18 +6,16 @@ export type Command = {
   cmd: string; args: string; desc: string; icon: keyof typeof Ionicons.glyphMap; needsTask?: boolean; needsPerson?: boolean;
 };
 export const COMMANDS: Command[] = [
-  { cmd: '/task', args: '@name [@name2] <text> [due kal]', desc: 'Task do (ek ya zyada log; member sirf khud ko, jab tak admin assign allow na kare)', icon: 'add-circle-outline', needsPerson: true },
+  { cmd: '/task', args: '@name [@name2] <text>', desc: 'Give a task (one or more people; members can only assign to themselves unless the admin allows assigning)', icon: 'add-circle-outline', needsPerson: true },
   { cmd: '/done', args: '[#id] [note]', desc: 'Mera task Done', icon: 'checkmark-circle-outline', needsTask: true },
-  { cmd: '/re', args: '#id [@old] @new', desc: 'Task kisi aur ko do', icon: 'swap-horizontal-outline', needsTask: true },
-  { cmd: '/tasks', args: '[name]', desc: 'Open tasks (sabke / ek insaan ke)', icon: 'list-outline' },
-  { cmd: '/mytasks', args: '', desc: 'Mere open tasks', icon: 'person-outline' },
-  { cmd: '/help', args: '', desc: 'Saare commands', icon: 'information-circle-outline' },
+  { cmd: '/re', args: '#id [@old] @new', desc: 'Give a task to someone else', icon: 'swap-horizontal-outline', needsTask: true },
+  { cmd: '/tasks', args: '[name]', desc: "Open tasks (everyone's / one person's)", icon: 'list-outline' },
+  { cmd: '/mytasks', args: '', desc: 'My open tasks', icon: 'person-outline' },
+  { cmd: '/help', args: '', desc: 'All commands', icon: 'information-circle-outline' },
   // Round 4: disabled (server still parses them; hidden from the palette):
-  // /update /planning /coding /testing /merged /ask /desc /assign /unassign /reassign (= /re alias) /due /close /reopen
+  // /update /planning /coding /testing /merged /ask /desc /assign /unassign /reassign (= /re alias) /close /reopen
 ];
 
 // Chips shown when the empty input is focused.
 export const QUICK = ['/task', '/done', '/re', '/mytasks'];
 
-// Due-date chips after "/due #id ".
-export const DUE_CHIPS = ['aaj', 'kal', 'parso', 'mon', 'fri', 'none'];

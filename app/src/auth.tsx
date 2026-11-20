@@ -44,8 +44,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!userRef.current) return;
     await doLogout();
     Alert.alert(
-      reason === 'replaced' ? 'Logout ho gaye' : 'Session khatam',
-      reason === 'replaced' ? 'Aap kisi aur phone par login ho gaye. Is phone par dobara login karein.' : 'Admin ne aapko logout kar diya. Dobara login karein.',
+      reason === 'replaced' ? 'Signed out' : 'Session ended',
+      reason === 'replaced' ? 'You were signed in on another phone. Please sign in again on this phone.' : 'An admin signed you out. Please sign in again.',
     );
   }), []);
 

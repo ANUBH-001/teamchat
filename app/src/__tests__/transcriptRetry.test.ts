@@ -1,4 +1,4 @@
-// V-04: failed / stuck voice transcripts get a reason and (for the sender or a boss) a "Dobara try karo" action.
+// V-04: failed / stuck voice transcripts get a reason and (for the sender or a boss) a "Try again" action.
 jest.mock('../api', () => ({
   api: jest.fn(),
   ApiError: class ApiError extends Error { status: number; constructor(m: string, s: number) { super(m); this.status = s; } },
@@ -14,15 +14,15 @@ beforeEach(() => { __resetTranscriptForTests(); (api as jest.Mock).mockReset(); 
 
 test('failed with a reason code -> human reason; retry for the sender', () => {
   const v = transcriptView(msg({ transcriptStatus: 'failed', transcriptError: 'api' }), me);
-  expect(v.text).toMatch(/Transcript nahi bana/);
-  expect(v.reason).toBe('AI service ne jawab nahi diya');
+  expect(v.text).toMatch(/No transcript/);
+  expect(v.reason).toBe('The AI service did not respond');
   expect(v.canRetry).toBe(true);
 });
 
 test('reason texts for every code', () => {
   const r = (c: string) => transcriptView(msg({ transcriptStatus: 'failed', transcriptError: c }), me).reason;
-  expect(r('too_large')).toBe('Voice note bahut lamba hai');
-  expect(r('off')).toBe('AI transcription band hai');
+  expect(r('too_large')).toBe('The voice note is too long');
+  expect(r('off')).toBe('AI transcription is turned off');
   expect(r('no_file')).toBeTruthy();
   expect(r('type')).toBeTruthy();
   expect(r('empty')).toBeTruthy();
@@ -91,5 +91,5 @@ test('a new status from the server (ws edited) replaces the local pending', asyn
   const pending = { ...m, media: { kind: 'audio', transcriptStatus: 'pending' } };
   expect(transcriptView(pending, { ...me, now: now + 60_000 })).toMatchObject({ text: 'Transcribing…', canRetry: false }); // stuck clock restarts at the retry
   const again = { ...m, media: { kind: 'audio', transcriptStatus: 'failed', transcriptError: 'empty' } };
-  expect(transcriptView(again, { ...me, now: now + 60_000 })).toMatchObject({ canRetry: true, reason: 'Kuch sunai nahi diya' });
+  expect(transcriptView(again, { ...me, now: now + 60_000 })).toMatchObject({ canRetry: true, reason: 'Nothing could be heard' });
 });

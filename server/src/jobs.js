@@ -99,7 +99,7 @@ async function runReminders() {
       for (const a of pending) {
         const chatId = await checkins.ensureChat(a.id); // null for a boss
         if (chatId) {
-          await bot.postBot(chatId, 'Ye task ' + task.ageDays + ' din se pending hai, complete karo: Task ' + task.id + ' - ' + task.title,
+          await bot.postBot(chatId, 'This task has been pending for ' + task.ageDays + ' days, please complete it: Task ' + task.id + ' - ' + task.title,
             { kind: 'reminder', task, days: task.ageDays, assigneeId: a.id }, null, [a.id]);
         }
       }

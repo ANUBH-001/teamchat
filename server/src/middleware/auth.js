@@ -20,7 +20,7 @@ async function requireAuth(req, res, next) {
       'SELECT id, phone, name, role, active, avatar_emoji, avatar_url, profile_done, session_id FROM users WHERE id = ?', [payload.id]);
     if (!u || !u.active) return res.status(401).json({ error: 'Not authenticated' });
     if (!sessionOk(u, payload)) {
-      return res.status(401).json({ error: 'Aap kisi aur phone par login ho gaye', code: 'SESSION_REPLACED' });
+      return res.status(401).json({ error: 'You have signed in on another phone', code: 'SESSION_REPLACED' });
     }
     delete u.session_id;
     req.user = u;
