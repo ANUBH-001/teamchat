@@ -200,13 +200,17 @@ function ReplyBox({ t, chatId, placeholder }: { t: Theme; chatId: number; placeh
   const boxRef = useRef<View>(null);
   const kbSub = useRef<{ remove: () => void } | null>(null);
   useEffect(() => () => kbSub.current?.remove(), []);
-  const showBox = () => {
-    if (!reveal) return;
-    const measure = () => setTimeout(() => boxRef.current?.measureInWindow((_x, y, _w, h) => reveal(y + h)), 150);
-    kbSub.current?.remove();
-    if (Keyboard.isVisible()) { measure(); return; }
-    kbSub.current = Keyboard.addListener('keyboardDidShow', () => { kbSub.current?.remove(); kbSub.current = null; measure(); });
+  const measure = () => {
+    if (reveal) setTimeout(() => boxRef.current?.measureInWindow((_x, y, _w, h) => reveal(y + h)), 150);
   };
+  // while the box has focus: every keyboard (re)show / resize and every keystroke re-checks (the IME can resize after
+  // the first show, and the list can move under the box while typing)
+  const onFocusBox = () => {
+    kbSub.current?.remove();
+    kbSub.current = Keyboard.addListener('keyboardDidShow', measure);
+    if (Keyboard.isVisible()) measure();
+  };
+  const onBlurBox = () => { kbSub.current?.remove(); kbSub.current = null; };
   const send = async () => {
     const body = text.trim();
     if (!body || state === 'sending') return;
@@ -223,7 +227,7 @@ function ReplyBox({ t, chatId, placeholder }: { t: Theme; chatId: number; placeh
   return (
     <View ref={boxRef} collapsable={false} style={{ flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12, borderTopWidth: 1, borderTopColor: t.border }}>
       <TextInput
-        testID="checkin-reply" onFocus={showBox} value={text} onChangeText={(v) => { setText(v); if (state === 'sent') setState('idle'); }}
+        testID="checkin-reply" onFocus={onFocusBox} onBlur={onBlurBox} value={text} onChangeText={(v) => { setText(v); if (state === 'sent') setState('idle'); if (Keyboard.isVisible()) measure(); }}
         placeholder={state === 'sent' ? TEXT.sent + ' ✓' : placeholder} placeholderTextColor={t.subtext} multiline maxLength={2000}
         style={{ flex: 1, color: t.text, backgroundColor: t.surface, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, maxHeight: 120 }}
       />
