@@ -21,6 +21,12 @@ const shiftDate = (d: string, n: number) => {
   return x.toISOString().slice(0, 10);
 };
 
+// C-02 replaced the old "Submit sign-off" form with the evening card (ticks + a reply), so a member who replied had
+// a red "Sign-off Missing" here while the admin summary said REPLIED (acceptance test 2026-11-20). A day counts as
+// reported when the old sign-off was submitted OR the member wrote a morning / evening check-in reply.
+export const hasReport = (d: { signoff?: { status?: string } | null; morning?: { status?: string } | null; evening?: { status?: string } | null }) =>
+  d.signoff?.status === 'submitted' || d.morning?.status === 'submitted' || d.evening?.status === 'submitted';
+
 const Pill = React.memo(function Pill({ label, status }: { label: string; status: 'submitted' | 'missing' }) {
   const ok = status === 'submitted';
   return (
@@ -51,14 +57,16 @@ const MemberRow = React.memo(function MemberRow({ m, t, onPress }: { m: Member; 
     <Pressable onPress={() => onPress(m)} style={{ backgroundColor: t.card, borderRadius: 8, padding: 12, marginBottom: 8 }}>
       <Text style={{ color: t.text, fontWeight: '600' }}>{m.name}{m.active ? '' : ' (inactive)'}</Text>
       <View style={{ flexDirection: 'row', marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Pill label="Sign-off" status={m.signoff ? m.signoff.status : 'missing'} />
+        <Pill label="Report" status={hasReport(m) ? 'submitted' : 'missing'} />
         {!!m.signoff?.signoff && (
           <Text style={{ color: t.subtext, fontSize: 12, marginLeft: 8 }}>
             Done {m.signoff.signoff.counts.done} · Left {m.signoff.signoff.counts.left} · Given today {m.signoff.signoff.counts.given}
           </Text>
         )}
         {(m.morning.status === 'submitted' || m.evening.status === 'submitted') && (
-          <Text style={{ color: t.subtext, fontSize: 12, marginLeft: 8 }}>+ notes</Text>
+          <Text style={{ color: t.subtext, fontSize: 12, marginLeft: 8 }}>
+            {[m.morning.status === 'submitted' ? 'morning' : '', m.evening.status === 'submitted' ? 'evening' : ''].filter(Boolean).join(' + ')} reply
+          </Text>
         )}
       </View>
     </Pressable>
@@ -175,7 +183,7 @@ const Entry = React.memo(function Entry({ c, label, t }: { c: Checkin | undefine
 type DayGroup = { date: string; morning?: Checkin; evening?: Checkin; signoff?: Signoff };
 
 const SignoffEntry = ({ so, t }: { so: Signoff | undefined; t: Theme }) => {
-  if (!so) return <Text style={{ color: RED, fontSize: 13, marginTop: 6 }}>Sign-off: missing</Text>;
+  if (!so) return null; // the old sign-off form is optional now (the evening card replaced it)
   return (
     <View style={{ marginTop: 8 }}>
       <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>
@@ -193,7 +201,7 @@ const DayCard = React.memo(function DayCard({ g, t, open, onToggle }: { g: DayGr
       <Pressable onPress={() => onToggle(g.date)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <Text style={{ color: t.text, fontWeight: '600' }}>{g.date}</Text>
         <View style={{ flexDirection: 'row' }}>
-          <Pill label="Sign-off" status={g.signoff ? 'submitted' : 'missing'} />
+          <Pill label="Report" status={hasReport({ signoff: g.signoff ? { status: 'submitted' } : null, morning: g.morning ? { status: 'submitted' } : null, evening: g.evening ? { status: 'submitted' } : null }) ? 'submitted' : 'missing'} />
         </View>
       </Pressable>
       {open && (
