@@ -20,8 +20,8 @@ type BoolKey = 'aiEnabled' | 'aiDetect' | 'commandsEnabled' | 'membersCanAssign'
 type DayKey = 'taskReminderDays' | 'taskDeleteDays' | 'messageRetentionDays';
 const DAY_ROWS: { key: DayKey; label: string; sub: string; min: number }[] = [
   { key: 'taskReminderDays', label: 'Pending reminder after (days)', sub: 'Ek baar yaad dilana + admin alert (0 = off)', min: 0 },
-  { key: 'taskDeleteDays', label: 'Delete tasks after (days)', sub: 'Done ho ya nahi, purane tasks hata do', min: 1 },
-  { key: 'messageRetentionDays', label: 'Delete messages after (days)', sub: 'Har Sunday 11 PM (pinned message bachta hai)', min: 1 },
+  { key: 'taskDeleteDays', label: 'Delete tasks after (days)', sub: 'Remove old tasks, done or not', min: 1 },
+  { key: 'messageRetentionDays', label: 'Delete messages after (days)', sub: 'Every Sunday 11 PM (the pinned message is kept)', min: 1 },
 ];
 
 const GROUPS: { title: string; rows: { key: BoolKey; label: string; sub: string }[] }[] = [
@@ -122,7 +122,7 @@ export default function AdminSettingsScreen({ onBack }: { onBack: () => void }) 
     const body: Partial<Record<DayKey, number>> = {};
     for (const r of DAY_ROWS) {
       const n = Number(days[r.key]);
-      if (!Number.isInteger(n) || n < r.min) { Alert.alert('Days', r.label + ': ' + r.min + ' ya zyada likhiye.'); return; }
+      if (!Number.isInteger(n) || n < r.min) { Alert.alert('Days', r.label + ': ' + 'enter ' + r.min + ' or more.'); return; }
       body[r.key] = n;
     }
     try {
@@ -137,8 +137,8 @@ export default function AdminSettingsScreen({ onBack }: { onBack: () => void }) 
     try {
       const r = await api<{ ok: boolean; backup: string }>('POST', '/admin/reset', { confirm: 'RESET' });
       setResetOpen(false); setResetText('');
-      Alert.alert('Reset ho gaya', 'Saara chat/task data hata diya. Backup: ' + r.backup);
-    } catch (e: any) { Alert.alert('Reset nahi hua', e.message); }
+      Alert.alert('Reset done', 'All chat and task data was removed. Backup: ' + r.backup);
+    } catch (e: any) { Alert.alert('Reset failed', e.message); }
     setResetting(false);
   };
   const testAi = async () => {
@@ -208,7 +208,7 @@ export default function AdminSettingsScreen({ onBack }: { onBack: () => void }) 
 
           <Text style={head}>Data retention</Text>
           <View style={card}>
-            <Row label="Auto delete old data" sub="Messages + purane tasks hard delete (backup JSON pehle)" value={!!s.retentionEnabled} onChange={(v) => toggle('retentionEnabled', v)} t={t} />
+            <Row label="Auto delete old data" sub="Permanently delete messages and old tasks (a JSON backup is made first)" value={!!s.retentionEnabled} onChange={(v) => toggle('retentionEnabled', v)} t={t} />
             {DAY_ROWS.map((r) => (
               <View key={r.key}>
                 <View style={{ height: 1, backgroundColor: t.border, marginLeft: 16 }} />
@@ -259,7 +259,7 @@ export default function AdminSettingsScreen({ onBack }: { onBack: () => void }) 
           <View style={{ ...card, padding: 16, borderWidth: 1, borderColor: t.danger }}>
             <Text style={{ color: t.text, fontSize: 15, fontWeight: '600' }}>Reset app data</Text>
             <Text style={{ color: t.subtext, fontSize: 12, marginTop: 4 }}>
-              Saare messages, tasks, check-ins, groups aur DMs hamesha ke liye delete. Users, PINs, settings, All Team aur check-in chats bachte hain. Pehle full backup banta hai.
+              All messages, tasks, check-ins, groups and DMs are deleted permanently. Users, PINs, settings, All Team and check-in chats are kept. A full backup is made first.
             </Text>
             <Pressable onPress={() => { setResetText(''); setResetOpen(true); }} style={{ marginTop: 12, minHeight: 48, borderRadius: 24, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: '#fff', fontWeight: '700' }}>Reset app data...</Text>
@@ -272,9 +272,9 @@ export default function AdminSettingsScreen({ onBack }: { onBack: () => void }) 
           <View style={{ backgroundColor: t.card, borderRadius: 20, padding: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Ionicons name="warning" size={22} color={t.danger} />
-              <Text style={{ color: t.text, fontSize: 18, fontWeight: '700', marginLeft: 8 }}>Sab data delete?</Text>
+              <Text style={{ color: t.text, fontSize: 18, fontWeight: '700', marginLeft: 8 }}>Delete all data?</Text>
             </View>
-            <Text style={{ color: t.subtext, fontSize: 14, marginTop: 10 }}>Ye wapas nahi hoga. Confirm karne ke liye RESET likhiye.</Text>
+            <Text style={{ color: t.subtext, fontSize: 14, marginTop: 10 }}>This cannot be undone. Type RESET to confirm.</Text>
             <TextInput
               value={resetText} onChangeText={setResetText} autoCapitalize="characters" autoCorrect={false} placeholder="RESET" placeholderTextColor={t.subtext}
               style={{ backgroundColor: t.soft, color: t.text, borderRadius: 12, paddingHorizontal: 14, minHeight: 48, fontSize: 16, marginTop: 14, letterSpacing: 2 }}

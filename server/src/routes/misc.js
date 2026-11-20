@@ -23,7 +23,7 @@ router.get('/users', async (req, res) => {
 // Edit / delete: only your own text message, within EDIT_WINDOW (10 min) of sending, for everyone (boss too).
 // Exception: an ephemeral bot card shown only to you can always be deleted by you. Bot/system/check-in cards: never.
 const EDIT_WINDOW_S = 600;
-const windowError = (res) => res.status(403).json({ error: 'Sirf 10 minute ke andar apna message edit/delete ho sakta hai', code: 'EDIT_WINDOW' });
+const windowError = (res) => res.status(403).json({ error: 'You can edit or delete your own message only within 10 minutes', code: 'EDIT_WINDOW' });
 
 async function ownMessage(req, res) {
   const id = parseInt(req.params.id, 10);

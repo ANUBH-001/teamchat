@@ -14,7 +14,7 @@ import { loadUsers as loadStoreUsers, useUsers } from '../userStore';
 import { onEvent, sendTyping } from '../realtime';
 import { shouldSend } from '../sendGuard';
 import { enqueue, flushOutbox, newClientId, onFailed, onSent, pendingFor, removeFromOutbox, retryOutbox } from '../outbox';
-import { COMMANDS, Command, DUE_CHIPS, QUICK } from '../commands';
+import { COMMANDS, Command, QUICK } from '../commands';
 import { CommandSheet, firstName, PeopleSheet, PersonAction, PersonSheet, phoneTail, PickPerson } from '../components/ComposerSheets';
 import { usePublicSettings } from '../publicSettings';
 import Avatar from '../components/Avatar';
@@ -112,7 +112,7 @@ type Props = {
   onOpenInfo: (c: Chat) => void;
   onOpenTask: (id: number) => void;
   onOpenChat: (c: Chat) => void; // "Message privately"
-  focusId?: number | null; // scroll to this message once loaded (ask banner / notification / "Chat mein dekho")
+  focusId?: number | null; // scroll to this message once loaded (ask banner / notification / "View in chat")
 };
 
 export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpenChat, focusId }: Props) {
@@ -381,7 +381,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       const r = await api<{ message: Msg }>('PATCH', '/messages/' + m.id, { text: body, mentionIds: mentionIdsFor(body, refs.current) });
       setMsgs((cur) => cur.map((x) => (x.id === m.id ? { ...x, ...r.message } : x)));
       cancelEdit();
-    } catch (e: any) { Alert.alert('Edit nahi hua', e.message); }
+    } catch (e: any) { Alert.alert('Could not edit', e.message); }
   };
   const cancelEdit = () => { setEditing(null); setText(''); refs.current = []; };
   const startEdit = (m: Msg) => {
@@ -441,7 +441,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     if (fn && ps.length) setTimeout(() => fn(ps), SHEET_GAP);
   };
   // "@" button: person -> their open tasks + actions
-  const openPersonActions = () => openPeople('Kisko? (task, status, mention)', (p) => {
+  const openPersonActions = () => openPeople('Who? (task, status, mention)', (p) => {
     setPerson(p);
     setPersonTasks(null);
     setSheet('person');
@@ -449,19 +449,19 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       .then((r) => setPersonTasks(r.tasks.filter((x) => isOpen(x.status)))).catch(() => setPersonTasks([]));
   }, true);
   // /assign /unassign /reassign #id -> people (several allowed, me included)
-  const PEOPLE_CMD: Record<string, string> = { reassign: 'Kisko dena hai?', assign: 'Kisko jodna hai?', unassign: 'Kisko hatana hai?', re: 'Kisko dena hai?' };
+  const PEOPLE_CMD: Record<string, string> = { reassign: 'Who should get it?', assign: 'Who should be added?', unassign: 'Who should be removed?', re: 'Who should get it?' };
   const pickPeopleFor = (cmd: string, base: string) =>
-    openPeopleMany(PEOPLE_CMD[cmd] || 'Kaun?', (tos) => { refs.current = []; put(withMentions(base, tos)); });
+    openPeopleMany(PEOPLE_CMD[cmd] || 'Who?', (tos) => { refs.current = []; put(withMentions(base, tos)); });
   // Round 4: /re -> task picked -> (several assignees: whose place?) -> new person(s) => "/re #N @Old @New" (single assignee: "/re #N @New")
   const startReassign = (x: AnyTask) => {
     const ids = idsOfAny(x);
     const names = assigneeNamesOf(x);
     const base = '/re #' + x.id + ' ';
     const askNew = (olds: PickPerson[]) =>
-      openPeopleMany('Kisko dena hai?', (tos) => { refs.current = []; put(withMentions(withMentions(base, olds), tos)); });
+      openPeopleMany('Who should get it?', (tos) => { refs.current = []; put(withMentions(withMentions(base, olds), tos)); });
     if (ids.length <= 1) { askNew([]); return; }
     const olds: PickPerson[] = ids.map((id, i) => ({ id, name: names[i] || 'User ' + id }));
-    openPeople('Kis ki jagah? (purana)', (p) => askNew([p]), false, olds);
+    openPeople('Whose place? (current assignee)', (p) => askNew([p]), false, olds);
   };
   const personAction = (a: PersonAction, task: Task | null) => {
     const p = person;
@@ -475,7 +475,6 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       else if (a === 'done') put('/done ' + id + ' ');
       else if (a === 'update') put('/update ' + id + ' ');
       else if (a === 'desc') put('/desc ' + id + ' ');
-      else if (a === 'due') put('/due ' + id + ' ');
       else if (a === 'reassign') pickPeopleFor('reassign', '/reassign ' + id + ' ');
     }, SHEET_GAP);
   };
@@ -485,7 +484,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     refs.current = [];
     setTimeout(() => {
       // /task: one or more people (me too) -> "/task @A @B " with structured mentions for all
-      if (c.cmd === '/task') openPeopleMany('Task kisko dena hai? (ek ya zyada)', (ps) => put(withMentions('/task ', ps)));
+      if (c.cmd === '/task') openPeopleMany('Who should get the task? (one or more)', (ps) => put(withMentions('/task ', ps)));
       // Round 4: /done and /re list my open tasks (needsTask); /re then chains into startReassign
       else if (c.needsTask) put(c.cmd + ' #');
       else if (c.cmd === '/tasks') openPeople('Kiske tasks?', (p) => put(withMention('/tasks ', p)), true);
@@ -508,7 +507,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     setUploading((n) => n + items.length);
     for (const it of items) {
       try { afterMedia((await sendImageToChat(chat.id, it.uri, it.caption)).message); }
-      catch (e: any) { Alert.alert('Photo nahi gayi', e?.message || 'Dobara try karo'); }
+      catch (e: any) { Alert.alert('Photo not sent', e?.message || 'Try again'); }
       setUploading((n) => n - 1);
     }
   };
@@ -531,7 +530,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
     if (commandMode) { setText(''); refs.current = []; } // kept with the voice note; the server runs the spoken command
     setUploading((n) => n + 1);
     try { afterMedia(await sendQueuedVoice(item.clientId)); }
-    catch (e: any) { toast('Voice note nahi gaya. Retry dabao'); }
+    catch (e: any) { toast('Voice note not sent. Tap retry'); }
     setUploading((n) => n - 1);
   };
   useEffect(() => {
@@ -561,7 +560,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   const longPress = useCallback((m: Msg) => {
     if (m.deleted || m.type === 'system') return;
     if (m.failed && !m.id) { // outbox: server rejected it
-      Alert.alert('Message nahi gaya', 'Dobara bhejein ya delete karein?', [
+      Alert.alert('Message not sent', 'Send it again or delete it?', [
         { text: 'Retry', onPress: () => { setMsgs((cur) => cur.map((x) => (x.clientId === m.clientId ? { ...x, failed: false, pending: true } : x))); retryOutbox(m.clientId); } },
         { text: 'Delete', style: 'destructive', onPress: () => { removeFromOutbox(m.clientId); setMsgs((cur) => cur.filter((x) => x.clientId !== m.clientId)); } },
         { text: 'Cancel', style: 'cancel' },
@@ -627,8 +626,8 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       await api('POST', '/chats/' + target.id + '/messages', {
         type: isMedia ? m.type : 'text', text: body, mediaUrl: isMedia ? m.mediaUrl : undefined, media: isMedia ? m.media : undefined, clientId: newClientId(),
       });
-      toast('Forward ho gaya: ' + target.name);
-    } catch (e: any) { Alert.alert('Forward nahi hua', e.message); }
+      toast('Forwarded: ' + target.name);
+    } catch (e: any) { Alert.alert('Could not forward', e.message); }
   };
   const doStar = (m: Msg) => {
     if (!m.id) return;
@@ -859,13 +858,6 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
         onPress: () => put(text.slice(0, text.length - q.length) + x.id + ' '),
       }));
     }
-    if (ps.commandsEnabled && /^\/due\s+#\d+\s+$/.test(text)) {
-      return DUE_CHIPS.map((d) => ({
-        key: 'due' + d, title: d, sub: d === 'none' ? 'Due date hatao' : undefined,
-        left: <Ionicons name="calendar-outline" size={20} color={t.accent} />,
-        onPress: () => put(text + d),
-      }));
-    }
     if (ps.commandsEnabled && /^\/\S*$/.test(text)) {
       const q = text.toLowerCase();
       return COMMANDS.filter((c) => c.cmd.startsWith(q)).map((c) => ({
@@ -899,7 +891,7 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
 
   const subtitle = typingName
     ? (chat.type === 'dm' ? 'typing...' : typingName + ' is typing...')
-    : chat.type === 'checkin' ? 'Aapke reports admin dekh sakte hain'
+    : chat.type === 'checkin' ? 'Admins can see your reports'
     : chat.type === 'dm' ? '' : (members.length || chat.membersCount) + ' members';
   // info page for group / all / dm (ChatsScreen routes onOpenInfo for every type)
   const hasInfo = chat.type !== 'checkin';
@@ -920,16 +912,10 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
   // second helper chip: DM = tasks with this person, check-in = new task (for me), else "@" person actions
   const personChip = () =>
     chat.type === 'dm' && chat.otherUserId ? chipBtn('Tasks', () => setSheet('dmTasks'), 'clipboard-outline')
-      : chat.type === 'checkin' ? chipBtn('Naya task', () => setSheet('newTask'), 'add-circle-outline')
+      : chat.type === 'checkin' ? chipBtn('New task', () => setSheet('newTask'), 'add-circle-outline')
       : chipBtn('person', openPersonActions, 'at');
-  // /task: day + time chips (text like "kal 5 pm" is appended; the server AI parses it)
-  const isTaskText = helpers && !editing && /^\/task\b/i.test(text) && refs.current.length > 0 && text.trim().split(/\s+/).length > 2;
-  const hasDay = /\b(aaj|kal|parso|today|tomorrow)\b/i.test(text);
-  const hasTime = /\b\d{1,2}(:\d{2})?\s?(am|pm)\b/i.test(text);
-  const taskChips = isTaskText ? (!hasDay ? ['Aaj', 'Kal', 'Parso'] : !hasTime ? ['9 am', '12 pm', '5 pm', '8 pm'] : []) : [];
-  const appendChip = (c: string) => setText(text.replace(/\s+$/, '') + ' ' + (/^\d/.test(c) ? c : c.toLowerCase()));
-  const voiceHint = helpers && /^\/(task|re|reassign)\b/i.test(text.trim()) ? (/^\/task/i.test(text.trim()) ? 'Bolo: kis ko, kya task' : 'Bolo: kaun sa task, kis ko')
-    : helpers && /^\/done\b/i.test(text.trim()) ? 'Bolo: kaun sa task done' : null;
+  const voiceHint = helpers && /^\/(task|re|reassign)\b/i.test(text.trim()) ? (/^\/task/i.test(text.trim()) ? 'Say: who, and what task' : 'Say: which task, and who')
+    : helpers && /^\/done\b/i.test(text.trim()) ? 'Say: which task is done' : null;
 
   // search in chat: loaded messages whose text / caption / address / transcript contain the query
   const sq = searchQ.trim().toLowerCase();
@@ -1115,14 +1101,14 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
       {uploading > 0 && (
         <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, paddingHorizontal: 14, paddingTop: 8 }}>
           <ActivityIndicator size="small" color={t.accent} />
-          <Text style={{ color: t.subtext, fontSize: 13, marginLeft: 10 }}>Bhej rahe hain… ({uploading})</Text>
+          <Text style={{ color: t.subtext, fontSize: 13, marginLeft: 10 }}>Sending… ({uploading})</Text>
         </View>
       )}
       {!!editing && (
         <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, paddingHorizontal: 10, paddingTop: 8 }}>
           <Ionicons name="pencil" size={18} color={t.accent} style={{ marginHorizontal: 6 }} />
           <View style={{ flex: 1, borderLeftWidth: 4, borderLeftColor: t.accent, backgroundColor: t.background, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-            <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>Message edit karein</Text>
+            <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>Edit message</Text>
             <Text numberOfLines={1} style={{ color: t.subtext, fontSize: 13 }}>{editing.text || ''}</Text>
           </View>
           <Pressable onPress={cancelEdit} hitSlop={10} style={{ padding: 8 }}>
@@ -1131,20 +1117,14 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
         </View>
       )}
       <Suggestions items={suggestions} t={t} />
-      {(showChips || taskChips.length > 0) && (
+      {showChips && (
         <ScrollView
           horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false}
           style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 2, alignItems: 'center' }}
         >
-          {taskChips.length > 0
-            ? taskChips.map((c) => chipBtn(c, () => appendChip(c), 'calendar-outline', 'tc' + c))
-            : (
-              <>
-                {chipBtn('/', () => setSheet('cmd'), undefined, 'slash')}
-                {quick.map((c) => chipBtn(c.cmd, () => pickCommand(c), c.icon, c.cmd))}
-                {personChip()}
-              </>
-            )}
+          {chipBtn('/', () => setSheet('cmd'), undefined, 'slash')}
+          {quick.map((c) => chipBtn(c.cmd, () => pickCommand(c), c.icon, c.cmd))}
+          {personChip()}
         </ScrollView>
       )}
       <Composer
@@ -1199,9 +1179,9 @@ export default function ChatScreen({ chat, onBack, onOpenInfo, onOpenTask, onOpe
           <View style={{ paddingHorizontal: 20, paddingVertical: 8 }}>
             <Text style={{ color: t.text, fontSize: 15 }}>Sent: {new Date(infoMsg.createdAt).toLocaleString()}</Text>
             <Text style={{ color: t.text, fontSize: 15, marginTop: 8 }}>
-              {{ pending: 'Bhej rahe hain', failed: 'Nahi gaya (tap karke retry)', sent: 'Sent', delivered: 'Delivered (sabko)', read: 'Read (sabne dekha)' }[tickOf(infoMsg)]}
+              {{ pending: 'Sending', failed: 'Not sent (tap to retry)', sent: 'Sent', delivered: 'Delivered (to everyone)', read: 'Read (by everyone)' }[tickOf(infoMsg)]}
             </Text>
-            <Text style={{ color: t.subtext, fontSize: 12, marginTop: 8 }}>Har member ka alag read time abhi available nahi.</Text>
+            <Text style={{ color: t.subtext, fontSize: 12, marginTop: 8 }}>Per-member read times are not available yet.</Text>
           </View>
         )}
       </Sheet>

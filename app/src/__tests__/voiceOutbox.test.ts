@@ -115,7 +115,7 @@ test('if moving the file fails the original uri is kept (never lose the recordin
   expect(item.uri).toBe('file:///cache/Audio/rec.m4a');
 });
 
-// Device test 2026-11-20: a voice note recorded offline stayed "Nahi gaya" after the network came back until Retry was
+// Device test 2026-11-20: a voice note recorded offline stayed "Not sent" after the network came back until Retry was
 // tapped (text messages flush by themselves). retryVoiceOutbox() runs on reconnect / app active / chat open.
 test('retryVoiceOutbox sends every queued voice note in order and stops at the first failure', async () => {
   const vo = load();

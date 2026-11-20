@@ -21,7 +21,7 @@ export default function StarredScreen({ onBack, onOpen }: { onBack: () => void; 
       <FlatList
         data={stars}
         keyExtractor={(s) => s.chatId + ':' + s.messageId}
-        ListEmptyComponent={<Text style={{ color: t.subtext, textAlign: 'center', padding: 40 }}>Koi starred message nahi. Message ko long-press karke Star karo.</Text>}
+        ListEmptyComponent={<Text style={{ color: t.subtext, textAlign: 'center', padding: 40 }}>No starred messages. Long-press a message to star it.</Text>}
         renderItem={({ item }) => (
           <Pressable
             onPress={() => onOpen(item.chatId, item.messageId)} android_ripple={{ color: t.border }}

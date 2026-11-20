@@ -43,7 +43,7 @@ export type Msg = {
   pending?: boolean;
   failed?: boolean; // outbox: rejected by the server, shows Retry / Delete
   type?: 'text' | 'bot' | 'system' | 'checkin_prompt' | 'image' | 'audio'; // 'bot' = task event card; 'system' = centered grey pill; 'checkin_prompt' = daily check-in card
-  payload?: BotPayload | CheckinPromptPayload | null;
+  payload?: BotPayload | CheckinPromptPayload | CheckinSummaryPayload | null;
   visibleTo?: number | null; // set = only that user sees it ("Only visible to you")
   reactions?: Reaction[];
   mentions?: number[];
@@ -66,7 +66,7 @@ export type Quote = { chatId: number; messageId: number; senderName: string; tex
 export type Reaction = { emoji: string; userIds: number[] };
 
 // Payload of a 'bot' message (server/src/ai/*). Old messages used `action` instead of `event` and had no ids of actors.
-export type BotItem = { id: number; title: string; dueDate: string | null };
+export type BotItem = { id: number; title: string };
 export type TaskEventName =
   | 'created' | 'updated' | 'completed' | 'review' | 'reassigned' | 'due' | 'deleted' | 'note' | 'praise'
   | 'planning' | 'coding' | 'testing' | 'change_merged' | 'done' | 'closed' | 'reopened' | 'answered';
@@ -87,7 +87,7 @@ export type BotPayload =
   | { kind: 'reminder'; task: Task; days: number; assigneeId?: number }
   | {
       kind: 'list'; title: string;
-      tasks: { id: number; title: string; status: Status; assigneeName: string | null; dueDate: string | null; overdue?: boolean; brief?: boolean }[];
+      tasks: { id: number; title: string; status: Status; assigneeName: string | null; brief?: boolean }[];
     }
   | { kind: 'help'; commands: { cmd: string; args: string; desc: string }[] }
   | { kind: 'error'; code: string; message: string }
@@ -104,15 +104,23 @@ export type Person = { id: number; name: string; phone: string; role?: 'boss' | 
 
 // ---- Daily check-ins (server/src/checkins.js) ----
 // 'day' = morning card (open tasks, pinned, kept live); 'signoff' = evening sign-off; 'morning'/'evening' = old round-1 prompts.
-export type CheckinKind = 'day' | 'signoff' | 'morning' | 'evening';
+export type CheckinKind = 'day' | 'signoff' | 'morning' | 'evening' | 'summary';
 // status = the member's OWN status on the task; taskStatus = the task's aggregate
 export type DayTask = {
-  id: number; title: string; status: Status; dueDate: string | null; project?: string | null; overdue?: boolean; stale?: boolean; ageDays?: number;
+  id: number; title: string; status: Status; project?: string | null; stale?: boolean; ageDays?: number;
   taskStatus?: Status; assigneeCount?: number; createdBy?: number | null; description?: string | null;
 };
 export type CheckinTask = DayTask;
 export type DayCounts = { given: number; done: number; left: number };
-export type CheckinPromptPayload = { kind: CheckinKind; date: string; tasks: DayTask[]; counts?: DayCounts; nudge?: boolean };
+export type CheckinPromptPayload = { kind: CheckinKind; date: string; tasks: DayTask[]; counts?: DayCounts; nudge?: boolean; picks?: number[] };
+// admins' evening summary (kind 'summary'), kept live by the server
+export type CheckinSummaryMember = {
+  id: number; name: string; replied: boolean; picks: { id: number; title: string; status: Status }[]; done: { id: number; title: string }[];
+  morning: string | null; report: string | null; open: number;
+};
+export type CheckinSummaryPayload = {
+  kind: 'summary'; date: string; members: CheckinSummaryMember[]; totals: { members: number; replied: number; done: number; picked: number };
+};
 export type CheckinSummary = { done: string[]; pending: string[]; blockers: string[] };
 export type Checkin = {
   id: number; userId: number; date: string; kind: 'morning' | 'evening'; text: string | null; summary: CheckinSummary;
@@ -124,13 +132,13 @@ export type Signoff = {
   messageId: number | null; createdAt: string; updatedAt: string;
 };
 export type CheckinSettings = {
-  enabled: boolean; morningTime: string; eveningTime: string; days: number[]; nudgeMinutes: number; timezone: string;
+  enabled: boolean; morningTime: string; eveningTime: string; days: number[]; nudgeMinutes: number; timezone: string; summaryTime?: string;
 };
 export type CheckinToday = {
   date: string; chatId: number | null; settings: CheckinSettings; workday: boolean; eveningOpen: boolean;
   day: { prompted: boolean; messageId: number | null };
   signoff: { prompted: boolean; submitted: boolean; signoff: Signoff | null };
-  tasks: DayTask[]; doneToday: DayTask[]; counts: DayCounts;
+  tasks: DayTask[]; doneToday: DayTask[]; counts: DayCounts; picks?: number[];
 };
 export type AdminSlot = { status: 'submitted' | 'missing'; prompted: boolean; checkin: Checkin | null };
 export type AdminSignoff = { status: 'submitted' | 'missing'; prompted: boolean; signoff: Signoff | null };

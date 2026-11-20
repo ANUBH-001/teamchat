@@ -4,7 +4,6 @@ import { useTheme } from '../useTheme';
 import { useAuth } from '../auth';
 import { api } from '../api';
 import { canClose, canView, isAssignee, myStatusOf, STATUS_COLOR, STATUS_LABEL, StepStatus, Task } from '../taskTypes';
-import { formatDue, isoDay, nextDow } from '../dates';
 import { toast } from '../useVoiceInput';
 import Sheet, { SheetRow } from './Sheet';
 // Round 4: disabled (simple create->done): import StatusChips from './StatusChips';
@@ -12,11 +11,11 @@ import StatusChips from './DoneChips';
 import PeoplePickSheet from './PeoplePickSheet';
 import { AvatarStack } from './Avatar';
 
-type Mode = 'main' | 'title' | 'desc' | 'note' | 'people' | 'due';
+type Mode = 'main' | 'title' | 'desc' | 'note' | 'people';
 
 // Quick actions on one task (check-in card rows, DM tasks sheet, long-press on a task row, chat cards):
-// my status (6 steps), edit title, description, note, people (add / remove / replace, Me first), due chips, ask,
-// open detail, close / reopen. Everything goes through REST; the server re-checks every permission (errors -> toast).
+// my status (done / pending: assignee or admin only), edit title, description, note, people (add / remove / replace, Me first), ask,
+// open detail, close / reopen (admin only). Everything goes through REST; the server re-checks every permission (errors -> toast).
 // startMode 'desc': open straight in the description editor (ask card "Description" button).
 export default function TaskActionSheet({ visible, onClose, taskId, task: given, onOpen, onChanged, startMode }: {
   visible: boolean; onClose: () => void; taskId?: number | null; task?: Task | null;
@@ -52,7 +51,7 @@ export default function TaskActionSheet({ visible, onClose, taskId, task: given,
       if (r && r.task) { setTask(r.task); onChanged?.(r.task); }
       if (okMsg) toast(okMsg);
       if (startMode === 'desc' && mode === 'desc') onClose(); else setMode('main'); // opened for the description: done
-    } catch (e: any) { toast(e.message || 'Nahi ho paya'); }
+    } catch (e: any) { toast(e.message || 'Could not do that'); }
     setBusy(false);
   };
   const patch = (body: object, okMsg?: string) => run('PATCH', '/tasks/' + task!.id, body, okMsg);
@@ -90,7 +89,6 @@ export default function TaskActionSheet({ visible, onClose, taskId, task: given,
           <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{STATUS_LABEL[task.status]}</Text>
         </View>
         <AvatarStack people={task.assignees || []} size={20} />
-        {!!task.dueDate && <Text style={{ color: task.overdue ? t.danger : t.subtext, fontSize: 12, marginLeft: 8 }}>Due {formatDue(task.dueDate)}</Text>}
       </View>
     </View>
   );
@@ -100,47 +98,29 @@ export default function TaskActionSheet({ visible, onClose, taskId, task: given,
       {header}
       {mine && !closed && (
         <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-          <Text style={{ color: t.subtext, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>MERA STATUS</Text>
+          <Text style={{ color: t.subtext, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>MY STATUS</Text>
           <StatusChips value={myStatus} disabled={busy} onPick={(s: StepStatus) => patch({ status: s }, STATUS_LABEL[s])} />
         </View>
       )}
-      {!mine && (isBoss || creator) && !closed && (
+      {!mine && isBoss && !closed && (
         <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-          <Text style={{ color: t.subtext, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>SABKA STATUS</Text>
+          <Text style={{ color: t.subtext, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>EVERYONE'S STATUS</Text>
           <StatusChips value={task.status} disabled={busy} onPick={(s: StepStatus) => patch({ status: s }, STATUS_LABEL[s])} />
         </View>
       )}
-      {manage && !closed && <SheetRow icon="create-outline" label="Title badlo" onPress={() => { setText(task.title); setMode('title'); }} />}
+      {manage && !closed && <SheetRow icon="create-outline" label="Edit title" onPress={() => { setText(task.title); setMode('title'); }} />}
       {canView(task, me) && <SheetRow icon="document-text-outline" label="Description" onPress={() => { setText(task.description || ''); setMode('desc'); }} />}
-      {canView(task, me) && <SheetRow icon="chatbox-ellipses-outline" label="Note likho" onPress={() => { setText(''); setMode('note'); }} />}
-      {manage && !closed && <SheetRow icon="people-outline" label="Log (add / remove / reassign)" onPress={() => setMode('people')} />}
-      {manage && !closed && <SheetRow icon="calendar-outline" label={'Due date' + (task.dueDate ? ' (' + formatDue(task.dueDate) + ')' : '')} onPress={() => setMode('due')} />}
-      {onOpen && <SheetRow icon="open-outline" label="Task kholo" onPress={() => { onClose(); onOpen(task.id); }} />}
+      {canView(task, me) && <SheetRow icon="chatbox-ellipses-outline" label="Add a note" onPress={() => { setText(''); setMode('note'); }} />}
+      {manage && !closed && <SheetRow icon="people-outline" label="People (add / remove / reassign)" onPress={() => setMode('people')} />}
+      {onOpen && <SheetRow icon="open-outline" label="Open task" onPress={() => { onClose(); onOpen(task.id); }} />}
       {canClose(task, me) && !closed && (
-        <SheetRow icon="close-circle-outline" label="Task band karo (Close)" danger onPress={() => Alert.alert('Close task', '"' + task.title + '" band karein?', [
+        <SheetRow icon="close-circle-outline" label="Close task" danger onPress={() => Alert.alert('Close task', 'Close "' + task.title + '"?', [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Close', style: 'destructive', onPress: () => run('POST', '/tasks/' + task.id + '/close', {}, 'Closed') },
         ])} />
       )}
       {canClose(task, me) && closed && <SheetRow icon="refresh-outline" label="Reopen" onPress={() => run('POST', '/tasks/' + task.id + '/reopen', {}, 'Reopened')} />}
     </>
-  );
-
-  const due = task && (
-    <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-      <Text style={{ color: t.subtext, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>DUE DATE</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        {([['Aaj', isoDay(0)], ['Kal', isoDay(1)], ['Parso', isoDay(2)], ['Fri', nextDow(5)], ['Next week', isoDay(7)], ['None', null]] as [string, string | null][]).map(([l, d]) => (
-          <Pressable key={l} onPress={() => patch({ dueDate: d }, 'Due ' + (d ? formatDue(d) : 'hata di'))}
-            style={{ minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 20, backgroundColor: task.dueDate === d ? t.accent : t.soft, marginRight: 8, marginBottom: 8 }}>
-            <Text style={{ color: task.dueDate === d ? '#fff' : t.text, fontWeight: '600' }}>{l}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <Pressable onPress={() => setMode('main')} style={{ minHeight: 44, borderRadius: 22, backgroundColor: t.soft, alignItems: 'center', justifyContent: 'center', marginTop: 4 }}>
-        <Text style={{ color: t.text, fontWeight: '600' }}>Back</Text>
-      </Pressable>
-    </View>
   );
 
   return (
@@ -151,11 +131,10 @@ export default function TaskActionSheet({ visible, onClose, taskId, task: given,
         {task && mode === 'title' && editor('TITLE', false, (v) => (v ? patch({ title: v }, 'Saved') : null))}
         {task && mode === 'desc' && editor('DESCRIPTION', true, (v) => patch({ description: v || null }, 'Saved'))}
         {task && mode === 'note' && editor('NOTE', true, (v) => (v ? patch({ note: v }, 'Note added') : null))}
-        {task && mode === 'due' && due}
       </Sheet>
       {task && (
         <PeoplePickSheet
-          visible={visible && mode === 'people'} onClose={() => setMode('main')} title={'Task ' + task.id + ' ke log'} meId={me.id}
+          visible={visible && mode === 'people'} onClose={() => setMode('main')} title={'People on Task ' + task.id} meId={me.id}
           initial={(task.assignees || []).map((a) => a.id)}
           onSave={(ids) => patch({ assigneeIds: ids }, 'Saved')}
         />

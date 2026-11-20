@@ -1,0 +1,91 @@
+ok 1 - timezone: local date / minutes are Asia/Kolkata, the day flips at 18:30 UTC
+ok 2 - scheduler: nothing before 10:00 local; at 10:00 one morning card per active member, none for the bot / inactive / admin
+ok 3 - scheduler: a missed morning is not caught up in the evening; the evening card is sent once
+ok 4 - picks: own open task only; toggling updates the morning card and is stored for the admin
+ok 5 - evening tick through PATCH /tasks: own task done, the card and the admin see it; a forged id is refused
+ok 6 - replies in the check-in chat are stored as the report; the admins get one live summary card
+ok 7 - admin-only POST /admin/jobs/run {summary}
+ok 8 - settings: summaryTime must be after the evening time
+ok 9 - AI: "I'll also do X" in my own check-in chat becomes MY task; the bot never answers itself
+ok 10 - login ok and bad PIN
+ok 11 - old token is rejected after a newer login (session id check)
+ok 12 - messages: unauthenticated 401, non-member 403, member ok
+ok 13 - idempotent send: same clientId twice = one row, same id
+ok 14 - realtime: A sends via REST, B receives exactly once
+ok 15 - typing: member is relayed, non-member is ignored
+ok 16 - bad token closes ws with 4401
+ok 17 - A-03: ws {"type":"ping"} gets {"type":"pong","t":<ms>} on that socket only
+ok 18 - B-21: malformed JSON body -> 400 JSON, not an HTML stack
+ok 19 - B-12: an oversize ws frame closes the socket (1009); small frames still work
+ok 20 - B-15: two concurrent activations with one invite -> exactly one succeeds
+ok 21 - B-03: uploader can sign before send; nobody else can (not even a chat member or the boss)
+ok 22 - B-03: after send: member yes, non-member no, removed member no, boss yes; deleted message only boss
+ok 23 - B-03: check-in chat media is private to its owner, even for the boss
+ok 24 - B-03: a profile photo is visible to every logged-in user; only your own upload can become your photo
+ok 25 - B-03: a message cannot re-share a file the sender may not see
+ok 26 - A-07: tampered, cross-user, expired and malformed signatures are rejected
+ok 27 - A-07: TTL is 30 min by default and expiresAt is returned; sign validates input
+ok 28 - A-07: legacy ?t=<jwt> works only while MEDIA_ALLOW_TOKEN_QUERY is on, and is access-checked
+ok 29 - path traversal is still blocked (header and signed)
+ok 30 - A-07: static map: signed URL works without the JWT; a bad signature does not
+ok 31 - A-05: POST /auth/logout revokes the token (REST 401, live socket closed, reconnect refused)
+ok 32 - R-07: create ignores dueDate (even an invalid one); the task has no due fields
+ok 33 - R-07: PATCH with only dueDate (old app) is a harmless no-op, not an error; with other fields they still apply
+ok 34 - R-07: list / summary responses carry no due data
+ok 35 - R-08: no Hindi/Hinglish user-facing phrases left in server code
+ok 36 - R-08: AI prompts ask for English output and no due date
+ok 37 - no-store on /chats
+ok 38 - no-store on /chats/:id/messages
+ok 39 - no-store on /tasks?scope=mine
+ok 40 - no-store on /users?includeSelf=1
+ok 41 - no-store on /auth/me
+ok 42 - errors (401) are no-store too
+ok 43 - OTA manifest and health are untouched by the API rule
+ok 44 - after-paging with 600 messages: hasMore until the end, every message exactly once, in order
+ok 45 - exactly 500 remaining: hasMore false; before-paging unchanged
+ok 46 - member marks own task done -> admin gets one ws task event and one card (task made in a chat)
+ok 47 - member marks own task done -> admin notified even when the task has no chat (DM fallback)
+ok 48 - boss marks a member task done -> member gets one ws task event and one card
+ok 49 - boss marks a member task done (no chat) -> member gets a DM card
+ok 50 - boss private self-task done posts no card
+ok 51 - status: assignee 200, other member 403, admin 200
+ok 52 - undo: other member 403, assignee 200
+ok 53 - creator who is not the assignee cannot tick the task; admin can
+ok 54 - assignee cannot set another assignee's status
+ok 55 - delete/close/reopen: non-admin 403 (even the creator and the assignee), admin 200
+ok 56 - task logic (used by ws, slash commands and the AI) enforces the same rule
+ok 57 - member self-task via REST works and is NOT private (toggle off)
+ok 58 - member -> other: 403 with toggle off, 201 with toggle on
+ok 59 - boss unchanged: assigns anyone; boss self-only task stays private
+ok 60 - members cannot manage tasks they neither created nor are assigned to
+ok 61 - /task khud ... by a member creates a self-task (toggle off)
+ok 62 - /task @Uzair by a member: NOT_ALLOWED off, created on
+ok 63 - valid bundle and extensionless asset are still served
+ok 64 - manifest asset URLs resolve through /assets
+ok 65 - rejects: rv=.. reaches .env (the original exploit)
+ok 66 - rejects: rv=.. reaches backup
+ok 67 - rejects: rv=. with dot-dot asset
+ok 68 - rejects: percent-encoded dots
+ok 69 - rejects: double-encoded dots
+ok 70 - rejects: encoded slash
+ok 71 - rejects: dot-dot inside valid prefix
+ok 72 - rejects: backslashes
+ok 73 - rejects: encoded backslashes
+ok 74 - rejects: absolute path
+ok 75 - rejects: absolute windows path
+ok 76 - rejects: NUL byte
+ok 77 - rejects: dotfile inside updates
+ok 78 - rejects: asset outside the given rv
+ok 79 - rejects: rv folder itself
+ok 80 - rejects: array params
+ok 81 - manifest rejects dot runtime versions
+ok 82 - V-03a: boss voice note assigns a task to Anubhav (source = the voice message, card posted)
+ok 83 - V-03b: member voice assigning someone else: note when off, task when on
+ok 84 - V-03c: member "mujhe kal tak report banani hai" is a self-task even with toggle off
+ok 85 - V-02e: failure stores a transcriptError code
+ok 86 - V-02d: retry endpoint permissions, eligibility, and no duplicate tasks
+ok 87 - V-02d: boss may retry; fresh pending is not retryable, stale pending is
+ok 88 - V-02: startup requeue picks up stale pending voice notes and transcribes them
+# tests 88
+# pass 88
+# fail 0

@@ -94,7 +94,7 @@ export function sendQueuedVoice(clientId: string): Promise<Msg> {
   if (running) return running;
   const p = (async () => {
     const item = (await read()).find((i) => i.clientId === clientId);
-    if (!item) throw new Error('Voice note nahi mila');
+    if (!item) throw new Error('Voice note not found');
     let url = item.mediaUrl;
     if (!url) {
       url = (await uploadMedia(item.uri, 'audio', 'audio/mp4')).url;

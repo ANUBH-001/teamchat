@@ -1,0 +1,19 @@
+PASS src/__tests__/taskPermissions.test.ts
+PASS src/__tests__/transcriptRetry.test.ts
+PASS src/__tests__/voiceOutbox.test.ts
+PASS src/__tests__/outbox.test.ts
+PASS src/__tests__/realtime.test.ts
+PASS src/__tests__/deviceCaches.test.ts
+PASS src/__tests__/smoke.test.ts
+PASS src/__tests__/sendGuard.test.ts
+PASS src/__tests__/recorderEngine.test.ts
+PASS src/__tests__/useVoiceRecorder.test.tsx
+PASS src/__tests__/Tick.test.tsx
+PASS src/__tests__/DailyCheckinCard.test.tsx
+PASS src/__tests__/voicePlayer.test.ts
+PASS src/__tests__/media.test.ts
+PASS src/__tests__/logout.test.tsx (5.821 s)
+PASS src/__tests__/ChecklistCard.test.tsx (6.239 s)
+Test Suites: 16 passed, 16 total
+Tests:       106 passed, 106 total
+typecheck OK

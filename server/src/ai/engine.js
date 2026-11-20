@@ -4,7 +4,6 @@
 // validation -> src/tasks.js (source 'ai') -> public task card. Quiet by design: low confidence, no open tasks or
 // nothing to change = no reply at all; questions back (clarify), summaries and errors are ephemeral (sender only).
 // The model only suggests; every permission and task id is checked here and again in tasks.js.
-const DT = require('./dueTime');
 const pool = require('../db');
 const T = require('../tasks');
 const settings = require('../settings');
@@ -14,7 +13,8 @@ const bot = require('./bot');
 
 const MIN_CONFIDENCE = 0.6;
 const MAX_OPEN_TASKS = 60;
-const TASK_RE = /(task|kaam|karna|karni|karo|kar do|kar dena|kar diya|kar di|bhej|bana|dekh|chahiye|assign|deadline|\bdue\b|\btak\b|ho gaya|ho gayi|ho gya|ho gyi|ho gai|hogaya|hogayi|complete|\bdone\b|finish|khatam|shuru|start|working on|kar raha|kar rahi|pending|status|baaki|baki|testing|merge|planning|coding|काम|टास्क|करना|करनी|करो|कर दो|कर दिया|हो गया|हो गई|हो गयी|पूरा|खत्म|शुरू|बाकी|भेज|बना|तक)/i;
+// English intent too (UI is English now): "I'll also do X", "I need to ...", "I'm going to ...", "will work on ..."
+const TASK_RE = /(\bi['’]?ll\b|\bi will\b|\bi need to\b|\bi have to\b|\bgoing to\b|\bwork on\b|task|kaam|karna|karni|karo|kar do|kar dena|kar diya|kar di|bhej|bana|dekh|chahiye|assign|deadline|\bdue\b|\btak\b|ho gaya|ho gayi|ho gya|ho gyi|ho gai|hogaya|hogayi|complete|\bdone\b|finish|khatam|shuru|start|working on|kar raha|kar rahi|pending|status|baaki|baki|testing|merge|planning|coding|काम|टास्क|करना|करनी|करो|कर दो|कर दिया|हो गया|हो गई|हो गयी|पूरा|खत्म|शुरू|बाकी|भेज|बना|तक)/i;
 const S = require('../status');
 const LABEL = S.LABEL;
 const TZ = (() => { try { new Intl.DateTimeFormat('en-US', { timeZone: process.env.TZ }); return process.env.TZ || 'Asia/Kolkata'; } catch (e) { return 'Asia/Kolkata'; } })();
@@ -36,10 +36,10 @@ async function recentLines(chatId, viewerId, n = 30) {
   });
 }
 
-// "Task N - title - names - due" (names / due may be missing for a member's brief view)
+// "Task N - title - names" (names may be missing for a member's brief view)
 const taskLine = (t) => {
   const names = (t.assignees ? t.assignees.map((a) => a.name) : t.assigneeNames || []).join(', ');
-  return 'Task ' + t.id + ' - ' + t.title + (names ? ' - ' + names : '') + (t.dueDate ? ' - due ' + DT.fmtDue(t.dueDate, t.dueAt) : '');
+  return 'Task ' + t.id + ' - ' + t.title + (names ? ' - ' + names : '');
 };
 
 // "@AI <question>" in any text message, or "/ai <question>": answer as a bot message (Round 4). Returns true when handled.
@@ -53,7 +53,7 @@ async function answerIfAsked(message, user) {
   else return false;
   const chatId = message.chatId;
   if (!(await settings.forChat(chatId)).botEnabled) return false;
-  if (!q) { await bot.infoCard(chatId, user.id, 'AI se kuch poochhiye. Jaise: @AI aaj ke pending tasks batao'); return true; }
+  if (!q) { await bot.infoCard(chatId, user.id, 'Ask the AI something. Example: @AI what tasks are pending today?'); return true; }
   const { chatType, members } = await chatContext(chatId);
   const tasks = await T.listTasks({ scope: user.role === 'boss' ? 'all' : 'everyone', status: 'open' }, user);
   const r = await provider.answer(q, {
@@ -128,23 +128,25 @@ async function onMessage(message, user) {
         let who = resolvePerson(it.assignee_name, it.assignee_id, members);
         // DM with no name given: the other person
         if (!who && !it.assignee_name && chatType === 'dm') who = members.find((m) => m.id !== user.id) || null;
+        // own Daily Check-in chat ("I'll also do X") with no name: a task for the writer (same self-task rule as everywhere)
+        if (!who && !it.assignee_name && chatType === 'checkin') who = members.find((m) => m.id === user.id) || null;
         if (!who) {
-          await clarify(chatId, user.id, replyTo, 'Ye task kisko dena hai' + (it.title ? ' ("' + it.title + '")' : '') +
-            '? Is chat ke members: ' + members.map((m) => m.name).join(', ') + '. Ya likhiye: /task <naam> <kaam>');
+          await clarify(chatId, user.id, replyTo, 'Who should get this task' + (it.title ? ' ("' + it.title + '")' : '') +
+            '? Members of this chat: ' + members.map((m) => m.name).join(', ') + '. Or type: /task <name> <work>');
           continue;
         }
         if (!it.title) continue;
         if (!T.canCreate(user, [who.id])) {
-          if (!refused) await bot.infoCard(chatId, user.id, 'Task sirf admin assign kar sakta hai. Apne liye likhiye: "mujhe ... karna hai" ya /task khud <kaam>.');
+          if (!refused) await bot.infoCard(chatId, user.id, 'Only an admin can assign tasks to others. For yourself, write "I need to ..." or type /task me <work>.');
           refused = true;
           continue;
         }
         try {
-          const task = await T.createTask({ title: it.title, assigneeId: who.id, dueDate: it.due_date, chatId }, user, 'ai', message.id);
+          const task = await T.createTask({ title: it.title, assigneeId: who.id, chatId }, user, 'ai', message.id);
           await bot.taskCard(chatId, 'created', task, user, { byAi: true, replyTo, undo: 'delete' });
         } catch (e) {
           if (!(e instanceof T.TaskError)) throw e;
-          await bot.infoCard(chatId, user.id, 'Task nahi bana: ' + e.message);
+          await bot.infoCard(chatId, user.id, 'Could not create the task: ' + e.message);
         }
       }
       return;
@@ -161,13 +163,12 @@ async function onMessage(message, user) {
         if (!r.changed) return;
         return bot.taskCard(chatId, r.event, r.task, user, { byAi: true, replyTo, undo: 'status' });
       }
-      // Round 4: disabled (simple create->done): update_task (step / due / title / assignee changes by chat)
+      // Round 4: disabled (simple create->done): update_task (step / title / assignee changes by chat)
       /*
       const f = {};
       const st = S.norm(d.status);
       if (st && st !== task.status) f.status = st;
       if (boss) {
-        if (d.due_date && d.due_date !== (task.dueAt || task.dueDate)) f.dueDate = d.due_date;
         if (d.title && d.title !== task.title) f.title = d.title;
         if (d.assignee_name || d.assignee_id) {
           const who = resolvePerson(d.assignee_name, d.assignee_id, members);
@@ -188,12 +189,12 @@ async function onMessage(message, user) {
       if (!task) return;
       const [everyone] = await pool.query('SELECT id, name FROM users WHERE active = 1 AND is_bot = 0');
       const to = resolvePerson(d.assignee_name, d.assignee_id, everyone);
-      if (!to) return clarify(chatId, user.id, replyTo, 'Task ' + task.id + ' kisko dena hai? Likhiye: /re Task ' + task.id + ' @naam');
+      if (!to) return clarify(chatId, user.id, replyTo, 'Task ' + task.id + ': who should get it? Type: /re Task ' + task.id + ' @name');
       const cur = task.assignees || [];
       let from = d.from_name ? resolvePerson(d.from_name, null, cur) : null;
       if (!from && cur.length === 1) from = cur[0];
       if (!from || cur.some((a) => a.id === to.id)) {
-        return clarify(chatId, user.id, replyTo, 'Task ' + task.id + ' kis se hatana hai? Likhiye: /re Task ' + task.id + ' @purana @naya');
+        return clarify(chatId, user.id, replyTo, 'Task ' + task.id + ': who should it be taken from? Type: /re Task ' + task.id + ' @old @new');
       }
       const r = await T.applyUpdate(task.id, { addAssigneeIds: [to.id], removeAssigneeIds: [from.id] }, user, 'ai', message.id);
       if (!r.changed) return;
@@ -214,16 +215,16 @@ async function onMessage(message, user) {
       const ORDER = ['done', 'todo'];
       const payload = { kind: 'summary', replyTo, userId: target.id, userName: target.name, counts: {} };
       for (const k of ORDER) { payload.counts[k] = s[k].length; payload[k] = cut(s[k]); }
-      const lines = [target.name + ' ke tasks:'];
+      const lines = [target.name + "'s tasks:"];
       for (const k of ORDER) {
         lines.push(LABEL[k] + ' (' + s[k].length + ')');
-        for (const t of payload[k]) lines.push('• ' + t.title + (t.dueDate ? ' - ' + DT.fmtDue(t.dueDate, t.dueAt) : ''));
+        for (const t of payload[k]) lines.push('• ' + t.title);
       }
       return bot.ephemeral(chatId, user.id, lines.join('\n'), payload);
     }
   } catch (e) {
     if (!(e instanceof T.TaskError)) throw e;
-    await bot.infoCard(chatId, user.id, 'Nahi ho paya: ' + e.message);
+    await bot.infoCard(chatId, user.id, 'Could not do that: ' + e.message);
   }
 }
 

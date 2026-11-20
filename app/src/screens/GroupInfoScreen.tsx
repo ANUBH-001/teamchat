@@ -180,7 +180,7 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
         <View style={card}>
           <SwitchRow label="Mute notifications" sub="@mentions still notify you" value={muted} onChange={toggleMute} t={t} />
           {line}
-          <SwitchRow label="Pin chat" sub="Chat list mein sabse upar" value={pinned} onChange={togglePin} t={t} />
+          <SwitchRow label="Pin chat" sub="Keep at the top of the chat list" value={pinned} onChange={togglePin} t={t} />
         </View>
 
         {isBoss && (
@@ -203,10 +203,10 @@ export default function GroupInfoScreen({ chat, onBack, onChanged, onLeft, onOpe
         <MediaPreview msgs={media} onSeeAll={() => setMediaAll(true)} />
         <MediaGridModal visible={mediaAll} onClose={() => setMediaAll(false)} msgs={media} />
 
-        <Text style={label}>{isDm ? 'Shared tasks' : 'Is chat ke tasks'}</Text>
+        <Text style={label}>{isDm ? 'Shared tasks' : 'Tasks in this chat'}</Text>
         <View style={card}>
           {!loaded && <ActivityIndicator color={t.accent} style={{ margin: 16 }} />}
-          {loaded && tasks.length === 0 && <Text style={{ color: t.subtext, padding: 16 }}>Koi open task nahi</Text>}
+          {loaded && tasks.length === 0 && <Text style={{ color: t.subtext, padding: 16 }}>No open tasks</Text>}
           {tasks.map((k, i) => {
             const names = assigneeNamesOf(k).join(', ');
             return (

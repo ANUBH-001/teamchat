@@ -1,12 +1,11 @@
 // Round 4 Phase 3: voice note bubble (WhatsApp style): sender avatar, play / pause, waveform as seek bar, elapsed / duration,
-// speed chip 1x / 1.5x / 2x, transcript under it. Only one voice plays at a time (module-level `current`).
+// speed chip 1x / 1.5x / 2x, transcript under it. Only one voice plays at a time (voicePlayer.ts).
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, Pressable, Text, View } from 'react-native';
-import { Audio, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Theme } from '../theme';
 import { Msg } from '../chatTypes';
-import { signedMediaUrl, useMediaSrc } from '../media';
+import { voicePlayer } from '../voicePlayer';
 import { usePrefs } from '../prefs';
 import Avatar from './Avatar';
 import { fmtMs } from './VoiceRecorder';
@@ -15,7 +14,6 @@ import { PENDING_STUCK_MS, requestTranscript, transcriptView } from '../transcri
 import { useAuth } from '../auth';
 import { toast } from '../useVoiceInput';
 
-let current: { key: string; stop: () => Promise<void> } | null = null;
 const SPEEDS = [1, 1.5, 2];
 const BARS = 32;
 
@@ -30,83 +28,42 @@ function resample(w: number[]): number[] {
 }
 
 export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean; t: Theme }) {
-  const url = useMediaSrc(msg.mediaUrl || null);
   const prefs = usePrefs();
   const key = String(msg.id || msg.clientId);
+  const path = msg.mediaUrl || null;
   const wave = useMemo(() => resample(msg.media?.waveform?.length ? msg.media.waveform : Array(BARS).fill(0.35)), [msg.media?.waveform]);
-  const [playing, setPlaying] = useState(false);
-  const [pos, setPos] = useState(0);
-  const [realDur, setRealDur] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [open, setOpen] = useState<boolean | null>(null);
-  const sound = useRef<Audio.Sound | null>(null);
-  const speedRef = useRef(1);
-  speedRef.current = speed;
-  const dur = msg.media?.durationMs || realDur || 0;
+  // R-09: playback lives in voicePlayer (one note at a time, errors visible, re-sign + retry once); this is only the view
+  const player = voicePlayer();
+  const [snap, setSnap] = useState(() => player.get(key));
+  useEffect(() => {
+    setSnap(player.get(key));
+    return player.subscribe(key, setSnap);
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { player.release(key); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const playing = snap.state === 'playing' || snap.state === 'loading';
+  const pos = snap.pos;
+  const dur = msg.media?.durationMs || snap.dur || 0;
   const durRef = useRef(dur);
   durRef.current = dur;
+  useEffect(() => { if (dur) player.setDuration(key, dur); }, [key, dur]); // eslint-disable-line react-hooks/exhaustive-deps
   const width = useRef(1);
 
-  const unload = async () => {
-    const s = sound.current;
-    sound.current = null;
-    if (current && current.key === key) current = null;
-    setPlaying(false);
-    if (s) { try { await s.unloadAsync(); } catch (e) {} }
-  };
-  useEffect(() => () => { unload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const onStatus = (st: AVPlaybackStatus) => {
-    if (!st.isLoaded) return;
-    setPos(st.positionMillis);
-    setPlaying(st.isPlaying);
-    if (st.durationMillis) setRealDur(st.durationMillis);
-    if (st.didJustFinish) { unload(); setPos(0); }
-  };
-
-  const play = async (from = 0) => {
-    if (!url) return;
-    try {
-      const fresh = (await signedMediaUrl(msg.mediaUrl || null)) || url; // the screen may have been open past the URL's expiry
-      if (current && current.key !== key) await current.stop();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-      const { sound: s } = await Audio.Sound.createAsync(
-        { uri: fresh },
-        { shouldPlay: true, positionMillis: from, rate: speedRef.current, shouldCorrectPitch: true, progressUpdateIntervalMillis: 120 },
-        onStatus,
-      );
-      sound.current = s;
-      current = { key, stop: async () => { await unload(); setPos(0); } };
-    } catch (e) { setPlaying(false); }
-  };
-
-  const toggle = async () => {
-    const s = sound.current;
-    if (!s) { play(pos >= durRef.current ? 0 : pos); return; }
-    try {
-      const st = await s.getStatusAsync();
-      if (!st.isLoaded) return;
-      if (st.isPlaying) await s.pauseAsync(); else await s.playAsync();
-    } catch (e) {}
-  };
-
-  const seek = (frac: number) => {
-    const ms = Math.max(0, Math.min(1, frac)) * durRef.current;
-    setPos(ms);
-    if (sound.current) sound.current.setPositionAsync(ms).catch(() => {});
-  };
+  const toggle = () => { if (path) player.toggle(key, path, speed); };
+  const seek = (frac: number) => { player.seek(key, Math.max(0, Math.min(1, frac)) * durRef.current); };
   const seekPan = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: (e) => seek(e.nativeEvent.locationX / width.current),
     onPanResponderMove: (e) => seek(e.nativeEvent.locationX / width.current),
-  }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cycleSpeed = () => {
     const n = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
     setSpeed(n);
-    if (sound.current) sound.current.setRateAsync(n, true).catch(() => {});
+    player.setRate(key, n);
   };
 
   const frac = dur ? Math.min(1, pos / dur) : 0;
@@ -133,7 +90,7 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
   const retryTranscript = async () => {
     rerender((n) => n + 1);
     const r = await requestTranscript(msg);
-    if (r === 'error') toast('Transcript nahi maanga ja saka, baad mein try karo');
+    if (r === 'error') toast('Could not request the transcript. Try again later');
     rerender((n) => n + 1);
   };
 
@@ -163,12 +120,12 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
         </Pressable>
       </View>
       {outbox === 'sending' && (
-        <Text style={{ color: sub, fontSize: 12, fontStyle: 'italic', marginTop: 4 }}>Bhej rahe hain…</Text>
+        <Text style={{ color: sub, fontSize: 12, fontStyle: 'italic', marginTop: 4 }}>Sending…</Text>
       )}
       {outbox === 'failed' && (
         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
           <Ionicons name="alert-circle" size={16} color={mine ? t.onAccent : t.danger} />
-          <Text style={{ color: main, fontSize: 12, fontWeight: '700', marginLeft: 4, flex: 1 }}>Nahi gaya</Text>
+          <Text style={{ color: main, fontSize: 12, fontWeight: '700', marginLeft: 4, flex: 1 }}>Not sent</Text>
           <Pressable
             onPress={() => { sendQueuedVoice(msg.clientId).catch(() => {}); }} hitSlop={6} accessibilityLabel="Retry voice note"
             style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.18)' }}
@@ -177,7 +134,7 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
             <Text style={{ color: main, fontSize: 12, fontWeight: '700', marginLeft: 4 }}>Retry</Text>
           </Pressable>
           <Pressable
-            onPress={() => { unload(); deleteVoice(msg.clientId); }} hitSlop={6} accessibilityLabel="Delete voice note"
+            onPress={() => { player.release(key); deleteVoice(msg.clientId); }} hitSlop={6} accessibilityLabel="Delete voice note"
             style={{ marginLeft: 6, width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.18)' }}
           >
             <Ionicons name="trash-outline" size={15} color={main} />
@@ -189,10 +146,10 @@ export default function VoiceBubble({ msg, mine, t }: { msg: Msg; mine: boolean;
           <Text style={{ color: sub, fontSize: 12, fontStyle: 'italic', flexShrink: 1 }}>{tv.text}{tv.reason ? ': ' + tv.reason : ''}</Text>
           {tv.canRetry && (
             <Pressable
-              onPress={retryTranscript} hitSlop={6} accessibilityLabel="Transcript dobara try karo"
+              onPress={retryTranscript} hitSlop={6} accessibilityLabel="Retry transcript"
               style={{ marginLeft: 8, paddingHorizontal: 8, height: 24, borderRadius: 12, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.18)' }}
             >
-              <Text style={{ color: main, fontSize: 12, fontWeight: '700' }}>Dobara try karo</Text>
+              <Text style={{ color: main, fontSize: 12, fontWeight: '700' }}>Try again</Text>
             </Pressable>
           )}
         </View>

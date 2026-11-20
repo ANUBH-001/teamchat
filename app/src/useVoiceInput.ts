@@ -63,8 +63,8 @@ export function useVoiceInput() {
     add('error', (e: { error: string; message: string }) => {
       if (e.error === 'aborted' || stopping.current) return;
       if (e.error === 'not-allowed') askSettings();
-      else if (e.error === 'network') toast('Voice: internet nahi hai');
-      else if (e.error === 'language-not-supported') toast('Yeh language phone par available nahi hai');
+      else if (e.error === 'network') toast('Voice: no internet connection');
+      else if (e.error === 'language-not-supported') toast('This language is not available on this phone');
       else if (e.error !== 'no-speech' && e.error !== 'speech-timeout') toast('Voice error: ' + e.error);
     });
     add('end', () => {
@@ -76,7 +76,7 @@ export function useVoiceInput() {
   };
 
   const askSettings = () =>
-    Alert.alert('Microphone', 'Voice typing ke liye microphone ki permission chahiye. Settings me TeamChat > Permissions > Microphone allow karein.', [
+    Alert.alert('Microphone', 'Voice typing needs microphone permission. Allow it in Settings > TeamChat > Permissions > Microphone.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Open settings', onPress: () => Linking.openSettings() },
     ]);
@@ -102,7 +102,7 @@ export function useVoiceInput() {
     if (!Native) { toast('Voice needs the dev build'); return; }
     if (active.current) return;
     try {
-      if (!Native.isRecognitionAvailable()) { toast('Is phone par speech recognition available nahi hai'); return; }
+      if (!Native.isRecognitionAvailable()) { toast('Speech recognition is not available on this phone'); return; }
       const p = await Native.requestPermissionsAsync();
       if (!p.granted) { askSettings(); return; }
       finals.current = ''; partial.current = '';
@@ -111,7 +111,7 @@ export function useVoiceInput() {
       begin(lang);
     } catch (e: any) {
       cleanup();
-      toast('Voice start nahi hua');
+      toast('Voice did not start');
     }
   }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -148,7 +148,7 @@ export function useVoiceInput() {
       endWaiter.current = () => { clearTimeout(timer); resolve(); };
       try { Native.abort(); } catch (e) { endWaiter.current = null; clearTimeout(timer); cleanup(); resolve(); }
     });
-    try { begin(next); } catch (e) { cleanup(); toast('Voice start nahi hua'); }
+    try { begin(next); } catch (e) { cleanup(); toast('Voice did not start'); }
   }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => { if (active.current) { stopping.current = true; try { Native.abort(); } catch (e) {} cleanup(); } }, []); // eslint-disable-line react-hooks/exhaustive-deps

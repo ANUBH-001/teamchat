@@ -28,8 +28,8 @@ export default function ProfileSheet({ visible, onClose, userId, name: n0, avata
 
   const save = async () => {
     const n = name.trim();
-    if (n.length < 2 || n.length > 60) { setErr('Naam 2 se 60 akshar ka hona chahiye'); return; }
-    if (/[@#/]/.test(n)) { setErr('Naam mein @ # / nahi chalega'); return; }
+    if (n.length < 2 || n.length > 60) { setErr('Name must be 2 to 60 characters'); return; }
+    if (/[@#/]/.test(n)) { setErr('Name cannot contain @ # /'); return; }
     setBusy(true); setErr('');
     try {
       const body: any = { name: n, avatarEmoji: emoji };
@@ -48,7 +48,7 @@ export default function ProfileSheet({ visible, onClose, userId, name: n0, avata
       onSaved && onSaved();
       onClose();
     } catch (e: any) {
-      setErr(e.code === 'NAME_TAKEN' || /NAME_TAKEN/.test(e.message || '') ? 'Ye naam pehle se kisi ka hai' : e.message || 'Error');
+      setErr(e.code === 'NAME_TAKEN' || /NAME_TAKEN/.test(e.message || '') ? 'This name is already taken' : e.message || 'Error');
     }
     setBusy(false);
   };
@@ -64,7 +64,7 @@ export default function ProfileSheet({ visible, onClose, userId, name: n0, avata
           {self && <Text style={{ color: t.accent, fontWeight: '600', marginTop: 6 }}>Photo badlo</Text>}
         </Pressable>
         <TextInput
-          value={name} onChangeText={setName} maxLength={60} placeholder="Naam" placeholderTextColor={t.subtext}
+          value={name} onChangeText={setName} maxLength={60} placeholder="Name" placeholderTextColor={t.subtext}
           style={{ backgroundColor: t.background, color: t.text, borderColor: t.border, borderWidth: 1, borderRadius: 8, padding: 10, fontSize: 16 }}
         />
         {!self && (

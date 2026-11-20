@@ -5,12 +5,12 @@ import { api, ApiError } from './api';
 
 export const PENDING_STUCK_MS = 2 * 60 * 1000;
 export const TRANSCRIPT_REASON: Record<string, string> = {
-  off: 'AI transcription band hai',
-  no_file: 'Audio file server par nahi mili',
-  too_large: 'Voice note bahut lamba hai',
-  type: 'Is audio format ka transcript nahi banta',
-  api: 'AI service ne jawab nahi diya',
-  empty: 'Kuch sunai nahi diya',
+  off: 'AI transcription is turned off',
+  no_file: 'The audio file was not found on the server',
+  too_large: 'The voice note is too long',
+  type: 'This audio format cannot be transcribed',
+  api: 'The AI service did not respond',
+  empty: 'Nothing could be heard',
 };
 const NO_RETRY = new Set(['too_large', 'type', 'no_file']); // a retry gives the same answer
 
@@ -36,7 +36,7 @@ export function transcriptView(msg: MsgLike, who: Who): TranscriptView {
     return { text: 'Transcribing…', reason: null, canRetry: allowed && who.now - since > PENDING_STUCK_MS };
   }
   if (status === 'failed') {
-    return { text: 'Transcript nahi bana', reason: (code && TRANSCRIPT_REASON[code]) || null, canRetry: allowed && !(code && NO_RETRY.has(code)) };
+    return { text: 'No transcript', reason: (code && TRANSCRIPT_REASON[code]) || null, canRetry: allowed && !(code && NO_RETRY.has(code)) };
   }
   return { text: null, reason: null, canRetry: false };
 }

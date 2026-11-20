@@ -4,7 +4,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../useTheme';
 import { api } from '../api';
 import { Task } from '../taskTypes';
-import { isoDay, nextDow } from '../dates';
 import { useUsers } from '../userStore';
 import { usePublicSettings } from '../publicSettings';
 import Chip from './Chip';
@@ -24,14 +23,13 @@ export default function TaskModal({ visible, people, meId, onClose, onDone, init
   const [desc, setDesc] = useState('');
   const [project, setProject] = useState('');
   const [sel, setSel] = useState<number[]>([]);
-  const [due, setDue] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
     setTitle(''); setDesc(''); setProject(''); setSel(initialAssigneeIds && initialAssigneeIds.length ? initialAssigneeIds : [meId]);
-    setDue(''); setErr(''); setBusy(false);
+    setErr(''); setBusy(false);
   }, [visible, meId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list = useMemo(() => {
@@ -43,12 +41,11 @@ export default function TaskModal({ visible, people, meId, onClose, onDone, init
 
   const save = async () => {
     if (!title.trim() || busy || !sel.length) return;
-    if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due.trim())) { setErr('Due date: use YYYY-MM-DD'); return; }
     setBusy(true);
     try {
       const r = await api<{ task: Task }>('POST', '/tasks', {
         title: title.trim(), description: desc.trim() || null, project: project.trim() || null, assigneeIds: sel,
-        dueDate: due.trim() || null, ...(chatId ? { chatId } : {}),
+        ...(chatId ? { chatId } : {}),
       });
       onDone(r.task); onClose();
     } catch (e: any) { setErr(e.message); setBusy(false); }
@@ -65,25 +62,16 @@ export default function TaskModal({ visible, people, meId, onClose, onDone, init
           style={{ maxHeight: '90%', backgroundColor: t.card, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}
           contentContainerStyle={{ padding: 20, paddingBottom: 20 + insets.bottom }} keyboardShouldPersistTaps="handled"
         >
-          <Text style={{ color: t.text, fontSize: 18, fontWeight: '700', marginBottom: 16 }}>{heading || 'Naya task'}</Text>
-          <TextInput style={input} value={title} onChangeText={setTitle} placeholder="Kya karna hai?" placeholderTextColor={t.subtext} maxLength={255} />
+          <Text style={{ color: t.text, fontSize: 18, fontWeight: '700', marginBottom: 16 }}>{heading || 'New task'}</Text>
+          <TextInput style={input} value={title} onChangeText={setTitle} placeholder="What needs to be done?" placeholderTextColor={t.subtext} maxLength={255} />
           <TextInput style={[input, { minHeight: 70, paddingTop: 10, textAlignVertical: 'top' }]} value={desc} onChangeText={setDesc} multiline
             placeholder="Description (optional)" placeholderTextColor={t.subtext} maxLength={4000} />
           <TextInput style={input} value={project} onChangeText={setProject} placeholder="Project (optional)" placeholderTextColor={t.subtext} maxLength={60} />
-          <Text style={label}>Kisko ({sel.length})</Text>
+          <Text style={label}>Assign to ({sel.length})</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
-            {list.map((p) => <Chip key={p.id} label={p.id === meId ? 'Me (khud)' : p.name} active={sel.includes(p.id)} onPress={() => toggle(p.id)} />)}
+            {list.map((p) => <Chip key={p.id} label={p.id === meId ? 'Me' : p.name} active={sel.includes(p.id)} onPress={() => toggle(p.id)} />)}
           </View>
-          {onlySelf && <Text style={{ color: t.subtext, fontSize: 12, marginBottom: 8 }}>Members abhi sirf apne liye task bana sakte hain (Admin Settings).</Text>}
-          <Text style={label}>Due</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-            <Chip label="Aaj" active={due === isoDay(0)} onPress={() => setDue(isoDay(0))} />
-            <Chip label="Kal" active={due === isoDay(1)} onPress={() => setDue(isoDay(1))} />
-            <Chip label="Fri" active={due === nextDow(5)} onPress={() => setDue(nextDow(5))} />
-            <Chip label="Next week" active={due === isoDay(7)} onPress={() => setDue(isoDay(7))} />
-            <Chip label="None" active={!due} onPress={() => setDue('')} />
-          </View>
-          <TextInput style={[input, { marginTop: 8 }]} value={due} onChangeText={setDue} placeholder="YYYY-MM-DD" placeholderTextColor={t.subtext} />
+          {onlySelf && <Text style={{ color: t.subtext, fontSize: 12, marginBottom: 8 }}>Members can only create tasks for themselves right now (Admin Settings).</Text>}
           {!!err && <Text style={{ color: t.danger, marginBottom: 8 }}>{err}</Text>}
           <View style={{ flexDirection: 'row', marginTop: 4 }}>
             <Pressable onPress={onClose} style={{ flex: 1, minHeight: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: t.soft, marginRight: 8 }}>
