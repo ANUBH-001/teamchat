@@ -4,9 +4,9 @@
 // (stored on the event with its chat id and a text snapshot, shown on the task timeline).
 // Round 3 model: task_assignees = one row per person with their OWN status; tasks.status = aggregate (lowest step of the
 // active assignees, 'done' only when all are done) or 'closed' (close replaces delete). tasks.assignee_id = primary.
-// Permissions: view = boss, an active assignee or the creator. Own status = that assignee; anyone's status = boss or
-// creator (creator needs membersCanAssign). Title/project/due/assignees = boss, or (membersCanAssign) creator/assignee.
-// Description/note = boss, assignee or creator. Create = boss / membersCanAssign / a self-task. Close/reopen = boss or creator.
+// Permissions: view = boss, an active assignee or the creator. Status (done/undo/any step) = that assignee for their own
+// step, or the boss for anyone's; nobody else, not even the creator (R-02). Title/project/due/assignees = boss, or (membersCanAssign) creator/assignee.
+// Description/note = boss, assignee or creator. Create = boss / membersCanAssign / a self-task. Close/reopen/delete = boss only (R-02).
 const pool = require('./db');
 const rt = require('./realtime');
 const settings = require('./settings');
@@ -103,7 +103,8 @@ const canSetAll = (task, actor) => isBoss(actor);
 const canWork = (task, actor) => isAssignee(task, actor) || canSetAll(task, actor);
 const canDescribe = (task, actor) => isBoss(actor) || isAssignee(task, actor) || task.createdBy === actor.id;
 const canManage = (task, actor) => isBoss(actor) || (canAssign(actor) && (task.createdBy === actor.id || isAssignee(task, actor)));
-const canClose = (task, actor) => isBoss(actor) || task.createdBy === actor.id;
+// R-02: delete (= close) and reopen are admin only; the creator no longer may.
+const canClose = (task, actor) => isBoss(actor);
 
 // What a member sees of a task they cannot open (Tasks "Everyone", chat info, DM sheet).
 const brief = (t) => ({
