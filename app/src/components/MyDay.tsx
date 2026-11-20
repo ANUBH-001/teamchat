@@ -4,10 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../useTheme';
 import { api } from '../api';
 import { CheckinToday, DayTask } from '../chatTypes';
-import { OVERDUE_COLOR, StepStatus, STATUS_COLOR } from '../taskTypes';
+import { StepStatus, STATUS_COLOR } from '../taskTypes';
 // Round 4: disabled (simple create->done): import StatusChips from './StatusChips';
 import StatusChips from './DoneChips';
-import { formatDue } from '../dates';
 import { loadCheckinToday, onCheckinToday, peekCheckinToday } from '../checkinStore';
 import { useLiveRefresh } from '../useLive';
 
@@ -24,11 +23,10 @@ export function Flags({ task }: { task: DayTask }) {
   );
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
-      <Text style={{ color: task.overdue ? t.danger : t.subtext, fontSize: 12 }}>
-        Task {task.id}{task.project ? '  ·  ' + task.project : ''}{task.dueDate ? '  ·  ' + formatDue(task.dueDate) : ''}
+      <Text style={{ color: t.subtext, fontSize: 12 }}>
+        Task {task.id}{task.project ? '  ·  ' + task.project : ''}
       </Text>
-      {!!task.overdue && tag('Overdue', OVERDUE_COLOR)}
-      {!!task.stale && tag((task.ageDays ?? 6) + '+ din', '#F5A623')}
+      {!!task.stale && tag((task.ageDays ?? 6) + '+ days', '#F5A623')}
     </View>
   );
 }
@@ -43,7 +41,7 @@ export function Counts({ c }: { c: { given: number; done: number; left: number }
   );
   return (
     <View style={{ flexDirection: 'row', marginHorizontal: -3, marginTop: 8 }}>
-      {box(c.given, 'Aaj diye', t.text)}{box(c.done, 'Done', STATUS_COLOR.done)}{box(c.left, 'Baaki', STATUS_COLOR.todo)}
+      {box(c.given, 'Given today', t.text)}{box(c.done, 'Done', STATUS_COLOR.done)}{box(c.left, 'Left', STATUS_COLOR.todo)}
     </View>
   );
 }
@@ -69,7 +67,7 @@ export default function MyDay({ compact }: { compact?: boolean }) {
 
   if (!d) {
     return failed
-      ? <Text style={{ color: t.subtext, fontSize: 13, fontStyle: 'italic', marginTop: 6 }}>Load nahi hua. Connection check karein.</Text>
+      ? <Text style={{ color: t.subtext, fontSize: 13, fontStyle: 'italic', marginTop: 6 }}>Could not load. Check your connection.</Text>
       : <ActivityIndicator color={t.accent} style={{ alignSelf: 'flex-start', marginVertical: 8 }} />;
   }
   const list = [...d.tasks, ...d.doneToday];
@@ -85,14 +83,14 @@ export default function MyDay({ compact }: { compact?: boolean }) {
       await api('POST', '/checkins/signoff', { taskStatuses, note: note.trim() || undefined });
       setPicks({}); setNote('');
       await loadCheckinToday(true);
-    } catch (e: any) { setErr(e.message || 'Submit nahi hua'); }
+    } catch (e: any) { setErr(e.message || 'Could not submit'); }
     setBusy(false);
   };
 
   return (
     <View>
       <Counts c={d.counts} />
-      {!list.length && <Text style={{ color: t.subtext, fontSize: 13, marginTop: 10 }}>Aaj ke liye koi task nahi.</Text>}
+      {!list.length && <Text style={{ color: t.subtext, fontSize: 13, marginTop: 10 }}>No tasks for today.</Text>}
       {list.map((x) => (
         <View key={x.id} style={{ marginTop: 12 }}>
           <Text numberOfLines={compact ? 2 : 3} style={{ color: t.text, fontSize: 15, fontWeight: '600', textDecorationLine: cur(x) === 'done' ? 'line-through' : 'none' }}>
@@ -105,7 +103,7 @@ export default function MyDay({ compact }: { compact?: boolean }) {
         </View>
       ))}
       <TextInput
-        value={note} onChangeText={setNote} multiline placeholder="Note (optional): koi dikkat, kal ka plan..." placeholderTextColor={t.subtext}
+        value={note} onChangeText={setNote} multiline placeholder="Note (optional): any problems, plan for tomorrow..." placeholderTextColor={t.subtext}
         style={{ minHeight: 44, maxHeight: 120, backgroundColor: t.soft, color: t.text, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, marginTop: 14 }}
       />
       {!!err && <Text style={{ color: t.danger, fontSize: 13, marginTop: 6 }}>{err}</Text>}
@@ -115,12 +113,12 @@ export default function MyDay({ compact }: { compact?: boolean }) {
       >
         <Ionicons name="checkmark-done" size={20} color="#fff" />
         <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15, marginLeft: 8 }}>
-          {busy ? 'Bhej rahe hain...' : so ? 'Sign-off update karo' : 'Submit sign-off'}
+          {busy ? 'Sending...' : so ? 'Update sign-off' : 'Submit sign-off'}
         </Text>
       </Pressable>
       {!!so && (
         <Text style={{ color: t.accent, fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 8 }}>
-          Signed off ✓ {new Date(so.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · Done {so.counts.done} · Baaki {so.counts.left}
+          Signed off ✓ {new Date(so.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · Done {so.counts.done} · Left {so.counts.left}
         </Text>
       )}
     </View>

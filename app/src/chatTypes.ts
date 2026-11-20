@@ -66,7 +66,7 @@ export type Quote = { chatId: number; messageId: number; senderName: string; tex
 export type Reaction = { emoji: string; userIds: number[] };
 
 // Payload of a 'bot' message (server/src/ai/*). Old messages used `action` instead of `event` and had no ids of actors.
-export type BotItem = { id: number; title: string; dueDate: string | null };
+export type BotItem = { id: number; title: string };
 export type TaskEventName =
   | 'created' | 'updated' | 'completed' | 'review' | 'reassigned' | 'due' | 'deleted' | 'note' | 'praise'
   | 'planning' | 'coding' | 'testing' | 'change_merged' | 'done' | 'closed' | 'reopened' | 'answered';
@@ -87,7 +87,7 @@ export type BotPayload =
   | { kind: 'reminder'; task: Task; days: number; assigneeId?: number }
   | {
       kind: 'list'; title: string;
-      tasks: { id: number; title: string; status: Status; assigneeName: string | null; dueDate: string | null; overdue?: boolean; brief?: boolean }[];
+      tasks: { id: number; title: string; status: Status; assigneeName: string | null; brief?: boolean }[];
     }
   | { kind: 'help'; commands: { cmd: string; args: string; desc: string }[] }
   | { kind: 'error'; code: string; message: string }
@@ -107,7 +107,7 @@ export type Person = { id: number; name: string; phone: string; role?: 'boss' | 
 export type CheckinKind = 'day' | 'signoff' | 'morning' | 'evening';
 // status = the member's OWN status on the task; taskStatus = the task's aggregate
 export type DayTask = {
-  id: number; title: string; status: Status; dueDate: string | null; project?: string | null; overdue?: boolean; stale?: boolean; ageDays?: number;
+  id: number; title: string; status: Status; project?: string | null; stale?: boolean; ageDays?: number;
   taskStatus?: Status; assigneeCount?: number; createdBy?: number | null; description?: string | null;
 };
 export type CheckinTask = DayTask;

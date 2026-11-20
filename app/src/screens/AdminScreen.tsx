@@ -71,7 +71,7 @@ export default function AdminScreen({ onBack }: { onBack: () => void }) {
     setPhone('');
   });
 
-  const reset = (u: Row) => Alert.alert('Reset PIN / new invite', 'Reset PIN for ' + u.name + '? Uska device logout ho jayega.', [
+  const reset = (u: Row) => Alert.alert('Reset PIN / new invite', 'Reset PIN for ' + u.name + '? Their device will be signed out.', [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Reset', onPress: () => run(async () => {
       const r = await api<{ inviteCode: string }>('POST', '/admin/users/' + u.id + '/invite');
@@ -79,7 +79,7 @@ export default function AdminScreen({ onBack }: { onBack: () => void }) {
     }) },
   ]);
 
-  const forceLogout = (u: Row) => Alert.alert('Logout device', u.name + ' ko uske phone se logout kar dein?', [
+  const forceLogout = (u: Row) => Alert.alert('Logout device', 'Sign ' + u.name + ' out of their phone?', [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Logout', style: 'destructive', onPress: () => run(async () => { await api('POST', '/admin/users/' + u.id + '/logout'); }) },
   ]);
@@ -97,7 +97,7 @@ export default function AdminScreen({ onBack }: { onBack: () => void }) {
       onPress={() => setEditing({ id: user.id, name: user.name, avatarEmoji: user.avatarEmoji || null })}
       style={{ ...btn, marginTop: 12, flexDirection: 'row', justifyContent: 'center', minHeight: 48 }}
     >
-      <Text style={{ color: '#fff', fontWeight: '600' }}>Edit profile (naam, emoji)</Text>
+      <Text style={{ color: '#fff', fontWeight: '600' }}>Edit profile (name, emoji)</Text>
     </TouchableOpacity>
   ) : null;
   const sheet = editing ? (

@@ -13,25 +13,25 @@ const otaOff = () => __DEV__ || !Updates.isEnabled;
 
 export async function checkAndFetch(): Promise<OtaStatus> {
   if (otaOff()) {
-    set({ status: 'disabled', message: 'Dev build me OTA update nahi chalta' });
+    set({ status: 'disabled', message: 'OTA updates do not run in a dev build' });
     return 'disabled';
   }
   if (running) return state.status;
   if (state.status === 'ready') return 'ready';
   running = true;
   try {
-    set({ status: 'checking', message: 'Update check ho raha hai...' });
+    set({ status: 'checking', message: 'Checking for updates...' });
     const r = await Updates.checkForUpdateAsync();
     if (!r.isAvailable) {
-      set({ status: 'uptodate', message: 'App up to date hai' });
+      set({ status: 'uptodate', message: 'App is up to date' });
     } else {
-      set({ status: 'downloading', message: 'Update download ho raha hai...' });
+      set({ status: 'downloading', message: 'Downloading the update...' });
       const f = await Updates.fetchUpdateAsync();
-      if (f.isNew) set({ status: 'ready', message: 'Update mil gaya, app restart ho rahi hai', dismissed: false });
-      else set({ status: 'uptodate', message: 'App up to date hai' });
+      if (f.isNew) set({ status: 'ready', message: 'Update found, restarting the app', dismissed: false });
+      else set({ status: 'uptodate', message: 'App is up to date' });
     }
   } catch (e) {
-    set({ status: 'error', message: 'Update check nahi ho paya, thodi der baad try karein' });
+    set({ status: 'error', message: 'Could not check for updates. Try again in a while' });
   } finally {
     running = false;
   }
@@ -40,7 +40,7 @@ export async function checkAndFetch(): Promise<OtaStatus> {
 
 export async function applyNow() {
   if (otaOff()) return;
-  try { await Updates.reloadAsync(); } catch (e) { set({ status: 'error', message: 'Restart nahi ho paya, app band karke dobara kholein' }); }
+  try { await Updates.reloadAsync(); } catch (e) { set({ status: 'error', message: 'Could not restart. Close the app and open it again' }); }
 }
 
 export const dismissOtaBanner = () => set({ dismissed: true });

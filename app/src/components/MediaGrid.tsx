@@ -60,7 +60,7 @@ export function MediaGridModal({ visible, onClose, msgs, title = 'Media' }: { vi
         <FlatList
           data={list} numColumns={3} keyExtractor={(m) => String(m.id)}
           renderItem={({ item }) => <Thumb m={item} size={size} onPress={setView} />}
-          ListEmptyComponent={<Text style={{ color: t.subtext, textAlign: 'center', padding: 40 }}>Is chat me abhi koi photo nahi (jitne messages load hue unme)</Text>}
+          ListEmptyComponent={<Text style={{ color: t.subtext, textAlign: 'center', padding: 40 }}>No photos in this chat yet (among the messages loaded so far)</Text>}
           contentContainerStyle={{ paddingBottom: insets.bottom }}
         />
         <ImageViewer visible={!!view} url={view?.mediaUrl || null} caption={view?.text} title={view?.senderName} onClose={() => setView(null)} />

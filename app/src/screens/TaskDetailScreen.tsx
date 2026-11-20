@@ -10,17 +10,16 @@ import { useTheme } from '../useTheme';
 import { usePublicSettings } from '../publicSettings';
 import { useLiveRefresh, usePullRefresh } from '../useLive';
 import { emitEvent } from '../realtime';
-import { Assignee, DetailEvent, OVERDUE_COLOR, StepStatus, Task, canClose, colorOf, isAssignee, labelOf } from '../taskTypes';
+import { Assignee, DetailEvent, StepStatus, Task, canClose, colorOf, isAssignee, labelOf } from '../taskTypes';
 import { describeEvent, ago, agoText, EVENT_ICON } from '../taskEvents';
 import Avatar from '../components/Avatar';
 // Round 4: disabled (simple create->done): import StatusChips from '../components/StatusChips';
 import StatusChips from '../components/DoneChips';
 import StatusPill from '../components/StatusPill';
 import PeoplePickSheet from '../components/PeoplePickSheet';
-import { copyText, formatDue, isoDay as isoDayD } from '../dates';
+import { copyText } from '../dates';
 import Sheet, { SheetRow } from '../components/Sheet';
 
-export const isoDay = isoDayD; // kept for old imports
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) UIManager.setLayoutAnimationEnabledExperimental(true);
 
@@ -36,9 +35,8 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
   const [err, setErr] = useState('');
   const [denied, setDenied] = useState(false);
   const [note, setNote] = useState('');
-  const [sheet, setSheet] = useState<null | 'due' | 'close' | 'people'>(null);
+  const [sheet, setSheet] = useState<null | 'close' | 'people'>(null);
   const [person, setPerson] = useState<Assignee | null>(null);
-  const [dueText, setDueText] = useState('');
   const [reason, setReason] = useState('');
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,8 +59,8 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
   const closed = task?.status === 'closed';
   const creator = !!task && task.createdBy === me.id;
   const mine = !!task && isAssignee(task, me);
-  const manage = !!task && (isBoss || creator || mine) && !closed; // title / people / due (server re-checks)
-  const bossOrCreator = !!task && (isBoss || creator);
+  const manage = !!task && (isBoss || creator || mine) && !closed; // title / people (server re-checks)
+  const bossOrCreator = !!task && (isBoss || creator); // may add notes
   const myRow = task ? (task.assignees || []).find((a) => a.id === me.id) : null;
   // Round 4: disabled (simple create->done): praise
   const canPraise = false;
@@ -99,11 +97,6 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
     try { await api('POST', '/tasks/' + taskId + '/praise', {}); Alert.alert('Sent', '👏 Praise sent'); load(); }
     catch (e: any) { Alert.alert('Could not praise', e.message); }
   };
-  const saveDue = (v: string | null) => {
-    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { Alert.alert('Date', 'Use YYYY-MM-DD'); return; }
-    setSheet(null);
-    patch({ dueDate: v });
-  };
   const doClose = () => { setSheet(null); post('/close', reason.trim() ? { reason: reason.trim() } : {}); setReason(''); };
   const toggle = (id: number) => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setOpen((o) => (o === id ? null : id)); };
   // same mechanism as a notification tap: switch to the Chats tab, then ask ChatsScreen to open the chat
@@ -115,7 +108,6 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
 
   const card = { backgroundColor: t.card, borderRadius: 16, marginHorizontal: 16, marginTop: 16, padding: 16 } as const;
   const label = { color: t.subtext, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 } as const;
-  const overdue = !!task && task.overdue && task.status !== 'done' && !closed;
   const btn = (text: string, color: string, onPress: () => void, extra: object = {}) => (
     <Pressable onPress={onPress} style={{ flex: 1, minHeight: 48, borderRadius: 14, backgroundColor: t.card, borderWidth: 1, borderColor: color, alignItems: 'center', justifyContent: 'center', ...extra }}>
       <Text style={{ color, fontWeight: '700', fontSize: 15 }}>{text}</Text>
@@ -138,7 +130,7 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
       {denied ? (
         <View style={{ alignItems: 'center', padding: 32 }}>
           <Ionicons name="lock-closed-outline" size={44} color={t.subtext} />
-          <Text style={{ color: t.text, fontSize: 16, marginTop: 12, textAlign: 'center' }}>Ye task aap nahi dekh sakte</Text>
+          <Text style={{ color: t.text, fontSize: 16, marginTop: 12, textAlign: 'center' }}>You cannot view this task</Text>
         </View>
       ) : !task ? (
         err ? <Text style={{ color: t.danger, padding: 20 }}>{err}</Text> : <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} />
@@ -168,11 +160,10 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
               <View style={{ backgroundColor: colorOf(task.status), borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 }}>
                 <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{closed ? 'Closed' : labelOf(task.status)}</Text>
               </View>
-              {overdue && <Text style={{ color: OVERDUE_COLOR, fontSize: 12, fontWeight: '700', marginLeft: 8 }}>Overdue</Text>}
             </View>
             {closed && (
               <Text style={{ color: t.subtext, fontSize: 12, marginTop: 8 }}>
-                Closed{task.closedAt ? ' · ' + agoText(task.closedAt) : ''}. Status / log badalne ke liye pehle Reopen karein.
+                Closed{task.closedAt ? ' · ' + agoText(task.closedAt) : ''}. Reopen it first to change the status or the people.
               </Text>
             )}
             {!!task.description && <Text style={{ color: t.subtext, fontSize: 14, marginTop: 10 }}>{task.description}</Text>}
@@ -183,13 +174,13 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
               <Text style={{ ...label, marginBottom: 0, flex: 1 }}>People ({(task.assignees || []).length})</Text>
               {manage && (
                 <Pressable onPress={() => setSheet('people')} hitSlop={8}>
-                  <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>Badlo</Text>
+                  <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>Change</Text>
                 </Pressable>
               )}
             </View>
             {(task.assignees || []).map((a, i) => (
               <Pressable
-                key={a.id} disabled={!bossOrCreator || !!closed} onPress={() => setPerson(a)}
+                key={a.id} disabled={!isBoss || !!closed} onPress={() => setPerson(a)}
                 style={{ flexDirection: 'row', alignItems: 'center', minHeight: 56, borderTopWidth: i ? 1 : 0, borderTopColor: t.border }}
               >
                 <Avatar name={a.name} id={a.id} userId={a.id} emoji={a.avatarEmoji} size={36} />
@@ -198,28 +189,19 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
                   {!!(a.completedAt || a.updatedAt) && <Text style={{ color: t.subtext, fontSize: 11 }}>last change {agoText((a.completedAt || a.updatedAt)!)}</Text>}
                 </View>
                 <StatusPill status={a.status} />
-                {bossOrCreator && !closed && <Ionicons name="chevron-forward" size={18} color={t.subtext} style={{ marginLeft: 6 }} />}
+                {isBoss && !closed && <Ionicons name="chevron-forward" size={18} color={t.subtext} style={{ marginLeft: 6 }} />}
               </Pressable>
             ))}
             {!(task.assignees || []).length && <Text style={{ color: t.subtext }}>{task.assigneeName || 'Unassigned'}</Text>}
             {mine && !closed && !!myRow && (
               <View style={{ marginTop: 12 }}>
-                <Text style={label}>Mera status</Text>
+                <Text style={label}>My status</Text>
                 <StatusChips value={myRow.status} disabled={busy} wrap onPick={(s: StepStatus) => patch({ status: s })} />
               </View>
             )}
           </View>
 
           <View style={{ ...card, padding: 0 }}>
-            <Pressable disabled={!manage} onPress={() => { setDueText(task.dueDate ?? ''); setSheet('due'); }} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 60, paddingHorizontal: 16 }}>
-              <Ionicons name="calendar-outline" size={24} color={overdue ? OVERDUE_COLOR : t.subtext} style={{ width: 36, textAlign: 'center' }} />
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={{ color: t.subtext, fontSize: 12 }}>Due date</Text>
-                <Text style={{ color: overdue ? OVERDUE_COLOR : t.text, fontSize: 16 }}>{task.dueDate ? formatDue(task.dueDate) : 'No due date'}</Text>
-              </View>
-              {manage && <Ionicons name="chevron-forward" size={20} color={t.subtext} />}
-            </Pressable>
-            <View style={{ height: 1, backgroundColor: t.border, marginLeft: 16 }} />
             <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: 16 }}>
               <Ionicons name="create-outline" size={24} color={t.subtext} style={{ width: 36, textAlign: 'center' }} />
               <Text style={{ color: t.subtext, fontSize: 14, marginLeft: 12 }}>Created by {task.createdByName || 'someone'} · {agoText(task.createdAt)}</Text>
@@ -277,15 +259,15 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
                         {!!src.replyTo && (
                           <View style={{ borderLeftWidth: 2, borderLeftColor: t.border, paddingLeft: 8, marginTop: 6 }}>
                             <Text style={{ color: t.subtext, fontSize: 12, fontWeight: '600' }}>{src.replyTo.senderName}</Text>
-                            <Text numberOfLines={3} style={{ color: t.subtext, fontSize: 12 }}>{src.replyTo.text || 'Message ab available nahi hai'}</Text>
+                            <Text numberOfLines={3} style={{ color: t.subtext, fontSize: 12 }}>{src.replyTo.text || 'Message is no longer available'}</Text>
                           </View>
                         )}
                         <Text style={{ color: src.text && src.available !== false ? t.text : t.subtext, fontSize: 14, marginTop: 6, fontStyle: src.text && src.available !== false ? 'normal' : 'italic' }}>
-                          {src.text && src.available !== false ? src.text : 'Message ab available nahi hai'}
+                          {src.text && src.available !== false ? src.text : 'Message is no longer available'}
                         </Text>
                         {!!src.chatId && (
                           <Pressable onPress={() => openChat(src.chatId!, src.available ? src.messageId : null)} style={{ alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: t.accent, marginTop: 10 }}>
-                            <Text style={{ color: t.accent, fontWeight: '600', fontSize: 13 }}>Chat mein dekho</Text>
+                            <Text style={{ color: t.accent, fontWeight: '600', fontSize: 13 }}>View in chat</Text>
                           </Pressable>
                         )}
                       </View>
@@ -300,45 +282,26 @@ export default function TaskDetailScreen({ taskId, onBack, onChanged }: { taskId
 
       {task && (
         <PeoplePickSheet
-          visible={sheet === 'people'} onClose={() => setSheet(null)} title="Task kiske liye" meId={me.id}
+          visible={sheet === 'people'} onClose={() => setSheet(null)} title="Assign to" meId={me.id}
           initial={(task.assignees || []).map((a) => a.id)}
           onSave={(ids) => { setSheet(null); patch({ assigneeIds: ids }); }}
         />
       )}
-      <Sheet visible={!!person} onClose={() => setPerson(null)} title={person ? person.name + ' ka status' : ''}>
+      <Sheet visible={!!person} onClose={() => setPerson(null)} title={person ? person.name + "'s status" : ''}>
         <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
           {person && <StatusChips value={person.status} wrap onPick={(s: StepStatus) => { const uid = person.id; setPerson(null); patch({ status: s, userId: uid }); }} />}
         </View>
       </Sheet>
-      <Sheet visible={sheet === 'close'} onClose={() => setSheet(null)} title="Task close karein?">
+      <Sheet visible={sheet === 'close'} onClose={() => setSheet(null)} title="Close this task?">
         <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
           <TextInput
-            value={reason} onChangeText={setReason} placeholder="Wajah (optional)" placeholderTextColor={t.subtext} maxLength={300}
+            value={reason} onChangeText={setReason} placeholder="Reason (optional)" placeholderTextColor={t.subtext} maxLength={300}
             style={{ minHeight: 46, backgroundColor: t.soft, color: t.text, borderRadius: 12, paddingHorizontal: 12, fontSize: 15 }}
           />
           <Pressable onPress={doClose} style={{ minHeight: 48, borderRadius: 24, backgroundColor: t.danger, alignItems: 'center', justifyContent: 'center', marginTop: 12 }}>
             <Text style={{ color: '#fff', fontWeight: '700' }}>Close task</Text>
           </Pressable>
         </View>
-      </Sheet>
-      <Sheet visible={sheet === 'due'} onClose={() => setSheet(null)} title="Due date">
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16 }}>
-          {[['Today', isoDayD(0)], ['Tomorrow', isoDayD(1)], ['In 3 days', isoDayD(3)], ['Next week', isoDayD(7)]].map(([l, d]) => (
-            <Pressable key={l} onPress={() => saveDue(d)} style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, borderRadius: 22, backgroundColor: t.soft, marginRight: 8, marginBottom: 8 }}>
-              <Text style={{ color: t.text, fontWeight: '600' }}>{l}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8 }}>
-          <TextInput
-            value={dueText} onChangeText={setDueText} placeholder="YYYY-MM-DD" placeholderTextColor={t.subtext}
-            style={{ flex: 1, minHeight: 44, backgroundColor: t.soft, color: t.text, borderRadius: 12, paddingHorizontal: 12, fontSize: 15 }}
-          />
-          <Pressable onPress={() => saveDue(dueText.trim() || null)} style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 18, borderRadius: 22, backgroundColor: t.accent, marginLeft: 8 }}>
-            <Text style={{ color: '#fff', fontWeight: '700' }}>Save</Text>
-          </Pressable>
-        </View>
-        <SheetRow icon="close-circle-outline" label="Clear due date" onPress={() => saveDue(null)} />
       </Sheet>
     </View>
   );

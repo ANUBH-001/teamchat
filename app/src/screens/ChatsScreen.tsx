@@ -180,7 +180,7 @@ export default function ChatsScreen() {
     const uri = sendUri;
     setSendUri(null);
     if (!uri) return;
-    try { await sendImageToChat(c.id, uri); setView({ k: 'chat', chat: c }); } catch (e: any) { Alert.alert('Photo nahi gayi', e.message || 'Error'); }
+    try { await sendImageToChat(c.id, uri); setView({ k: 'chat', chat: c }); } catch (e: any) { Alert.alert('Photo not sent', e.message || 'Error'); }
   };
   const menuGo = (fn: () => void) => { setMenu(false); setTimeout(fn, 350); }; // Android drops a Modal shown while another fades out
 

@@ -1,6 +1,6 @@
 // Round 4 Tasks tab, Google Keep style. Chips: Me | Team (admin) | Done. "Take a task..." composer for everyone; Keep checklist
 // cards ("<Name> tasks", one per person) in a masonry. Tick = optimistic, 4 s Undo snackbar, live via ws 'task'. The old Overview / Board / List screen is
-// kept in TasksScreenLegacy.tsx ("Round 4: disabled (simple create->done)").
+// removed (see git history before R-07).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TextInput, Pressable, RefreshControl, ActivityIndicator, BackHandler } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
@@ -73,14 +73,14 @@ export default function TasksScreen() {
     try {
       const r = await api<{ tasks: AnyTask[] }>('GET', '/tasks?scope=' + scope + '&limit=200');
       setTasks(keep(r.tasks)); setErr('');
-    } catch (e: any) { setErr(e.message || 'Load nahi hua'); }
+    } catch (e: any) { setErr(e.message || 'Could not load'); }
     setLoaded(true);
   }, [scope]);
   const loadDone = useCallback(async () => {
     try {
       const r = await api<{ tasks: AnyTask[] }>('GET', '/tasks?status=done&scope=' + scope + '&limit=200');
       setDoneAll(keep(r.tasks));
-    } catch (e: any) { setErr(e.message || 'Load nahi hua'); }
+    } catch (e: any) { setErr(e.message || 'Could not load'); }
   }, [scope]);
   const loadAll = useCallback(async () => { await Promise.all([loadMain(), chipRef.current === 'done' ? loadDone() : Promise.resolve()]); }, [loadMain, loadDone]);
 
@@ -122,11 +122,11 @@ export default function TasksScreen() {
       if (r && r.task) merge(r.task);
       if (withUndo) {
         const back = r && r.task ? r.task : applyTick(task, userId, done);
-        showSnack(done ? 'Task ' + task.id + ' done' : 'Task ' + task.id + ' wapas pending', () => { setSnack(null); setDone(back, userId, !done, false); });
+        showSnack(done ? 'Task ' + task.id + ' done' : 'Task ' + task.id + ' back to pending', () => { setSnack(null); setDone(back, userId, !done, false); });
       }
     } catch (e: any) {
       merge(task); // revert
-      toast(e.message || 'Nahi ho paya');
+      toast(e.message || 'Could not do that');
     }
   }, [merge]);
   const onTick = useCallback((l: Line) => setDone(l.task, l.userId, !l.done), [setDone]);
@@ -176,9 +176,9 @@ export default function TasksScreen() {
   if (!loaded) body = <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} />;
   else if (chip === 'mine') {
     const open = mineLines.filter((l) => !l.done);
-    body = open.length ? <Masonry items={[{ key: 'me', h: estHeight(open), node: <ChecklistCard title={me.name + ' tasks'} lines={open} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> }]} /> : empty('Koi task nahi 🎉');
+    body = open.length ? <Masonry items={[{ key: 'me', h: estHeight(open), node: <ChecklistCard title={me.name + ' tasks'} lines={open} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> }]} /> : empty('No tasks 🎉');
   } else if (chip === 'done') {
-    body = doneAll === null ? <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} /> : doneLines.length ? <Masonry items={doneCards.map((p) => ({ key: 'd' + p.id, h: estHeight(p.lines), node: <ChecklistCard done title={p.name + ' tasks'} lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> }))} /> : empty('Abhi tak koi task done nahi');
+    body = doneAll === null ? <ActivityIndicator color={t.accent} style={{ marginTop: 40 }} /> : doneLines.length ? <Masonry items={doneCards.map((p) => ({ key: 'd' + p.id, h: estHeight(p.lines), node: <ChecklistCard done title={p.name + ' tasks'} lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> }))} /> : empty('No tasks done yet');
   } else if (person !== null) {
     const p = teamCards.people.find((x) => x.id === person);
     body = (
@@ -187,7 +187,7 @@ export default function TasksScreen() {
           <Ionicons name="arrow-back" size={20} color={t.text} />
           <Text style={{ color: t.text, fontWeight: '700', marginLeft: 8 }}>{p ? p.name : 'Team'}</Text>
         </Pressable>
-        {p ? <Masonry items={[{ key: 'p', h: estHeight(p.lines), node: <ChecklistCard title={p.name + ' tasks'} lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> }]} /> : empty('Koi task nahi 🎉')}
+        {p ? <Masonry items={[{ key: 'p', h: estHeight(p.lines), node: <ChecklistCard title={p.name + ' tasks'} lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} /> }]} /> : empty('No tasks 🎉')}
       </View>
     );
   } else {
@@ -201,7 +201,7 @@ export default function TasksScreen() {
         node: <ChecklistCard title={p.name + ' tasks'} lines={p.lines} me={me.id} isBoss={isBoss} onTick={onTick} onOpen={onOpen} onTitle={() => setPerson(p.id)} />,
       });
     }
-    body = items.length ? <Masonry items={items} /> : empty('Koi task nahi 🎉');
+    body = items.length ? <Masonry items={items} /> : empty('No tasks 🎉');
   }
 
   const chipBtn = (k: Chip_, label: string) => {
@@ -228,7 +228,7 @@ export default function TasksScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, backgroundColor: t.surface, borderRadius: 24, paddingHorizontal: 14 }}>
           <Ionicons name="search" size={18} color={t.subtext} />
           <TextInput
-            value={q} onChangeText={setQ} autoFocus placeholder="Title, Task 22 ya naam" placeholderTextColor={t.subtext}
+            value={q} onChangeText={setQ} autoFocus placeholder="Title, Task 22 or name" placeholderTextColor={t.subtext}
             style={{ flex: 1, color: t.text, paddingHorizontal: 10, paddingVertical: 9, fontSize: 15 }}
           />
           {!!q && <Pressable onPress={() => setQ('')} hitSlop={8}><Ionicons name="close-circle" size={18} color={t.subtext} /></Pressable>}

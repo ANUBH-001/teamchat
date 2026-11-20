@@ -17,9 +17,6 @@ export type Task = {
   createdBy: number | null;
   createdByName: string | null;
   status: Status;
-  dueDate: string | null; // 'YYYY-MM-DD'
-  dueAt?: string | null; // 'YYYY-MM-DD HH:mm' when the due has a time, else null (Round 4)
-  hasTime?: boolean;
   chatId: number | null;
   sourceMessageId: number | null;
   createdAt: string;
@@ -28,7 +25,6 @@ export type Task = {
   closedAt?: string | null;
   closedBy?: number | null;
   private?: boolean; // Round 4: admin's own task, visible to its creator only
-  overdue: boolean;
   ageDays?: number; // days since created
   stale?: boolean; // open and older than the reminder setting (6 days)
   remindedAt?: string | null;
@@ -42,11 +38,11 @@ export const isBrief = (t: AnyTask): t is BriefTask => (t as BriefTask).brief ==
 
 export type UserCount = {
   id: number; name: string; avatarEmoji?: string | null; total: number; todo: number; planning: number; coding: number; testing: number;
-  change_merged: number; done: number; overdue: number; doneToday: number;
+  change_merged: number; done: number; doneToday: number;
 };
 export type Totals = {
   open: number; todo: number; planning: number; coding: number; testing: number; change_merged: number; done: number;
-  doneToday: number; overdue: number; closed?: number;
+  doneToday: number; closed?: number;
 };
 export type Summary = { users: UserCount[]; overall?: any; totals: Totals };
 
@@ -79,16 +75,18 @@ export const STATUS_COLOR: Record<string, string> = {
   todo: '#F5A623', done: '#25D366', closed: '#6B7280',
   planning: '#F5A623', coding: '#F5A623', testing: '#F5A623', change_merged: '#F5A623', in_progress: '#F5A623', review: '#F5A623',
 };
-export const OVERDUE_COLOR = '#E5484D';
 export const labelOf = (s: string | null | undefined) => (s ? STATUS_LABEL[s] || s : '');
 export const colorOf = (s: string | null | undefined) => (s ? STATUS_COLOR[s] || '#8E9AAF' : '#8E9AAF');
 export const isOpen = (s: string) => s !== 'done' && s !== 'closed';
+
+export const STALE_COLOR = '#E5484D'; // reminder cards (task pending for days)
 
 // Permissions mirrored from the server (server/src/tasks.js); the server always re-checks.
 type Me = { id: number; role: 'boss' | 'member' } | null | undefined;
 export const isAssignee = (t: Task, me: Me) => !!me && (t.assignees || []).some((a) => a.id === me.id);
 export const canView = (t: Task, me: Me) => !!me && (me.role === 'boss' || isAssignee(t, me) || t.createdBy === me.id);
-export const canClose = (t: Task, me: Me) => !!me && (me.role === 'boss' || t.createdBy === me.id);
+// Delete (close) / reopen: admin only (R-06). Done / undo: the assignee for their own part, or the admin (canTick below).
+export const canClose = (_t: Task, me: Me) => !!me && me.role === 'boss';
 export const myStatusOf = (t: Task, me: Me): StepStatus | null => {
   const a = me ? (t.assignees || []).find((x) => x.id === me.id) : null;
   return a ? a.status : null;

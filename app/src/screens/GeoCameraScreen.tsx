@@ -42,7 +42,7 @@ export function Stamp({ geo, when, name, onMapDone }: { geo: Geo | null; when: D
     <View style={{ flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.58)', borderRadius: 8, padding: 6 }}>
       {geo && <MapThumb geo={geo} size={86} onDone={onMapDone} />}
       <View style={{ flex: 1, marginLeft: geo ? 8 : 0, justifyContent: 'center' }}>
-        <Text numberOfLines={3} style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{geo ? (geo.address || 'Address nahi mila') : 'Location nahi mili'}</Text>
+        <Text numberOfLines={3} style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{geo ? (geo.address || 'Address not found') : 'Location not found'}</Text>
         {geo && <Text style={{ color: '#fff', fontSize: 11, marginTop: 1 }}>{geo.lat.toFixed(5) + ', ' + geo.lng.toFixed(5)}</Text>}
         <Text style={{ color: '#fff', fontSize: 11 }}>{stampTime(when)}</Text>
         <Text numberOfLines={1} style={{ color: '#fff', fontSize: 11, opacity: 0.85 }}>{name}</Text>
@@ -147,7 +147,7 @@ export default function GeoCameraScreen({ visible, chatId, onClose, onSent }: {
       onClose();
     } catch (e: any) {
       setSending(false);
-      Alert.alert('Photo nahi gayi', e?.message || 'Dobara try karo');
+      Alert.alert('Photo not sent', e?.message || 'Try again');
     }
   };
 
@@ -160,7 +160,7 @@ export default function GeoCameraScreen({ visible, chatId, onClose, onSent }: {
         {phase === 'cam' && (
           !perm ? <View style={{ flex: 1 }} /> : !perm.granted ? (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-              <Text style={{ color: '#fff', fontSize: 16, textAlign: 'center', marginBottom: 16 }}>Camera ki permission chahiye</Text>
+              <Text style={{ color: '#fff', fontSize: 16, textAlign: 'center', marginBottom: 16 }}>Camera permission is needed</Text>
               <Pressable onPress={askPerm} style={{ backgroundColor: t.accent, borderRadius: 22, paddingHorizontal: 22, height: 44, justifyContent: 'center' }}>
                 <Text style={{ color: t.onAccent, fontWeight: '700' }}>Allow camera</Text>
               </Pressable>
@@ -185,12 +185,12 @@ export default function GeoCameraScreen({ visible, chatId, onClose, onSent }: {
                 {loc === 'loading' ? (
                   <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.58)', borderRadius: 8, padding: 10 }}>
                     <ActivityIndicator color="#fff" />
-                    <Text style={{ color: '#fff', marginLeft: 10, fontSize: 13 }}>Location dhoond rahe hain…</Text>
+                    <Text style={{ color: '#fff', marginLeft: 10, fontSize: 13 }}>Finding your location…</Text>
                   </View>
                 ) : (
                   <Stamp geo={geo} when={now} name={user?.name || ''} />
                 )}
-                {loc === 'denied' && <Text style={{ color: '#fff', fontSize: 12, marginTop: 4 }}>Location permission nahi di: photo bina map ke jayegi</Text>}
+                {loc === 'denied' && <Text style={{ color: '#fff', fontSize: 12, marginTop: 4 }}>Location permission denied: the photo will be sent without a map</Text>}
               </View>
               <View style={{ position: 'absolute', left: 0, right: 0, bottom: insets.bottom + 14, alignItems: 'center' }}>
                 <Pressable
@@ -213,7 +213,7 @@ export default function GeoCameraScreen({ visible, chatId, onClose, onSent }: {
             </View>
             <View style={{ position: 'absolute', bottom: insets.bottom + 30, flexDirection: 'row', alignItems: 'center' }}>
               <ActivityIndicator color="#fff" />
-              <Text style={{ color: '#fff', marginLeft: 10 }}>Stamp laga rahe hain…</Text>
+              <Text style={{ color: '#fff', marginLeft: 10 }}>Adding the stamp…</Text>
             </View>
           </View>
         )}

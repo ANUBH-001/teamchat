@@ -7,8 +7,8 @@ import Tick from '../components/Tick';
 test('failed shows a warning + retry hint, never ticks', () => {
   const r = render(<Tick status="failed" color="#fff" onBubble />);
   expect(r.queryByText('✓✓')).toBeNull();
-  expect(r.getByText(/Nahi gaya/)).toBeTruthy();
-  expect(r.getByText(/retry/i)).toBeTruthy();
+  expect(r.getByText(/Not sent/)).toBeTruthy();
+  expect(r.getByText(/tap to retry/i)).toBeTruthy();
 });
 
 test('pending / sent / delivered glyphs unchanged', () => {

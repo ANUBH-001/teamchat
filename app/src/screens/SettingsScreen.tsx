@@ -81,7 +81,7 @@ export default function SettingsScreen({ onBack, onOpenAdmin }: { onBack: () => 
         <Section title="Account" />
         <Row
           icon="log-out-outline" label="Logout" sub={user.name} danger
-          onPress={() => Alert.alert('Logout', 'Is phone se logout karein?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Logout', style: 'destructive', onPress: () => { logout(); } }])}
+          onPress={() => Alert.alert('Logout', 'Log out of this phone?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Logout', style: 'destructive', onPress: () => { logout(); } }])}
         />
 
         <Section title="Chats" />
@@ -100,11 +100,11 @@ export default function SettingsScreen({ onBack, onOpenAdmin }: { onBack: () => 
           })}
         </View>
         <Row
-          icon="text-outline" label="Auto-show voice transcripts" sub="Voice note ke neeche transcript khud khule"
+          icon="text-outline" label="Auto-show voice transcripts" sub="Open the transcript under a voice note automatically"
           right={<Toggle value={prefs.autoTranscripts} onChange={(v) => setPref('autoTranscripts', v)} />}
         />
         <Row
-          icon="download-outline" label="Save photos to gallery" sub="Camera se li photo gallery me save ho"
+          icon="download-outline" label="Save photos to gallery" sub="Save photos taken with the camera to the gallery"
           right={<Toggle value={prefs.saveToGallery} onChange={(v) => setPref('saveToGallery', v)} />}
         />
 

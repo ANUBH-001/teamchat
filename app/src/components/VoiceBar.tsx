@@ -21,7 +21,7 @@ export default function VoiceBar({ t, levels, transcript, lang, onToggleLang, on
         <Waveform levels={levels} color={t.text} dim={t.subtext} />
         <Pressable onPress={onToggleLang} hitSlop={6} accessibilityLabel="Voice language"
           style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, borderWidth: 1, borderColor: t.border, marginHorizontal: 4 }}>
-          <Text style={{ color: t.text, fontSize: 12 }}>{lang === 'hi-IN' ? 'हिं' : 'EN'}</Text>
+          <Text style={{ color: t.text, fontSize: 12 }}>{lang === 'hi-IN' ? 'HI' : 'EN'}</Text>
         </Pressable>
         <Pressable onPress={onStop} hitSlop={6} accessibilityLabel="Stop and edit" style={btn}>
           <Ionicons name="stop" size={20} color={t.text} />

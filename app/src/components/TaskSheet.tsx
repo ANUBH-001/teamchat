@@ -10,16 +10,14 @@ import { useUsers } from '../userStore';
 import { setPendingChat } from '../push';
 import { emitEvent } from '../realtime';
 import { toast } from '../useVoiceInput';
-import { dateTimeOf, dueLine } from '../taskFormat';
-import { isoDay } from '../dates';
+import { dateTimeOf } from '../taskFormat';
 import Avatar from './Avatar';
 import Sheet from './Sheet';
-import { DayList, TimePick } from './TaskComposer';
 
-type Mode = 'main' | 'title' | 'due' | 'reassign' | 'from';
+type Mode = 'main' | 'title' | 'reassign' | 'from';
 
-// Round 4 task detail (bottom sheet): Task N, title, people with their own tick, due, created / done info,
-// "Chat mein dekho"; the admin can reassign, edit title / due and close. All through REST (server re-checks).
+// Round 4 task detail (bottom sheet): Task N, title, people with their own tick, created / done info,
+// "View in chat"; the admin can reassign, edit the title and close. All through REST (server re-checks).
 export default function TaskSheet({ task: given, onClose, onTick, onChanged }: {
   task: Task | null; onClose: () => void; onTick: (task: Task, userId: number, done: boolean) => void; onChanged: (task: Task) => void;
 }) {
@@ -33,8 +31,6 @@ export default function TaskSheet({ task: given, onClose, onTick, onChanged }: {
   const [text, setText] = useState('');
   const [from, setFrom] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [dDate, setDDate] = useState<string | null>(null);
-  const [dTime, setDTime] = useState<string | null>(null);
   useEffect(() => { setMode('main'); setFrom(null); }, [given && given.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const task = given;
   if (!task) return null;
@@ -48,7 +44,7 @@ export default function TaskSheet({ task: given, onClose, onTick, onChanged }: {
       if (r && r.task) onChanged(r.task);
       if (ok) toast(ok);
       setMode('main'); setFrom(null);
-    } catch (e: any) { toast(e.message || 'Nahi ho paya'); }
+    } catch (e: any) { toast(e.message || 'Could not do that'); }
     setBusy(false);
   };
   const patch = (body: object, ok?: string) => run('PATCH', '/tasks/' + task.id, body, ok);
@@ -65,7 +61,6 @@ export default function TaskSheet({ task: given, onClose, onTick, onChanged }: {
     try { nav.navigate('Chats' as never); } catch (e) {}
     setTimeout(() => emitEvent({ type: '_open_chat', chatId, messageId }), 350);
   };
-  const due = dueLine(task, simpleStatus(task.status) === 'done');
   const label = { color: t.subtext, fontSize: 11, fontWeight: '700', marginTop: 14, marginBottom: 6 } as const;
   const info = (txt: string) => <Text style={{ color: t.subtext, fontSize: 13, marginTop: 4 }}>{txt}</Text>;
   const btn = (txt: string, onPress: () => void, primary?: boolean, danger?: boolean) => (
@@ -86,23 +81,11 @@ export default function TaskSheet({ task: given, onClose, onTick, onChanged }: {
         </View>
       </View>
     );
-  } else if (mode === 'due') {
-    body = (
-      <View>
-        <DayList value={dDate} allowNone onPick={(d) => { setDDate(d); if (!d) setDTime(null); }} />
-        <Text style={label}>TIME (optional)</Text>
-        <TimePick value={dTime} onChange={(v) => { setDTime(v); if (v && !dDate) setDDate(isoDay(0)); }} />
-        <View style={{ flexDirection: 'row', marginTop: 10 }}>
-          {btn('Back', () => setMode('main'))}
-          {btn(busy ? '...' : 'Save', () => patch({ dueDate: dDate ? (dTime ? dDate + ' ' + dTime : dDate) : null }, 'Saved'), true)}
-        </View>
-      </View>
-    );
   } else if (mode === 'from') {
     // Round 4: multi-person task: first pick whose part moves (the others stay), then the new person
     body = (
       <View>
-        <Text style={{ color: t.subtext, fontSize: 13, marginBottom: 6 }}>Kiski jagah?</Text>
+        <Text style={{ color: t.subtext, fontSize: 13, marginBottom: 6 }}>Whose place?</Text>
         {people.map((p) => (
           <Pressable key={p.id} onPress={() => { setFrom(p.id); setMode('reassign'); }} android_ripple={{ color: t.border }} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 50 }}>
             <Avatar name={p.name} id={p.id} userId={p.id} size={32} />
@@ -115,11 +98,11 @@ export default function TaskSheet({ task: given, onClose, onTick, onChanged }: {
   } else if (mode === 'reassign') {
     body = (
       <View>
-        <Text style={{ color: t.subtext, fontSize: 13, marginBottom: 6 }}>Kisko dena hai?</Text>
+        <Text style={{ color: t.subtext, fontSize: 13, marginBottom: 6 }}>Who should get it?</Text>
         {users.map((u) => (
           <Pressable key={u.id} onPress={() => reassignTo(u.id)} android_ripple={{ color: t.border }} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 50 }}>
             <Avatar name={u.name} id={u.id} userId={u.id} size={32} />
-            <Text style={{ flex: 1, color: t.text, fontSize: 15, marginLeft: 12 }}>{u.id === me.id ? 'Me (khud)' : u.name}</Text>
+            <Text style={{ flex: 1, color: t.text, fontSize: 15, marginLeft: 12 }}>{u.id === me.id ? 'Me' : u.name}</Text>
           </Pressable>
         ))}
         <View style={{ flexDirection: 'row', marginTop: 6 }}>{btn('Back', () => { setMode('main'); setFrom(null); })}</View>
@@ -152,29 +135,26 @@ export default function TaskSheet({ task: given, onClose, onTick, onChanged }: {
             </View>
           );
         })}
-        <Text style={label}>DUE</Text>
-        <Text style={{ color: due.late ? t.danger : t.text, fontSize: 15 }}>{task.dueDate ? due.text : 'No date'}</Text>
         {info('Created by ' + (task.createdByName || 'someone') + ' · ' + dateTimeOf(task.createdAt))}
         {simpleStatus(task.status) === 'done' && !!task.completedAt && info('Done ' + dateTimeOf(task.completedAt))}
         {task.status === 'closed' && info('Closed')}
         {!!task.chatId && !!task.sourceMessageId && (
           <Pressable onPress={openChat} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, marginTop: 10 }}>
             <Ionicons name="chatbubble-ellipses-outline" size={20} color={t.accent} />
-            <Text style={{ color: t.accent, fontWeight: '700', fontSize: 15, marginLeft: 10 }}>Chat mein dekho</Text>
+            <Text style={{ color: t.accent, fontWeight: '700', fontSize: 15, marginLeft: 10 }}>View in chat</Text>
           </Pressable>
         )}
         {isBoss && task.status !== 'closed' && (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 14 }}>
             {people.length > 1 && simpleStatus(task.status) !== 'done' && (
-              <Pressable onPress={() => patch({ status: 'done' }, 'Sab ke liye done')} style={{ minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 20, backgroundColor: t.accent, marginRight: 8, marginBottom: 8 }}>
+              <Pressable onPress={() => patch({ status: 'done' }, 'Done for everyone')} style={{ minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 20, backgroundColor: t.accent, marginRight: 8, marginBottom: 8 }}>
                 <Text style={{ color: t.onAccent, fontWeight: '700' }}>Done for all</Text>
               </Pressable>
             )}
             {[
               ['Reassign', () => { if (people.length > 1) { setFrom(null); setMode('from'); } else { setFrom(people.length === 1 ? people[0].id : null); setMode('reassign'); } }],
               ['Edit title', () => { setText(task.title); setMode('title'); }],
-              ['Edit due', () => { setDDate(task.dueDate); setDTime(task.dueAt ? task.dueAt.slice(11, 16) : null); setMode('due'); }],
-              ['Close task', () => Alert.alert('Close task', 'Task ' + task.id + ' band karein?', [
+              ['Close task', () => Alert.alert('Close task', 'Close Task ' + task.id + '?', [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Close', style: 'destructive', onPress: () => run('POST', '/tasks/' + task.id + '/close', {}, 'Closed') },
               ])],

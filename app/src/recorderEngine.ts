@@ -46,12 +46,12 @@ export const WARN_MS = 30 * 1000; // countdown hint in the last 30 s
 export const START_TIMEOUT_MS = 3000;
 export const TICK_MS = 100;
 export const MSG = {
-  denied: 'Mic ki permission nahi hai. Settings > Apps > TeamChat > Permissions mein Microphone allow karo',
-  granted: 'Mic ready. Ab mic dabake rakho aur bolo',
-  busy: 'Mic busy hai (call ya koi aur app). Thodi der baad try karo',
-  watchdog: 'Mic start nahi hua, dobara try karo',
-  failed: 'Recording nahi hui, dobara try karo',
-  background: 'App band hui, recording hata di',
+  denied: 'No microphone permission. Allow Microphone in Settings > Apps > TeamChat > Permissions',
+  granted: 'Mic ready. Now hold the mic and speak',
+  busy: 'The mic is busy (a call or another app). Try again in a moment',
+  watchdog: 'The mic did not start. Try again',
+  failed: 'Recording failed. Try again',
+  background: 'The app was closed, so the recording was discarded',
 };
 
 const HQ = Audio.RecordingOptionsPresets.HIGH_QUALITY;

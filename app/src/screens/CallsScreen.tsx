@@ -18,7 +18,7 @@ export default function CallsScreen() {
           <Ionicons name="call" size={44} color={t.onAccent} />
         </View>
         <Text style={{ color: t.text, fontSize: 20, fontWeight: '700', marginTop: 20 }}>Calls coming soon</Text>
-        <Text style={{ color: t.subtext, fontSize: 14, marginTop: 6, textAlign: 'center' }}>Voice aur video calls jaldi aa rahe hain.</Text>
+        <Text style={{ color: t.subtext, fontSize: 14, marginTop: 6, textAlign: 'center' }}>Voice and video calls are coming soon.</Text>
       </View>
     </View>
   );

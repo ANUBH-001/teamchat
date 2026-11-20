@@ -26,7 +26,7 @@ export default function PeoplePickSheet({ visible, onClose, title, meId, initial
     <Sheet visible={visible} onClose={onClose} title={title}>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 6, backgroundColor: t.soft, borderRadius: 22, paddingHorizontal: 14, minHeight: 44 }}>
         <Ionicons name="search" size={18} color={t.subtext} />
-        <TextInput value={q} onChangeText={setQ} placeholder="Naam" placeholderTextColor={t.subtext}
+        <TextInput value={q} onChangeText={setQ} placeholder="Name" placeholderTextColor={t.subtext}
           style={{ flex: 1, color: t.text, fontSize: 15, marginLeft: 8, paddingVertical: 8 }} />
       </View>
       {list.map((u) => {

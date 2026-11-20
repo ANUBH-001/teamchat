@@ -40,7 +40,7 @@ export default function PhotoPreviewPanel({ uris, onSend, onCancel, sending, can
       )}
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', padding: 8, paddingBottom: 8 + insets.bottom }}>
         <TextInput
-          value={caps[i] || ''} onChangeText={setCap} placeholder="Caption likho..." placeholderTextColor={t.subtext} multiline
+          value={caps[i] || ''} onChangeText={setCap} placeholder="Write a caption..." placeholderTextColor={t.subtext} multiline
           style={{ flex: 1, maxHeight: 100, backgroundColor: t.card, color: t.text, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, fontSize: 16 }}
         />
         <Pressable

@@ -26,7 +26,7 @@ type Props = {
   onGeo: () => void;
   onVoice: (r: VoiceResult) => void;
   onNotice: (msg: string) => void; // toast: too short / permission
-  voiceHint?: string | null; // "Bolo: kis ko, kya task" while the text is a /task /re /done command
+  voiceHint?: string | null; // "Say: who, and what task" while the text is a /task /re /done command
   bottom: number; // safe-area inset
 };
 
@@ -36,7 +36,7 @@ export default function Composer({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const r = useVoiceRecorder({
     onDone: onVoice,
-    onShort: () => onNotice('Mic dabake rakho aur bolo (kam se kam 1 second)'),
+    onShort: () => onNotice('Hold for at least 1 second'),
     onError: onNotice,
     onNotice,
   });

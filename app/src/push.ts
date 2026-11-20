@@ -89,7 +89,7 @@ export async function setupNotifications() {
     await Notifications.setNotificationCategoryAsync(REPLY_CATEGORY, [{
       identifier: REPLY_ACTION,
       buttonTitle: 'Reply',
-      textInput: { submitButtonTitle: 'Bhejo', placeholder: 'Jawab likho...' },
+      textInput: { submitButtonTitle: 'Send', placeholder: 'Write a reply...' },
       options: { opensAppToForeground: false },
     }]).catch(() => {});
     const { status } = await Notifications.getPermissionsAsync();
@@ -145,14 +145,14 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
       if (e.type === 'signoff' && role === 'boss') {
         if (AppState.currentState === 'active') return;
         const c = e.counts || {};
-        notify(String(e.userName || 'Member') + (e.updated ? ' ne sign-off update kiya' : ' ne sign-off kiya'),
-          'Done ' + (c.done ?? 0) + ' · Baaki ' + (c.left ?? 0), null, 'tasks');
+        notify(String(e.userName || 'Member') + (e.updated ? ' updated their sign-off' : ' signed off'),
+          'Done ' + (c.done ?? 0) + ' · Left ' + (c.left ?? 0), null, 'tasks');
         return;
       }
       if (e.type === 'task_stale' && e.task) {
         if (AppState.currentState === 'active') return;
         if (role === 'boss' && e.task.assigneeId !== myId) {
-          notify(e.days + '+ din pending: ' + (e.task.assigneeName || ''), preview(String(e.task.title || '')), e.task.chatId, 'tasks');
+          notify(e.days + '+ days pending: ' + (e.task.assigneeName || ''), preview(String(e.task.title || '')), e.task.chatId, 'tasks');
         }
         return; // the assignee hears it from the reminder card in their check-in chat
       }
@@ -165,20 +165,20 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
         // an assignee answered my /ask: the server sends 'answered' to the asker
         if (ev === 'answered') {
           if (AppState.currentState === 'active') {
-            if (task.chatId && task.chatId !== activeChatId) showBanner({ chatId: task.chatId, title: actor + ' ne jawab diya', body: title });
-          } else notify(actor + ' ne jawab diya', title, task.chatId, 'messages');
+            if (task.chatId && task.chatId !== activeChatId) showBanner({ chatId: task.chatId, title: actor + ' replied', body: title });
+          } else notify(actor + ' replied', title, task.chatId, 'messages');
           return;
         }
         if (AppState.currentState === 'active') return;
         const assignee = task.assigneeId === myId || (Array.isArray(task.assignees) && task.assignees.some((a: any) => a && a.id === myId));
         if (assignee && (ev === 'created' || ev === 'reassigned')) {
-          notify(ev === 'created' ? 'New task' : 'Task aapko diya gaya', title, task.chatId, 'messages');
+          notify(ev === 'created' ? 'New task' : 'Task assigned to you', title, task.chatId, 'messages');
         } else if (assignee && (ev === 'completed' || ev === 'done')) {
-          notify(actor + ' ne task Done kiya', title, task.chatId, 'messages'); // someone else (e.g. admin) ticked my task
+          notify(actor + ' marked your task Done', title, task.chatId, 'messages'); // someone else (e.g. admin) ticked my task
         } else if (assignee && ev === 'praise') {
           notify('👏 ' + actor + ' praised your work', title, task.chatId, 'messages');
         } else if (role === 'boss' && e.notifyAdmin && ['completed', 'done', 'testing', 'review', 'change_merged'].includes(ev)) {
-          const what = ev === 'completed' ? ' completed a task' : ev === 'done' ? ' ne apna part Done kiya'
+          const what = ev === 'completed' ? ' completed a task' : ev === 'done' ? ' marked their part Done'
             : ev === 'change_merged' ? ': Change merged' : ' moved a task to Testing';
           notify(actor + what, title, task.chatId, getPublicSettings().quietTaskNotifs ? 'tasks' : 'messages');
         }
@@ -190,7 +190,7 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
       // bot cards that ask ME something: "/ask" status question, 6-day pending reminder
       const kind = m.type === 'bot' && m.payload ? m.payload.kind : null;
       if (mentioned && (kind === 'ask' || kind === 'reminder') && !m.deleted) {
-        const head = kind === 'ask' ? String(m.payload.actorName || 'Someone') + ' ne status poocha' : 'Task pending hai';
+        const head = kind === 'ask' ? String(m.payload.actorName || 'Someone') + ' asked for a status update' : 'Task is pending';
         const body = preview(String(m.payload.task?.title || m.text || ''));
         if (AppState.currentState === 'active') {
           if (m.chatId !== activeChatId) { Vibration.vibrate(150); showBanner({ chatId: m.chatId, title: head, body, messageId: m.id }); }
@@ -263,7 +263,7 @@ export function applyCheckinSchedule(s: CheckinSettings, chatId: number | null) 
             identifier: 'checkin-' + k + '-' + d,
             content: {
               title: 'Daily Check-in',
-              body: k === 'morning' ? 'Good morning! Aaj ke tasks dekho.' : 'Aaj ka sign-off karo: kya done, kya baaki.',
+              body: k === 'morning' ? "Good morning! Check today's tasks." : 'Time for your sign-off: what is done, what is left.',
               data: chatId ? { chatId } : {},
             },
             trigger: {

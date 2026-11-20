@@ -54,7 +54,7 @@ const MemberRow = React.memo(function MemberRow({ m, t, onPress }: { m: Member; 
         <Pill label="Sign-off" status={m.signoff ? m.signoff.status : 'missing'} />
         {!!m.signoff?.signoff && (
           <Text style={{ color: t.subtext, fontSize: 12, marginLeft: 8 }}>
-            Done {m.signoff.signoff.counts.done} · Baaki {m.signoff.signoff.counts.left} · Aaj diye {m.signoff.signoff.counts.given}
+            Done {m.signoff.signoff.counts.done} · Left {m.signoff.signoff.counts.left} · Given today {m.signoff.signoff.counts.given}
           </Text>
         )}
         {(m.morning.status === 'submitted' || m.evening.status === 'submitted') && (
@@ -179,7 +179,7 @@ const SignoffEntry = ({ so, t }: { so: Signoff | undefined; t: Theme }) => {
   return (
     <View style={{ marginTop: 8 }}>
       <Text style={{ color: t.accent, fontWeight: '700', fontSize: 13 }}>
-        Sign-off · Done {so.counts.done} · Baaki {so.counts.left} · Aaj diye {so.counts.given}
+        Sign-off · Done {so.counts.done} · Left {so.counts.left} · Given today {so.counts.given}
       </Text>
       {so.tasks.map((x) => <Text key={x.id} style={{ color: t.text, fontSize: 14 }}>{'• ' + x.title + ' (' + labelOf(x.status) + ')'}</Text>)}
       {!!so.note && <Text style={{ color: t.text, fontSize: 14, fontStyle: 'italic', marginTop: 4 }}>{so.note}</Text>}
