@@ -291,6 +291,7 @@ export function CheckinSettingsScreen({ onBack }: { onBack: () => void }) {
   const [morning, setMorning] = useState('');
   const [evening, setEvening] = useState('');
   const [nudge, setNudge] = useState('');
+  const [summary, setSummary] = useState('');
   const [days, setDays] = useState<number[]>([]);
   const [enabled, setEnabled] = useState(true);
   const [msg, setMsg] = useState('');
@@ -298,7 +299,7 @@ export function CheckinSettingsScreen({ onBack }: { onBack: () => void }) {
   const [busy, setBusy] = useState(false);
 
   const apply = (x: CheckinSettings) => {
-    setS(x); setMorning(x.morningTime); setEvening(x.eveningTime); setNudge(String(x.nudgeMinutes));
+    setS(x); setMorning(x.morningTime); setEvening(x.eveningTime); setNudge(String(x.nudgeMinutes)); setSummary(x.summaryTime || '');
     setDays(x.days); setEnabled(x.enabled);
   };
   const load = useCallback(async () => {
@@ -316,13 +317,15 @@ export function CheckinSettingsScreen({ onBack }: { onBack: () => void }) {
     if (!TIME_RE.test(morning.trim())) return fail('Morning time must be HH:MM (24 hour), e.g. 10:00');
     if (!TIME_RE.test(evening.trim())) return fail('Evening time must be HH:MM (24 hour), e.g. 18:00');
     if (toMin(morning.trim()) >= toMin(evening.trim())) return fail('Morning time must be before evening time');
+    const sum = summary.trim();
+    if (sum && (!TIME_RE.test(sum) || toMin(sum) <= toMin(evening.trim()))) return fail('Admin summary time must be HH:MM, after the evening time');
     const n = Number(nudge.trim());
     if (nudge.trim() === '' || !Number.isInteger(n) || n < 0 || n > 720) return fail('Nudge minutes: whole number 0-720 (0 = no nudge)');
     setBusy(true);
     setMsg('');
     try {
       const r = await api<{ settings: CheckinSettings }>('PUT', '/admin/checkins/settings', {
-        enabled, morningTime: morning.trim(), eveningTime: evening.trim(), days, nudgeMinutes: n,
+        enabled, morningTime: morning.trim(), eveningTime: evening.trim(), days, nudgeMinutes: n, ...(sum ? { summaryTime: sum } : {}),
       });
       apply(r.settings);
       setMsg('Saved'); setIsErr(false);
@@ -348,6 +351,8 @@ export function CheckinSettingsScreen({ onBack }: { onBack: () => void }) {
           <TextInput style={input} value={morning} onChangeText={setMorning} placeholder="10:00" placeholderTextColor={t.subtext} maxLength={5} />
           <Text style={label}>Evening sign-off (HH:MM)</Text>
           <TextInput style={input} value={evening} onChangeText={setEvening} placeholder="18:00" placeholderTextColor={t.subtext} maxLength={5} />
+          <Text style={label}>Admin summary (HH:MM, after the evening time)</Text>
+          <TextInput style={input} value={summary} onChangeText={setSummary} placeholder="20:30" placeholderTextColor={t.subtext} maxLength={5} />
           <Text style={label}>Days</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10 }}>
             {DAYS.map((x) => {

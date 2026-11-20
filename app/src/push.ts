@@ -186,6 +186,14 @@ export function listenMessageAlerts(myId: number, role: string = 'member') {
       }
       if (e.type !== 'message' || !e.message) return;
       const m = e.message;
+      // admins: the daily check-in summary card arrived (quiet channel; only a new card, not its live edits)
+      if (role === 'boss' && m.type === 'checkin_prompt' && m.payload && m.payload.kind === 'summary' && !m.deleted) {
+        if (AppState.currentState === 'active') return;
+        const tot = m.payload.totals || {};
+        notify('Daily check-in summary', (tot.replied ?? 0) + ' of ' + (tot.members ?? 0) + ' replied · ' + (tot.done ?? 0) + ' done today',
+          m.chatId, 'tasks');
+        return;
+      }
       const mentioned = Array.isArray(m.mentions) && m.mentions.includes(myId);
       // bot cards that ask ME something: "/ask" status question, 6-day pending reminder
       const kind = m.type === 'bot' && m.payload ? m.payload.kind : null;
@@ -262,8 +270,8 @@ export function applyCheckinSchedule(s: CheckinSettings, chatId: number | null) 
           await Notifications.scheduleNotificationAsync({
             identifier: 'checkin-' + k + '-' + d,
             content: {
-              title: 'Daily Check-in',
-              body: k === 'morning' ? "Good morning! Check today's tasks." : 'Time for your sign-off: what is done, what is left.',
+              title: k === 'morning' ? 'Good morning — here are your tasks for today' : 'Evening check-in: how did today go?',
+              body: k === 'morning' ? 'Pick what you will work on today, or tell us what is new.' : 'Tick the tasks you finished and send a short report.',
               data: chatId ? { chatId } : {},
             },
             trigger: {
